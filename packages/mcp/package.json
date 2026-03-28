@@ -1,0 +1,22 @@
+{
+  "name": "@x-harness/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "X Harness MCP Server",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "x-harness-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^22.0.0"
+  }
+}
