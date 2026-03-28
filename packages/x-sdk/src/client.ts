@@ -20,6 +20,10 @@ export class XClient {
     await this.request('DELETE', `/tweets/${tweetId}`);
   }
 
+  async hideTweet(tweetId: string): Promise<void> {
+    await this.request('PUT', `/tweets/${tweetId}/hidden`, { hidden: true });
+  }
+
   async getLikingUsers(tweetId: string, paginationToken?: string): Promise<XApiResponse<XUser[]>> {
     const params = new URLSearchParams({ 'user.fields': 'profile_image_url,public_metrics' });
     if (paginationToken) params.set('pagination_token', paginationToken);

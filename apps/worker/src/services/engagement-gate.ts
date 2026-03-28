@@ -68,7 +68,12 @@ async function processOneGate(
         text = text.replace('{link}', personalizedLink);
       }
 
-      const tweet = await xClient.createTweet({ text: `@${user.username} ${text}` });
+      const tweet = await xClient.createTweet({
+        text: `@${user.username} ${text}`,
+        reply: { in_reply_to_tweet_id: gate.post_id },
+      });
+      // Hide the reply so it only appears in the recipient's notifications (secret reply)
+      await xClient.hideTweet(tweet.id).catch(() => {});
       await updateDeliveryStatus(db, delivery.id, 'delivered', tweet.id);
       incrementRateLimit(gate.x_account_id);
 
