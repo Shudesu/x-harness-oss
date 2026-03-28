@@ -77,6 +77,33 @@ engagementGates.get('/api/engagement-gates/:id/deliveries', async (c) => {
   return c.json({ success: true, data: deliveries.map(serializeDelivery) });
 });
 
+// Debug: manually trigger engagement gate processing
+engagementGates.post('/api/engagement-gates/process', async (c) => {
+  const { XClient } = await import('@x-harness/x-sdk');
+  const { getXAccounts } = await import('@x-harness/db');
+  const { processEngagementGates } = await import('../services/engagement-gate.js');
+  const accounts = await getXAccounts(c.env.DB);
+  const results: any[] = [];
+  for (const account of accounts) {
+    try {
+      const xClient = account.consumer_key && account.consumer_secret && account.access_token_secret
+        ? new XClient({
+            type: 'oauth1',
+            consumerKey: account.consumer_key,
+            consumerSecret: account.consumer_secret,
+            accessToken: account.access_token,
+            accessTokenSecret: account.access_token_secret,
+          })
+        : new XClient(account.access_token);
+      await processEngagementGates(c.env.DB, xClient, account.id);
+      results.push({ account: account.username, status: 'ok' });
+    } catch (err: any) {
+      results.push({ account: account.username, status: 'error', error: err.message });
+    }
+  }
+  return c.json({ success: true, results });
+});
+
 // Public endpoint — no auth required (token is the secret)
 engagementGates.get('/api/tokens/:token/resolve', async (c) => {
   const result = await resolveToken(c.env.DB, c.req.param('token'));
