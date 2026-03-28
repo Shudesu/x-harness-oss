@@ -13,6 +13,10 @@ export interface DbEngagementGate {
   line_harness_api_key: string | null;
   line_harness_tag: string | null;
   line_harness_scenario_id: string | null;
+  lottery_enabled: number;
+  lottery_rate: number;
+  lottery_win_template: string | null;
+  lottery_lose_template: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -40,6 +44,10 @@ export interface CreateGateInput {
   lineHarnessApiKey?: string;
   lineHarnessTag?: string;
   lineHarnessScenarioId?: string;
+  lotteryEnabled?: boolean;
+  lotteryRate?: number;
+  lotteryWinTemplate?: string;
+  lotteryLoseTemplate?: string;
 }
 
 export async function createEngagementGate(db: D1Database, input: CreateGateInput): Promise<DbEngagementGate> {
@@ -47,11 +55,11 @@ export async function createEngagementGate(db: D1Database, input: CreateGateInpu
   const now = jstNow();
   const result = await db
     .prepare(`
-      INSERT INTO engagement_gates (id, x_account_id, post_id, trigger_type, action_type, template, link, line_harness_url, line_harness_api_key, line_harness_tag, line_harness_scenario_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO engagement_gates (id, x_account_id, post_id, trigger_type, action_type, template, link, line_harness_url, line_harness_api_key, line_harness_tag, line_harness_scenario_id, lottery_enabled, lottery_rate, lottery_win_template, lottery_lose_template, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING *
     `)
-    .bind(id, input.xAccountId, input.postId, input.triggerType, input.actionType, input.template, input.link ?? null, input.lineHarnessUrl ?? null, input.lineHarnessApiKey ?? null, input.lineHarnessTag ?? null, input.lineHarnessScenarioId ?? null, now, now)
+    .bind(id, input.xAccountId, input.postId, input.triggerType, input.actionType, input.template, input.link ?? null, input.lineHarnessUrl ?? null, input.lineHarnessApiKey ?? null, input.lineHarnessTag ?? null, input.lineHarnessScenarioId ?? null, input.lotteryEnabled ? 1 : 0, input.lotteryRate ?? 100, input.lotteryWinTemplate ?? null, input.lotteryLoseTemplate ?? null, now, now)
     .first<DbEngagementGate>();
   return result!;
 }
@@ -77,6 +85,7 @@ export async function updateEngagementGate(db: D1Database, id: string, updates: 
       UPDATE engagement_gates SET
         post_id = ?, trigger_type = ?, action_type = ?, template = ?, link = ?,
         is_active = ?, line_harness_url = ?, line_harness_api_key = ?, line_harness_tag = ?, line_harness_scenario_id = ?,
+        lottery_enabled = ?, lottery_rate = ?, lottery_win_template = ?, lottery_lose_template = ?,
         updated_at = ?
       WHERE id = ? RETURNING *
     `)
@@ -91,6 +100,10 @@ export async function updateEngagementGate(db: D1Database, id: string, updates: 
       updates.lineHarnessApiKey ?? existing.line_harness_api_key,
       updates.lineHarnessTag ?? existing.line_harness_tag,
       updates.lineHarnessScenarioId ?? existing.line_harness_scenario_id,
+      updates.lotteryEnabled !== undefined ? (updates.lotteryEnabled ? 1 : 0) : existing.lottery_enabled,
+      updates.lotteryRate ?? existing.lottery_rate,
+      updates.lotteryWinTemplate ?? existing.lottery_win_template,
+      updates.lotteryLoseTemplate ?? existing.lottery_lose_template,
       now, id,
     )
     .first<DbEngagementGate>();
