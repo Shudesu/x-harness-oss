@@ -37,3 +37,15 @@ export interface CreateTweetParams {
   media?: { media_ids: string[] };
   reply?: { in_reply_to_tweet_id: string };
 }
+
+export type XClientConfig =
+  | { type: 'bearer'; token: string }
+  | { type: 'oauth1'; consumerKey: string; consumerSecret: string; accessToken: string; accessTokenSecret: string };
+
+export interface XTweetSearchResult {
+  id: string;
+  text: string;
+  author_id: string;
+  created_at?: string;
+  in_reply_to_user_id?: string;
+}

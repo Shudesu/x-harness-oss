@@ -1,11 +1,14 @@
-import type { XUser, XTweet, XApiResponse, CreateTweetParams } from './types.js';
+import type { XUser, XTweet, XApiResponse, CreateTweetParams, XClientConfig, XTweetSearchResult } from './types.js';
+import { buildOAuth1Header } from './oauth1.js';
+import type { OAuth1Config } from './oauth1.js';
 
 export class XClient {
-  private readonly accessToken: string;
+  private readonly config: XClientConfig;
   private readonly baseUrl = 'https://api.x.com/2';
 
-  constructor(accessToken: string) {
-    this.accessToken = accessToken;
+  constructor(config: XClientConfig | string) {
+    // Backwards compatible: string = bearer token
+    this.config = typeof config === 'string' ? { type: 'bearer', token: config } : config;
   }
 
   async createTweet(params: CreateTweetParams): Promise<{ id: string; text: string }> {
@@ -27,6 +30,17 @@ export class XClient {
     const params = new URLSearchParams({ 'user.fields': 'profile_image_url,public_metrics' });
     if (paginationToken) params.set('pagination_token', paginationToken);
     return this.get<XApiResponse<XUser[]>>(`/tweets/${tweetId}/retweeted_by?${params}`);
+  }
+
+  async searchRecentTweets(query: string): Promise<XApiResponse<XTweetSearchResult[]>> {
+    const params = new URLSearchParams({
+      query,
+      'tweet.fields': 'author_id,created_at,in_reply_to_user_id',
+      'user.fields': 'profile_image_url,public_metrics',
+      expansions: 'author_id',
+      max_results: '100',
+    });
+    return this.get<XApiResponse<XTweetSearchResult[]>>(`/tweets/search/recent?${params}`);
   }
 
   async getMe(): Promise<XUser> {
@@ -61,9 +75,14 @@ export class XClient {
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.accessToken}`,
       'Content-Type': 'application/json',
     };
+
+    if (this.config.type === 'oauth1') {
+      headers['Authorization'] = await buildOAuth1Header(method, url, this.config as OAuth1Config);
+    } else {
+      headers['Authorization'] = `Bearer ${this.config.token}`;
+    }
 
     const options: RequestInit = { method, headers };
     if (body !== undefined) {
