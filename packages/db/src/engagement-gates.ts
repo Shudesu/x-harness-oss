@@ -52,18 +52,31 @@ export interface CreateGateInput {
   lotteryRate?: number;
   lotteryWinTemplate?: string;
   lotteryLoseTemplate?: string;
+  pollingStrategy?: string;
+  expiresAfterHours?: number;
 }
 
 export async function createEngagementGate(db: D1Database, input: CreateGateInput): Promise<DbEngagementGate> {
   const id = crypto.randomUUID();
   const now = jstNow();
+  const strategy = input.pollingStrategy ?? 'hot_window';
+
+  let expiresAt: string | null = null;
+  if (input.expiresAfterHours !== undefined) {
+    expiresAt = new Date(new Date(now).getTime() + input.expiresAfterHours * 60 * 60_000).toISOString();
+  } else if (strategy === 'hot_window') {
+    expiresAt = new Date(new Date(now).getTime() + 72 * 60 * 60_000).toISOString();
+  }
+
+  const nextPollAt = strategy === 'manual' ? null : now;
+
   const result = await db
     .prepare(`
-      INSERT INTO engagement_gates (id, x_account_id, post_id, trigger_type, action_type, template, link, line_harness_url, line_harness_api_key, line_harness_tag, line_harness_scenario_id, lottery_enabled, lottery_rate, lottery_win_template, lottery_lose_template, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO engagement_gates (id, x_account_id, post_id, trigger_type, action_type, template, link, line_harness_url, line_harness_api_key, line_harness_tag, line_harness_scenario_id, lottery_enabled, lottery_rate, lottery_win_template, lottery_lose_template, polling_strategy, expires_at, next_poll_at, api_calls_total, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
       RETURNING *
     `)
-    .bind(id, input.xAccountId, input.postId, input.triggerType, input.actionType, input.template, input.link ?? null, input.lineHarnessUrl ?? null, input.lineHarnessApiKey ?? null, input.lineHarnessTag ?? null, input.lineHarnessScenarioId ?? null, input.lotteryEnabled ? 1 : 0, input.lotteryRate ?? 100, input.lotteryWinTemplate ?? null, input.lotteryLoseTemplate ?? null, now, now)
+    .bind(id, input.xAccountId, input.postId, input.triggerType, input.actionType, input.template, input.link ?? null, input.lineHarnessUrl ?? null, input.lineHarnessApiKey ?? null, input.lineHarnessTag ?? null, input.lineHarnessScenarioId ?? null, input.lotteryEnabled ? 1 : 0, input.lotteryRate ?? 100, input.lotteryWinTemplate ?? null, input.lotteryLoseTemplate ?? null, strategy, expiresAt, nextPollAt, now, now)
     .first<DbEngagementGate>();
   return result!;
 }
@@ -84,12 +97,28 @@ export async function updateEngagementGate(db: D1Database, id: string, updates: 
   const existing = await getEngagementGateById(db, id);
   if (!existing) return null;
   const now = jstNow();
+
+  let newExpiresAt = existing.expires_at;
+  if (updates.expiresAfterHours !== undefined) {
+    newExpiresAt = new Date(Date.now() + updates.expiresAfterHours * 60 * 60_000).toISOString();
+  }
+
+  const newStrategy = updates.pollingStrategy ?? existing.polling_strategy;
+
+  const isReactivating = updates.isActive === true && !existing.is_active;
+  const strategyChanged = updates.pollingStrategy !== undefined && updates.pollingStrategy !== existing.polling_strategy;
+  let newNextPollAt = existing.next_poll_at;
+  if (isReactivating || strategyChanged) {
+    newNextPollAt = newStrategy === 'manual' ? null : now;
+  }
+
   const result = await db
     .prepare(`
       UPDATE engagement_gates SET
         post_id = ?, trigger_type = ?, action_type = ?, template = ?, link = ?,
         is_active = ?, line_harness_url = ?, line_harness_api_key = ?, line_harness_tag = ?, line_harness_scenario_id = ?,
         lottery_enabled = ?, lottery_rate = ?, lottery_win_template = ?, lottery_lose_template = ?,
+        polling_strategy = ?, expires_at = ?, next_poll_at = ?,
         updated_at = ?
       WHERE id = ? RETURNING *
     `)
@@ -108,6 +137,9 @@ export async function updateEngagementGate(db: D1Database, id: string, updates: 
       updates.lotteryRate ?? existing.lottery_rate,
       updates.lotteryWinTemplate ?? existing.lottery_win_template,
       updates.lotteryLoseTemplate ?? existing.lottery_lose_template,
+      newStrategy,
+      newExpiresAt,
+      newNextPollAt,
       now, id,
     )
     .first<DbEngagementGate>();
