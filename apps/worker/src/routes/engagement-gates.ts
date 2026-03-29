@@ -95,7 +95,7 @@ engagementGates.post('/api/engagement-gates/process', async (c) => {
             accessTokenSecret: account.access_token_secret,
           })
         : new XClient(account.access_token);
-      await processEngagementGates(c.env.DB, xClient, account.id);
+      await processEngagementGates(c.env.DB, xClient, account.id, true);
       results.push({ account: account.username, status: 'ok' });
     } catch (err: any) {
       results.push({ account: account.username, status: 'error', error: err.message });

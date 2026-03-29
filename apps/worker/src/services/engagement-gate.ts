@@ -8,7 +8,11 @@ import type { DbEngagementGate } from '@x-harness/db';
 import { addJitter, varyTemplate, checkRateLimit, incrementRateLimit } from './stealth.js';
 import { shouldPollNow, isExpired, calculateNextPollAt } from './polling-scheduler.js';
 
-export async function processEngagementGates(db: D1Database, xClient: XClient, xAccountId?: string): Promise<void> {
+/**
+ * @param forceRun - When true, bypasses shouldPollNow() for manual/debug triggers.
+ *                   Allows operators to force-run gates regardless of next_poll_at.
+ */
+export async function processEngagementGates(db: D1Database, xClient: XClient, xAccountId?: string, forceRun = false): Promise<void> {
   const allGates = await getEngagementGates(db, { activeOnly: true });
   const gates = xAccountId ? allGates.filter((g) => g.x_account_id === xAccountId) : allGates;
 
@@ -21,16 +25,23 @@ export async function processEngagementGates(db: D1Database, xClient: XClient, x
         continue;
       }
 
-      // Skip if not due for polling yet
-      if (!shouldPollNow(gate)) continue;
+      // Skip if not due for polling yet (unless forced by manual trigger)
+      if (!forceRun && !shouldPollNow(gate)) continue;
+
+      // Calculate and persist next_poll_at before attempting the poll,
+      // so that transient errors do not cause the gate to retry every cron cycle.
+      const nextPollAt = calculateNextPollAt(gate);
+      await db
+        .prepare('UPDATE engagement_gates SET next_poll_at = ?, updated_at = ? WHERE id = ?')
+        .bind(nextPollAt, new Date().toISOString(), gate.id)
+        .run();
 
       await processOneGate(db, xClient, gate);
 
-      // Update next poll time and increment API call counter
-      const nextPollAt = calculateNextPollAt(gate);
+      // Increment API call counter only on successful poll
       await db
-        .prepare('UPDATE engagement_gates SET next_poll_at = ?, api_calls_total = api_calls_total + 1, updated_at = ? WHERE id = ?')
-        .bind(nextPollAt, new Date().toISOString(), gate.id)
+        .prepare('UPDATE engagement_gates SET api_calls_total = api_calls_total + 1, updated_at = ? WHERE id = ?')
+        .bind(new Date().toISOString(), gate.id)
         .run();
     } catch (err) {
       if (err instanceof XApiRateLimitError) {
