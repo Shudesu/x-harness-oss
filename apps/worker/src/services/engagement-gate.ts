@@ -28,27 +28,38 @@ export async function processEngagementGates(db: D1Database, xClient: XClient, x
       // Skip if not due for polling yet (unless forced by manual trigger)
       if (!forceRun && !shouldPollNow(gate)) continue;
 
-      // Calculate and persist next_poll_at before attempting the poll,
-      // so that transient errors do not cause the gate to retry every cron cycle.
-      const nextPollAt = calculateNextPollAt(gate);
-      await db
-        .prepare('UPDATE engagement_gates SET next_poll_at = ?, updated_at = ? WHERE id = ?')
-        .bind(nextPollAt, new Date().toISOString(), gate.id)
-        .run();
-
-      await processOneGate(db, xClient, gate);
-
-      // Increment API call counter only on successful poll
-      await db
-        .prepare('UPDATE engagement_gates SET api_calls_total = api_calls_total + 1, updated_at = ? WHERE id = ?')
-        .bind(new Date().toISOString(), gate.id)
-        .run();
+      let pollSucceeded = false;
+      try {
+        await processOneGate(db, xClient, gate);
+        pollSucceeded = true;
+      } catch (pollErr) {
+        if (pollErr instanceof XApiRateLimitError) {
+          throw pollErr; // Re-throw to stop all gate processing
+        }
+        console.error(`Error processing gate ${gate.id}:`, pollErr);
+      } finally {
+        // Always schedule the next poll after the run completes (success or error),
+        // so next_poll_at reflects elapsed time rather than start time.
+        const nextPollAt = calculateNextPollAt(gate);
+        const now = new Date().toISOString();
+        if (pollSucceeded) {
+          await db
+            .prepare('UPDATE engagement_gates SET next_poll_at = ?, api_calls_total = api_calls_total + 1, updated_at = ? WHERE id = ?')
+            .bind(nextPollAt, now, gate.id)
+            .run();
+        } else {
+          await db
+            .prepare('UPDATE engagement_gates SET next_poll_at = ?, updated_at = ? WHERE id = ?')
+            .bind(nextPollAt, now, gate.id)
+            .run();
+        }
+      }
     } catch (err) {
       if (err instanceof XApiRateLimitError) {
         console.error('Rate limited — stopping engagement gate processing');
         return;
       }
-      console.error(`Error processing gate ${gate.id}:`, err);
+      console.error(`Unexpected error for gate ${gate.id}:`, err);
     }
   }
 }
