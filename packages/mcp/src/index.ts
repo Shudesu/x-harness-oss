@@ -11,7 +11,7 @@ import { gateToolDefs } from './tools/gates.js';
 import { stepToolDefs } from './tools/steps.js';
 import { analyticsToolDefs } from './tools/analytics.js';
 
-const API_URL = process.env.X_HARNESS_API_URL ?? 'https://x-harness-worker.noda-c40.workers.dev';
+const API_URL = process.env.X_HARNESS_API_URL ?? 'http://localhost:8787';
 const API_KEY = process.env.X_HARNESS_API_KEY ?? '';
 
 const client = new XHarnessClient(API_URL, API_KEY);
@@ -102,6 +102,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'process_gates':
         result = await client.post('/api/engagement-gates/process', {});
+        break;
+      case 'verify_gate':
+        result = await client.get(`/api/engagement-gates/${a.gateId}/verify?username=${encodeURIComponent(a.username)}`);
         break;
       case 'create_step_sequence':
         result = await client.post('/api/step-sequences', a);
