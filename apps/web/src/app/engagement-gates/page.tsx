@@ -21,7 +21,7 @@ const STATUS_BADGE: Record<string, string> = {
 interface CreateFormState {
   postId: string
   triggerType: 'like' | 'repost' | 'reply'
-  actionType: 'mention_post' | 'dm'
+  actionType: 'mention_post' | 'dm' | 'verify_only'
   template: string
   link: string
   lineHarnessTag: string
@@ -30,6 +30,7 @@ interface CreateFormState {
   requireLike: boolean
   requireRepost: boolean
   requireFollow: boolean
+  replyKeyword: string
 }
 
 const defaultForm: CreateFormState = {
@@ -44,6 +45,7 @@ const defaultForm: CreateFormState = {
   requireLike: false,
   requireRepost: false,
   requireFollow: false,
+  replyKeyword: '',
 }
 
 interface GateCardProps {
@@ -120,11 +122,12 @@ function GateCard({ gate, onToggleActive, onDelete }: GateCardProps) {
               <span className="text-gray-300">|</span>
               <span>Action: <span className="font-medium text-gray-700">{gate.actionType}</span></span>
             </div>
-            {(gate.requireLike || gate.requireRepost || gate.requireFollow) && (
+            {(gate.requireLike || gate.requireRepost || gate.requireFollow || gate.replyKeyword) && (
               <div className="flex flex-wrap gap-1 mt-1">
                 {gate.requireLike && <span className="text-xs bg-pink-50 text-pink-600 px-1.5 py-0.5 rounded">+いいね</span>}
                 {gate.requireRepost && <span className="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">+RT</span>}
                 {gate.requireFollow && <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">+フォロー</span>}
+                {gate.replyKeyword && <span className="text-xs bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded">KW: {gate.replyKeyword}</span>}
               </div>
             )}
           </div>
@@ -292,6 +295,7 @@ export default function EngagementGatesPage() {
         requireLike: form.requireLike,
         requireRepost: form.requireRepost,
         requireFollow: form.requireFollow,
+        replyKeyword: form.replyKeyword.trim() || null,
         isActive: true,
       })
       if (res.success) {
@@ -389,12 +393,13 @@ export default function EngagementGatesPage() {
               <select
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 value={form.actionType}
-                onChange={(e) => setForm({ ...form, actionType: e.target.value as 'mention_post' | 'dm' })}
+                onChange={(e) => setForm({ ...form, actionType: e.target.value as 'mention_post' | 'dm' | 'verify_only' })}
               >
                 <option value="mention_post">メンションリプライ (Mention Post)</option>
                 <option value="dm">DM（Phase 2）</option>
+                <option value="verify_only">検知のみ (Verify Only)</option>
               </select>
-              <p className="text-xs text-gray-400 mt-1">現在は mention_post のみ動作します</p>
+              <p className="text-xs text-gray-400 mt-1">verify_only は検知・記録のみ（メッセージ送信なし）</p>
             </div>
 
             {/* Template */}
@@ -423,6 +428,21 @@ export default function EngagementGatesPage() {
                 onChange={(e) => setForm({ ...form, link: e.target.value })}
               />
             </div>
+
+            {/* Reply keyword filter */}
+            {form.triggerType === 'reply' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">リプライキーワード</label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="例: 参加"
+                  value={form.replyKeyword}
+                  onChange={(e) => setForm({ ...form, replyKeyword: e.target.value })}
+                />
+                <p className="text-xs text-gray-400 mt-1">このキーワードを含むリプライのみ検知します（空欄で全リプライ対象）</p>
+              </div>
+            )}
 
             {/* Condition checkboxes for reply trigger */}
             {form.triggerType === 'reply' && (

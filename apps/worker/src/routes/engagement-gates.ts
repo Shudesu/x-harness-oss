@@ -24,6 +24,7 @@ function serialize(row: any) {
     requireLike: !!row.require_like,
     requireRepost: !!row.require_repost,
     requireFollow: !!row.require_follow,
+    replyKeyword: row.reply_keyword,
     lotteryEnabled: !!row.lottery_enabled,
     pollingStrategy: row.polling_strategy ?? 'hot_window',
     expiresAt: row.expires_at,

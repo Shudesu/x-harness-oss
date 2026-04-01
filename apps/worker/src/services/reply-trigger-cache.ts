@@ -59,7 +59,8 @@ export async function fetchNewReplies(
   gate: DbEngagementGate,
   maxPages = 10,
 ): Promise<{ users: ReplyUser[]; newestId: string | null }> {
-  const query = `conversation_id:${gate.post_id} is:reply`;
+  const keyword = gate.reply_keyword ? ` "${gate.reply_keyword}"` : '';
+  const query = `conversation_id:${gate.post_id} is:reply${keyword}`;
   const sinceId = gate.last_reply_since_id ?? undefined;
 
   const seen = new Set<string>();

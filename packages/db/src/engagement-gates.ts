@@ -25,6 +25,7 @@ export interface DbEngagementGate {
   require_repost: number;
   require_follow: number;
   last_reply_since_id: string | null;
+  reply_keyword: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -61,6 +62,7 @@ export interface CreateGateInput {
   requireLike?: boolean;
   requireRepost?: boolean;
   requireFollow?: boolean;
+  replyKeyword?: string;
 }
 
 export async function createEngagementGate(db: D1Database, input: CreateGateInput): Promise<DbEngagementGate> {
@@ -79,11 +81,11 @@ export async function createEngagementGate(db: D1Database, input: CreateGateInpu
 
   const result = await db
     .prepare(`
-      INSERT INTO engagement_gates (id, x_account_id, post_id, trigger_type, action_type, template, link, line_harness_url, line_harness_api_key, line_harness_tag, line_harness_scenario_id, lottery_enabled, lottery_rate, lottery_win_template, lottery_lose_template, polling_strategy, expires_at, next_poll_at, api_calls_total, require_like, require_repost, require_follow, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+      INSERT INTO engagement_gates (id, x_account_id, post_id, trigger_type, action_type, template, link, line_harness_url, line_harness_api_key, line_harness_tag, line_harness_scenario_id, lottery_enabled, lottery_rate, lottery_win_template, lottery_lose_template, polling_strategy, expires_at, next_poll_at, api_calls_total, require_like, require_repost, require_follow, reply_keyword, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
       RETURNING *
     `)
-    .bind(id, input.xAccountId, input.postId, input.triggerType, input.actionType, input.template, input.link ?? null, input.lineHarnessUrl ?? null, input.lineHarnessApiKey ?? null, input.lineHarnessTag ?? null, input.lineHarnessScenarioId ?? null, input.lotteryEnabled ? 1 : 0, input.lotteryRate ?? 100, input.lotteryWinTemplate ?? null, input.lotteryLoseTemplate ?? null, strategy, expiresAt, nextPollAt, input.requireLike ? 1 : 0, input.requireRepost ? 1 : 0, input.requireFollow ? 1 : 0, now, now)
+    .bind(id, input.xAccountId, input.postId, input.triggerType, input.actionType, input.template, input.link ?? null, input.lineHarnessUrl ?? null, input.lineHarnessApiKey ?? null, input.lineHarnessTag ?? null, input.lineHarnessScenarioId ?? null, input.lotteryEnabled ? 1 : 0, input.lotteryRate ?? 100, input.lotteryWinTemplate ?? null, input.lotteryLoseTemplate ?? null, strategy, expiresAt, nextPollAt, input.requireLike ? 1 : 0, input.requireRepost ? 1 : 0, input.requireFollow ? 1 : 0, input.replyKeyword ?? null, now, now)
     .first<DbEngagementGate>();
   return result!;
 }
@@ -146,7 +148,7 @@ export async function updateEngagementGate(db: D1Database, id: string, updates: 
         is_active = ?, line_harness_url = ?, line_harness_api_key = ?, line_harness_tag = ?, line_harness_scenario_id = ?,
         lottery_enabled = ?, lottery_rate = ?, lottery_win_template = ?, lottery_lose_template = ?,
         polling_strategy = ?, expires_at = ?, next_poll_at = ?,
-        require_like = ?, require_repost = ?, require_follow = ?,
+        require_like = ?, require_repost = ?, require_follow = ?, reply_keyword = ?,
         updated_at = ?
       WHERE id = ? RETURNING *
     `)
@@ -171,6 +173,7 @@ export async function updateEngagementGate(db: D1Database, id: string, updates: 
       updates.requireLike !== undefined ? (updates.requireLike ? 1 : 0) : existing.require_like,
       updates.requireRepost !== undefined ? (updates.requireRepost ? 1 : 0) : existing.require_repost,
       updates.requireFollow !== undefined ? (updates.requireFollow ? 1 : 0) : existing.require_follow,
+      updates.replyKeyword ?? existing.reply_keyword,
       now, id,
     )
     .first<DbEngagementGate>();

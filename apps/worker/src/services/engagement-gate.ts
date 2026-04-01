@@ -85,6 +85,15 @@ async function processOneGate(
   gate: DbEngagementGate,
   cache: EngagementCache,
 ): Promise<void> {
+  // verify_only: detect and record eligible users, but don't send any messages.
+  // Eligibility is checked via the /verify API endpoint.
+  if (gate.action_type === 'verify_only') {
+    if (gate.trigger_type === 'reply' && (gate.require_like || gate.require_repost || gate.require_follow)) {
+      await processVerifyOnlyGate(db, xClient, gate, cache);
+    }
+    return;
+  }
+
   // Reply-trigger mode: reply is the trigger, like/repost/follow are verification conditions
   if (gate.trigger_type === 'reply' && (gate.require_like || gate.require_repost || gate.require_follow)) {
     await processReplyTriggerGate(db, xClient, gate, cache);
@@ -181,6 +190,46 @@ async function processOneGate(
       console.error(`Failed to deliver to @${user.username}:`, err);
       await updateDeliveryStatus(db, delivery.id, 'failed');
     }
+  }
+}
+
+async function processVerifyOnlyGate(
+  db: D1Database, xClient: XClient, gate: DbEngagementGate, cache: EngagementCache,
+): Promise<void> {
+  const { users: replyUsers, newestId } = await fetchNewReplies(xClient, gate);
+  if (replyUsers.length === 0) return;
+
+  const deliveredIds = await getDeliveredUserIds(db, gate.id);
+
+  const xAccount = await db
+    .prepare('SELECT x_user_id FROM x_accounts WHERE id = ?')
+    .bind(gate.x_account_id)
+    .first<{ x_user_id: string }>();
+  const xAccountUserId = xAccount?.x_user_id ?? '';
+
+  for (const user of replyUsers) {
+    if (deliveredIds.has(user.id)) continue;
+
+    const conditions = await checkConditions(xClient, cache, gate, user.id, xAccountUserId);
+    const allMet = conditions.like && conditions.repost && conditions.follow;
+    if (!allMet) continue;
+
+    // Record as delivered (no message sent — verify_only mode)
+    await createDelivery(db, gate.id, user.id, user.username, null, 'delivered');
+
+    await upsertFollower(db, {
+      xAccountId: gate.x_account_id,
+      xUserId: user.id,
+      username: user.username,
+      displayName: user.name,
+      profileImageUrl: user.profileImageUrl,
+      followerCount: user.publicMetrics?.followers_count,
+      followingCount: user.publicMetrics?.following_count,
+    });
+  }
+
+  if (newestId) {
+    await updateGateSinceId(db, gate.id, newestId);
   }
 }
 

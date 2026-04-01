@@ -72,7 +72,8 @@ verify.get('/api/engagement-gates/:id/verify', async (c) => {
   // Check reply
   let hasReplied = false;
   try {
-    const result = await xClient.searchRecentTweets(`conversation_id:${gate.post_id} is:reply from:${username}`);
+    const keyword = gate.reply_keyword ? ` "${gate.reply_keyword}"` : '';
+    const result = await xClient.searchRecentTweets(`conversation_id:${gate.post_id} is:reply from:${username}${keyword}`);
     hasReplied = !!(result.data && result.data.length > 0);
   } catch {
     hasReplied = false;

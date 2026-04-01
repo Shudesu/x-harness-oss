@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS engagement_gates (
   x_account_id TEXT NOT NULL,
   post_id TEXT NOT NULL,
   trigger_type TEXT NOT NULL CHECK (trigger_type IN ('like', 'repost', 'reply', 'follow', 'quote')),
-  action_type TEXT NOT NULL CHECK (action_type IN ('mention_post', 'dm')),
+  action_type TEXT NOT NULL CHECK (action_type IN ('mention_post', 'dm', 'verify_only')),
   template TEXT NOT NULL,
   link TEXT,
   is_active INTEGER DEFAULT 1,
@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS engagement_gates (
   require_repost INTEGER DEFAULT 0,
   require_follow INTEGER DEFAULT 0,
   last_reply_since_id TEXT,
+  reply_keyword TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

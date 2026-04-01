@@ -50,6 +50,7 @@ export interface EngagementGate {
   requireLike: boolean;
   requireRepost: boolean;
   requireFollow: boolean;
+  replyKeyword: string | null;
   pollingStrategy: string;
   estimatedCost: string;
   createdAt: string;
