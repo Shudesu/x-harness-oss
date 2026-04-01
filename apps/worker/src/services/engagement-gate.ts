@@ -190,10 +190,6 @@ async function processReplyTriggerGate(
   const { users: replyUsers, newestId } = await fetchNewReplies(xClient, gate);
   if (replyUsers.length === 0) return;
 
-  if (newestId) {
-    await updateGateSinceId(db, gate.id, newestId);
-  }
-
   const deliveredIds = await getDeliveredUserIds(db, gate.id);
 
   const xAccount = await db
@@ -255,6 +251,12 @@ async function processReplyTriggerGate(
       console.error(`Failed to deliver to @${user.username}:`, err);
       await updateDeliveryStatus(db, delivery.id, 'failed');
     }
+  }
+
+  // Advance since_id AFTER all deliveries — if advanced earlier and
+  // the loop bailed on rate limit or error, those replies would be permanently skipped.
+  if (newestId) {
+    await updateGateSinceId(db, gate.id, newestId);
   }
 }
 

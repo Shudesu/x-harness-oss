@@ -57,40 +57,46 @@ export interface ReplyUser {
 export async function fetchNewReplies(
   xClient: XClient,
   gate: DbEngagementGate,
+  maxPages = 10,
 ): Promise<{ users: ReplyUser[]; newestId: string | null }> {
-  const result = await xClient.searchRecentTweets(
-    `conversation_id:${gate.post_id} is:reply`,
-    gate.last_reply_since_id ?? undefined,
-  );
-
-  if (!result.data || result.data.length === 0) {
-    return { users: [], newestId: null };
-  }
-
-  const includes = (result as any).includes as { users?: XUser[] } | undefined;
-  const userMap = new Map<string, XUser>();
-  if (includes?.users) {
-    for (const u of includes.users) userMap.set(u.id, u);
-  }
+  const query = `conversation_id:${gate.post_id} is:reply`;
+  const sinceId = gate.last_reply_since_id ?? undefined;
 
   const seen = new Set<string>();
   const users: ReplyUser[] = [];
   let newestId: string | null = null;
+  let paginationToken: string | undefined;
+  let page = 0;
 
-  for (const tweet of result.data) {
-    if (!newestId || tweet.id > newestId) newestId = tweet.id;
-    if (seen.has(tweet.author_id)) continue;
-    seen.add(tweet.author_id);
+  do {
+    const result = await xClient.searchRecentTweets(query, sinceId, paginationToken);
 
-    const u = userMap.get(tweet.author_id);
-    users.push({
-      id: tweet.author_id,
-      username: u?.username ?? '',
-      name: u?.name ?? '',
+    if (!result.data || result.data.length === 0) break;
+
+    const includes = (result as any).includes as { users?: XUser[] } | undefined;
+    const userMap = new Map<string, XUser>();
+    if (includes?.users) {
+      for (const u of includes.users) userMap.set(u.id, u);
+    }
+
+    for (const tweet of result.data) {
+      if (!newestId || tweet.id > newestId) newestId = tweet.id;
+      if (seen.has(tweet.author_id)) continue;
+      seen.add(tweet.author_id);
+
+      const u = userMap.get(tweet.author_id);
+      users.push({
+        id: tweet.author_id,
+        username: u?.username ?? '',
+        name: u?.name ?? '',
       profileImageUrl: u?.profile_image_url,
-      publicMetrics: u?.public_metrics,
-    });
-  }
+        publicMetrics: u?.public_metrics,
+      });
+    }
+
+    paginationToken = (result as any).meta?.next_token;
+    page++;
+  } while (paginationToken && page < maxPages);
 
   return { users, newestId };
 }

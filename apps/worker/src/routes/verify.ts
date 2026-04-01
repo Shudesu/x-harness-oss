@@ -79,15 +79,20 @@ verify.get('/api/engagement-gates/:id/verify', async (c) => {
   const conditions = await checkConditions(xClient, cache, gate, xUser.id, account.x_user_id);
   conditions.reply = hasReplied;
 
-  const eligible = conditions.reply
-    && (!gate.require_like || conditions.like)
-    && (!gate.require_repost || conditions.repost)
-    && (!gate.require_follow || conditions.follow);
+  // For reply-trigger gates, reply is always required + optional conditions
+  // For non-reply gates (like/repost/follow/quote), reply is not relevant
+  const isReplyGate = gate.trigger_type === 'reply';
+  const eligible = isReplyGate
+    ? conditions.reply
+      && (!gate.require_like || conditions.like)
+      && (!gate.require_repost || conditions.repost)
+      && (!gate.require_follow || conditions.follow)
+    : true; // Non-reply gates: eligibility is based on delivery records, not verify
 
   const response: Record<string, unknown> = {
     eligible,
     conditions: {
-      reply: conditions.reply,
+      reply: isReplyGate ? conditions.reply : null,
       like: gate.require_like ? conditions.like : null,
       repost: gate.require_repost ? conditions.repost : null,
       follow: gate.require_follow ? conditions.follow : null,

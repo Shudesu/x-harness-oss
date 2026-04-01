@@ -71,7 +71,7 @@ export class XClient {
     return this.get<XApiResponse<XUser[]>>(`/tweets/${tweetId}/retweeted_by?${params}`);
   }
 
-  async searchRecentTweets(query: string, sinceId?: string): Promise<XApiResponse<XTweetSearchResult[]>> {
+  async searchRecentTweets(query: string, sinceId?: string, paginationToken?: string): Promise<XApiResponse<XTweetSearchResult[]>> {
     const params = new URLSearchParams({
       query,
       'tweet.fields': 'author_id,created_at,in_reply_to_user_id',
@@ -80,6 +80,7 @@ export class XClient {
       max_results: '100',
     });
     if (sinceId) params.set('since_id', sinceId);
+    if (paginationToken) params.set('next_token', paginationToken);
     return this.get<XApiResponse<XTweetSearchResult[]>>(`/tweets/search/recent?${params}`);
   }
 
