@@ -13,7 +13,7 @@ WORKER_URL = "https://x-harness-worker.workers.dev"
 [[d1_databases]]
 binding = "DB"
 database_name = "x-harness"
-database_id = "0d55bb66-a100-4a4e-b7d2-f271d1d6da14"
+database_id = "YOUR_D1_DATABASE_ID"
 
 [triggers]
 crons = ["*/5 * * * *"]
