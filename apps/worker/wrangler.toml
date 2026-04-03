@@ -8,7 +8,7 @@ workers_dev = true
 # Set via: wrangler secret put X_REFRESH_TOKEN
 
 [vars]
-WORKER_URL = "https://x-harness-worker.workers.dev"
+WORKER_URL = "https://your-worker.workers.dev"
 
 [[d1_databases]]
 binding = "DB"
