@@ -22,14 +22,50 @@ export async function promptXCredentials(): Promise<XCredentials> {
     ].join("\n"),
   );
 
-  // ─── Step 2-1: プロジェクトとアプリ作成 ───
+  // ─── Step 2-1: Developer アカウント申請 + 英語のユースケース文 ───
   p.log.message(
     [
-      "■ Step 2-1. X Developer プロジェクトとアプリ作成",
+      "■ Step 2-1. X Developer アカウント申請",
       "",
       "https://developer.x.com にアクセス",
-      "→ ログイン（X アカウント）",
-      "→ Developer Portal",
+      "→ Sign up for Free Account",
+      "→ X アカウントでログイン",
+      "→ ユースケース説明を **英語で 250 文字以上** 入力",
+      "  （後述のサンプルをコピペで OK）",
+      "→ 利用規約に同意して送信",
+      "",
+      "※ 英語の説明文は X のレビューを通すために必須です。日本語不可。",
+      "  以下のサンプルをそのままコピペして使えます。",
+    ].join("\n"),
+  );
+
+  p.note(
+    [
+      "I will use the X (Twitter) API to automate my own X account for",
+      "personal marketing purposes. Specifically, I will use the API to:",
+      "(1) post tweets and threads on a schedule, (2) reply to mentions",
+      "of my own account, (3) read public engagement metrics (likes,",
+      "retweets, replies) on my own posts to measure marketing",
+      "effectiveness, and (4) verify whether specific users have liked,",
+      "retweeted, or followed my account so that I can deliver promised",
+      "rewards to them. I will not display tweets or aggregate Twitter",
+      "data outside of Twitter, and I will not share data with any",
+      "government entity. All actions are limited to my own account.",
+    ].join("\n"),
+    "コピペ用：英語ユースケース説明文",
+  );
+
+  await p.text({
+    message: "Developer アカウント申請が完了したら Enter を押してください",
+    defaultValue: "done",
+  });
+
+  // ─── Step 2-1.5: プロジェクト + アプリ作成 ───
+  p.log.message(
+    [
+      "■ Step 2-1.5. プロジェクトとアプリ作成",
+      "",
+      "Developer Portal にログインした状態で:",
       "→ Projects & Apps → New Project",
       "→ プロジェクト名・用途を入力",
       "→ アプリ名を入力（任意の名前）",
