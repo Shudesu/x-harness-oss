@@ -10,29 +10,55 @@ export interface XCredentials {
 }
 
 export async function promptXCredentials(): Promise<XCredentials> {
-  p.log.step("═══ X API 認証情報の設定 ═══");
+  // ═══ Step 2: X (Twitter) API 認証情報 ═══
+  p.log.step("═══ Step 2. X (Twitter) API 認証情報 ═══");
 
   p.log.message(
     [
-      "X API の認証情報が必要です。",
+      "X 自動投稿・自動返信のために、X (旧 Twitter) Developer のキーが必要です。",
       "",
-      "https://developer.x.com にアクセスして取得してください。",
-      "Pay-Per-Use プラン（$0 基本料 + リクエスト単位課金）が必要です。",
-      "",
-      "※XのAPIの利用で月数百円程度の課金が必要になる場合がありますが、X Harness自体が料金を請求することはありません。",
-      "",
-      "手順:",
-      "1. X Developer アカウントを作成",
-      "2. プロジェクト + アプリを作成",
-      "3. OAuth 1.0a キーを生成（Consumer Key, Consumer Secret, Access Token, Access Token Secret）",
-      "4. X User ID は https://tweeterid.com で確認できます",
+      "※ X 公式の Pay-Per-Use プラン（基本料 $0 + リクエスト単位課金）が必要です。",
+      "  X Harness 自体は料金を請求しません。",
     ].join("\n"),
   );
 
-  // Consumer Key
+  // ─── Step 2-1: プロジェクトとアプリ作成 ───
+  p.log.message(
+    [
+      "■ Step 2-1. X Developer プロジェクトとアプリ作成",
+      "",
+      "https://developer.x.com にアクセス",
+      "→ ログイン（X アカウント）",
+      "→ Developer Portal",
+      "→ Projects & Apps → New Project",
+      "→ プロジェクト名・用途を入力",
+      "→ アプリ名を入力（任意の名前）",
+      "→ 作成完了",
+    ].join("\n"),
+  );
+  await p.text({
+    message: "プロジェクト・アプリ作成が完了したら Enter を押してください",
+    defaultValue: "done",
+  });
+
+  // ─── Step 2-2: Consumer Key / Consumer Secret ───
+  p.log.message(
+    [
+      "■ Step 2-2. Consumer Key / Consumer Secret 取得",
+      "",
+      "作成したアプリの管理画面",
+      "→ 「Keys and tokens」タブ",
+      "→ Consumer Keys セクション",
+      "→ 「Regenerate」をクリック",
+      "→ 表示された **API Key** と **API Key Secret** をコピー",
+      "",
+      "※ この画面を閉じると二度と表示されません。両方コピーしてから次へ進んでください",
+    ].join("\n"),
+  );
+
   const xConsumerKey = await p.text({
     message: "Consumer Key（API Key）",
-    placeholder: "OAuth 1.0a Consumer Key",
+    placeholder: "上の手順でコピーした API Key",
     validate(value) {
       if (!value || value.trim().length < 10) {
         return "Consumer Key を入力してください";
@@ -44,10 +70,9 @@ export async function promptXCredentials(): Promise<XCredentials> {
     process.exit(0);
   }
 
-  // Consumer Secret
   const xConsumerSecret = await p.text({
-    message: "Consumer Secret（API Secret）",
-    placeholder: "OAuth 1.0a Consumer Secret",
+    message: "Consumer Secret（API Key Secret）",
+    placeholder: "上の手順でコピーした API Key Secret",
     validate(value) {
       if (!value || value.trim().length < 10) {
         return "Consumer Secret を入力してください";
@@ -59,10 +84,24 @@ export async function promptXCredentials(): Promise<XCredentials> {
     process.exit(0);
   }
 
-  // Access Token
+  // ─── Step 2-3: Access Token / Access Token Secret ───
+  p.log.message(
+    [
+      "■ Step 2-3. Access Token / Access Token Secret 取得",
+      "",
+      "同じ「Keys and tokens」タブ",
+      "→ Authentication Tokens セクション",
+      "→ Access Token and Secret → 「Generate」",
+      "→ 表示された **Access Token** と **Access Token Secret** をコピー",
+      "",
+      "※ アプリ権限が **Read and Write**（または Read, Write and Direct Messages）",
+      "  になっていることを必ず確認してください。Read のみだと投稿できません。",
+    ].join("\n"),
+  );
+
   const xAccessToken = await p.text({
     message: "Access Token",
-    placeholder: "OAuth 1.0a Access Token",
+    placeholder: "上の手順でコピーした Access Token",
     validate(value) {
       if (!value || value.trim().length < 10) {
         return "Access Token を入力してください";
@@ -74,10 +113,9 @@ export async function promptXCredentials(): Promise<XCredentials> {
     process.exit(0);
   }
 
-  // Access Token Secret
   const xAccessTokenSecret = await p.text({
     message: "Access Token Secret",
-    placeholder: "OAuth 1.0a Access Token Secret",
+    placeholder: "上の手順でコピーした Access Token Secret",
     validate(value) {
       if (!value || value.trim().length < 10) {
         return "Access Token Secret を入力してください";
@@ -89,10 +127,21 @@ export async function promptXCredentials(): Promise<XCredentials> {
     process.exit(0);
   }
 
-  // User ID
+  // ─── Step 2-4: X User ID ───
+  p.log.message(
+    [
+      "■ Step 2-4. X User ID 取得",
+      "",
+      "https://tweeterid.com にアクセス",
+      "→ X のユーザー名（@ から始まる ID）を入力",
+      "→ 「CONVERT」をクリック",
+      "→ 表示された数字の ID をコピー",
+    ].join("\n"),
+  );
+
   const xUserId = await p.text({
     message: "X User ID（数字）",
-    placeholder: "https://tweeterid.com で確認できます",
+    placeholder: "tweeterid.com で取得した数字の ID",
     validate(value) {
       if (!value || !/^\d+$/.test(value.trim())) {
         return "X User ID は数字で入力してください";
@@ -104,7 +153,15 @@ export async function promptXCredentials(): Promise<XCredentials> {
     process.exit(0);
   }
 
-  // Username
+  // ─── Step 2-5: ユーザー名 ───
+  p.log.message(
+    [
+      "■ Step 2-5. X ユーザー名",
+      "",
+      "X プロフィールの @ から始まる ID（@ は付けずに入力）",
+    ].join("\n"),
+  );
+
   const xUsername = await p.text({
     message: "X ユーザー名（@ なし）",
     placeholder: "例: elonmusk",

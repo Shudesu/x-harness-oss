@@ -51,6 +51,18 @@ function markDone(state: SetupState, step: string): void {
 export async function runSetup(repoDir: string): Promise<void> {
   p.intro(pc.bgCyan(pc.black(" X Harness セットアップ ")));
 
+  p.log.message(
+    [
+      "X Harness は 3 Step で導入できます。",
+      "",
+      "  Step 1. Cloudflare アカウント設定",
+      "  Step 2. X (Twitter) API 認証情報の取得",
+      "  Step 3. プロジェクト名の入力",
+      "",
+      "残りの作業（D1 作成・Worker / Admin デプロイ等）は自動で行います。",
+    ].join("\n"),
+  );
+
   const state = loadState(repoDir);
 
   if (state.completedSteps.length > 0) {
@@ -59,13 +71,26 @@ export async function runSetup(repoDir: string): Promise<void> {
     );
   }
 
-  // Step 1: Check dependencies
+  // Pre-step: Check dependencies (Node, pnpm, git)
   await checkDeps();
 
-  // Step 2: Authenticate with Cloudflare
+  // ═══ Step 1: Cloudflare アカウント設定 ═══
+  p.log.step("═══ Step 1. Cloudflare アカウント設定 ═══");
+  p.log.message(
+    [
+      "Cloudflare の無料枠で Worker と D1 をホストします。",
+      "アカウントがない場合は事前に作成してください:",
+      "",
+      "https://dash.cloudflare.com/sign-up",
+      "→ メールアドレス・パスワードを登録",
+      "→ メール認証を完了",
+      "",
+      "完了したら下のログイン画面に進みます（ブラウザが自動で開きます）。",
+    ].join("\n"),
+  );
   await ensureAuth();
 
-  // Step 2.5: Get account ID
+  // Step 1.5: Pick Cloudflare account (silent if only one)
   if (!state.accountId) {
     const accountId = await getAccountId();
     state.accountId = accountId;
@@ -75,10 +100,33 @@ export async function runSetup(repoDir: string): Promise<void> {
   // Pin all wrangler commands to this account
   setAccountId(state.accountId);
 
-  // Step 3: Get project name
+  // ═══ Step 2: X API 認証情報 ═══
+  // (Header + sub-steps printed inside promptXCredentials)
+  if (!isDone(state, "credentials")) {
+    const credentials = await promptXCredentials();
+    state.xAccessToken = credentials.xAccessToken;
+    state.xConsumerKey = credentials.xConsumerKey;
+    state.xConsumerSecret = credentials.xConsumerSecret;
+    state.xAccessTokenSecret = credentials.xAccessTokenSecret;
+    state.xUserId = credentials.xUserId;
+    state.xUsername = credentials.xUsername;
+    markDone(state, "credentials");
+    saveState(repoDir, state);
+  } else {
+    p.log.success("X API 認証情報: 入力済み（スキップ）");
+  }
+
+  // ═══ Step 3: プロジェクト名 ═══
   if (!state.projectName) {
+    p.log.step("═══ Step 3. プロジェクト名 ═══");
+    p.log.message(
+      [
+        "Worker と D1 データベースの名前に使われます。",
+        "英小文字・数字・ハイフンのみ使用できます（例: my-x-bot）。",
+      ].join("\n"),
+    );
     const projectName = await p.text({
-      message: "プロジェクト名（Worker と D1 の名前に使われます）",
+      message: "プロジェクト名",
       placeholder: "x-harness",
       defaultValue: "x-harness",
       validate(value) {
@@ -98,22 +146,7 @@ export async function runSetup(repoDir: string): Promise<void> {
     p.log.success(`プロジェクト名: ${state.projectName}`);
   }
 
-  // Step 4: Get X API credentials
-  if (!isDone(state, "credentials")) {
-    const credentials = await promptXCredentials();
-    state.xAccessToken = credentials.xAccessToken;
-    state.xConsumerKey = credentials.xConsumerKey;
-    state.xConsumerSecret = credentials.xConsumerSecret;
-    state.xAccessTokenSecret = credentials.xAccessTokenSecret;
-    state.xUserId = credentials.xUserId;
-    state.xUsername = credentials.xUsername;
-    markDone(state, "credentials");
-    saveState(repoDir, state);
-  } else {
-    p.log.success("X API 認証情報: 入力済み（スキップ）");
-  }
-
-  // Step 5: Generate API key
+  // Generate API key (silent)
   if (!state.apiKey) {
     state.apiKey = generateApiKey();
     saveState(repoDir, state);
