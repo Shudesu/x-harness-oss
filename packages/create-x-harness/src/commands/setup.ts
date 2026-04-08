@@ -200,7 +200,13 @@ export async function runSetup(repoDir: string): Promise<void> {
   }
 
   // Step 10: Deploy Admin UI
-  const suffix = state.apiKey!.slice(0, 8);
+  //
+  // CF Pages project names allow only [a-z0-9-] (no underscores) and must
+  // not start/end with `-`. apiKey is `xh_<hex>` so slicing from index 0
+  // would leak the `_` separator. Skip past the `xh_` prefix and take 8
+  // hex chars; sanitize defensively in case apiKey format ever changes.
+  const rawSuffix = state.apiKey!.replace(/^xh_/, "").slice(0, 8);
+  const suffix = rawSuffix.replace(/[^a-z0-9]/gi, "").toLowerCase() || "ui";
   const adminProjectName = `${state.projectName}-admin-${suffix}`;
   if (!isDone(state, "admin")) {
     const { adminUrl } = await deployAdmin({
