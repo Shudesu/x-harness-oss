@@ -77,4 +77,35 @@ export async function lineHarnessIntegration(
 
   state.lineHarnessUrl = lineUrl as string;
   state.lineHarnessApiKey = lineApiKey as string;
+
+  // Register the connection in X Harness D1 so the admin dashboard
+  // (campaign / engagement-gate pages) can find it. Without this, the
+  // CLI-collected credentials only live in the local setup state file
+  // and the dashboard's /api/line-connections listing comes back empty.
+  try {
+    const lineHostname = new URL(lineUrl as string).hostname;
+    const connRes = await fetch(`${state.workerUrl}/api/line-connections`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${state.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: lineHostname,
+        workerUrl: lineUrl,
+        apiKey: lineApiKey,
+      }),
+    });
+    if (connRes.ok) {
+      p.log.success("ダッシュボードに LINE Harness 連携を登録しました");
+    } else {
+      p.log.warn(
+        "LINE Harness 連携情報の登録に失敗しました。ダッシュボードから手動登録してください。",
+      );
+    }
+  } catch {
+    p.log.warn(
+      "LINE Harness 連携情報の登録に失敗しました。ダッシュボードから手動登録してください。",
+    );
+  }
 }
