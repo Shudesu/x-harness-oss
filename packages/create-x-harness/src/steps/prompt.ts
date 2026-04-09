@@ -28,7 +28,7 @@ export async function promptXCredentials(): Promise<XCredentials> {
       "■ Step 2-1. X Developer アカウント申請",
       "",
       "https://developer.x.com にアクセス",
-      "→ Sign up for Free Account",
+      "→ コンソールへ",
       "→ X アカウントでログイン",
       "→ ユースケース説明を **英語で 250 文字以上** 入力",
       "  （後述のサンプルをコピペで OK）",
@@ -60,15 +60,29 @@ export async function promptXCredentials(): Promise<XCredentials> {
     defaultValue: "done",
   });
 
+  // ─── Step 2-1.5: クレジット購入 ───
+  p.log.message(
+    [
+      "■ X Developer Console でクレジットを購入",
+      "",
+      "※ 基本は 5 ドルの課金のみで十分です。",
+      "※ X Harness が課金することはありませんのでご安心ください。",
+    ].join("\n"),
+  );
+  await p.text({
+    message: "クレジット購入手続きが完了したら Enter を押してください",
+    defaultValue: "done",
+  });
+
   // ─── Step 2-1.5: プロジェクト + アプリ作成 ───
   p.log.message(
     [
       "■ Step 2-1.5. プロジェクトとアプリ作成",
       "",
-      "Developer Portal にログインした状態で:",
-      "→ Projects & Apps → New Project",
+      "Developer Console にログインした状態で:",
+      "→ アプリ → 新規作成",
       "→ プロジェクト名・用途を入力",
-      "→ アプリ名を入力（任意の名前）",
+      "→ アプリ名（任意の名前）、Environment（Development）を入力",
       "→ 作成完了",
     ].join("\n"),
   );
@@ -77,27 +91,23 @@ export async function promptXCredentials(): Promise<XCredentials> {
     defaultValue: "done",
   });
 
-  // ─── Step 2-2: Consumer Key / Consumer Secret ───
+  // ─── Step 2-2: コンシューマーキー / Secret Key ───
   p.log.message(
     [
-      "■ Step 2-2. Consumer Key / Consumer Secret 取得",
+      "■ Step 2-2. コンシューマーキー / Secret Key 取得",
       "",
-      "作成したアプリの管理画面",
-      "→ 「Keys and tokens」タブ",
-      "→ Consumer Keys セクション",
-      "→ 「Regenerate」をクリック",
-      "→ 表示された **API Key** と **API Key Secret** をコピー",
+      "そのままの画面でコンシューマーキー / Secret Key を収録します。",
       "",
       "※ この画面を閉じると二度と表示されません。両方コピーしてから次へ進んでください",
     ].join("\n"),
   );
 
   const xConsumerKey = await p.text({
-    message: "Consumer Key（API Key）",
-    placeholder: "上の手順でコピーした API Key",
+    message: "コンシューマーキー",
+    placeholder: "表示されたコンシューマーキーを貼り付け",
     validate(value) {
       if (!value || value.trim().length < 10) {
-        return "Consumer Key を入力してください";
+        return "コンシューマーキーを入力してください";
       }
     },
   });
@@ -107,11 +117,11 @@ export async function promptXCredentials(): Promise<XCredentials> {
   }
 
   const xConsumerSecret = await p.text({
-    message: "Consumer Secret（API Key Secret）",
-    placeholder: "上の手順でコピーした API Key Secret",
+    message: "Secret Key",
+    placeholder: "表示された Secret Key を貼り付け",
     validate(value) {
       if (!value || value.trim().length < 10) {
-        return "Consumer Secret を入力してください";
+        return "Secret Key を入力してください";
       }
     },
   });
@@ -120,27 +130,49 @@ export async function promptXCredentials(): Promise<XCredentials> {
     process.exit(0);
   }
 
-  // ─── Step 2-3: Access Token / Access Token Secret ───
+  // ─── Step 2-2.5: ユーザ認証設定（アクセストークン生成より前に必須） ───
+  // X はアクセストークン生成時に権限スコープを固定するため、必ずトークン
+  // 生成前にアプリ権限を Read/Write/DM に切り替えておく必要がある。
+  // コールバック URI はデプロイ後に実 URL で設定するため、ここでは権限のみ。
   p.log.message(
     [
-      "■ Step 2-3. Access Token / Access Token Secret 取得",
+      "■ ユーザ認証設定（重要：アクセストークン生成より前に必ず実施）",
       "",
-      "同じ「Keys and tokens」タブ",
-      "→ Authentication Tokens セクション",
-      "→ Access Token and Secret → 「Generate」",
-      "→ 表示された **Access Token** と **Access Token Secret** をコピー",
+      "→ ユーザ認証設定 → セットアップ",
+      "→ アプリの権限",
+      "→ 「読み書きおよびダイレクトメッセージ」をチェック",
+      "→ 変更を保存する",
       "",
-      "※ アプリ権限が **Read and Write**（または Read, Write and Direct Messages）",
-      "  になっていることを必ず確認してください。Read のみだと投稿できません。",
+      "※ ここを先に設定しないと、後で生成するアクセストークンが",
+      "  Read のみとなり投稿・返信・DM が動作しません。",
+      "",
+      "※ コールバック URI やウェブサイト URL は後のステップで案内します。",
+      "  ここではアプリ権限の変更だけでOKです。",
+    ].join("\n"),
+  );
+  await p.text({
+    message: "アプリ権限の設定が完了したら Enter を押してください",
+    defaultValue: "done",
+  });
+
+  // ─── Step 2-3: アクセストークン / アクセストークンシークレット ───
+  p.log.message(
+    [
+      "■ Step 2-3. アクセストークン / アクセストークンシークレット 取得",
+      "",
+      "同じ画面で",
+      "→ OAuth 1.0 キー セクション",
+      "→ アクセストークン → 「生成する」",
+      "→ 表示された **「アクセストークン」** と **「アクセスシークレット」** をコピー",
     ].join("\n"),
   );
 
   const xAccessToken = await p.text({
-    message: "Access Token",
-    placeholder: "上の手順でコピーした Access Token",
+    message: "アクセストークン",
+    placeholder: "上の手順でコピーしたアクセストークン",
     validate(value) {
       if (!value || value.trim().length < 10) {
-        return "Access Token を入力してください";
+        return "アクセストークンを入力してください";
       }
     },
   });
@@ -150,11 +182,11 @@ export async function promptXCredentials(): Promise<XCredentials> {
   }
 
   const xAccessTokenSecret = await p.text({
-    message: "Access Token Secret",
-    placeholder: "上の手順でコピーした Access Token Secret",
+    message: "アクセスシークレット",
+    placeholder: "上の手順でコピーしたアクセスシークレット",
     validate(value) {
       if (!value || value.trim().length < 10) {
-        return "Access Token Secret を入力してください";
+        return "アクセスシークレットを入力してください";
       }
     },
   });
@@ -168,16 +200,16 @@ export async function promptXCredentials(): Promise<XCredentials> {
     [
       "■ Step 2-4. X User ID 取得",
       "",
-      "https://tweeterid.com にアクセス",
+      "https://develop.tools/x-idcheck/ にアクセス",
       "→ X のユーザー名（@ から始まる ID）を入力",
-      "→ 「CONVERT」をクリック",
-      "→ 表示された数字の ID をコピー",
+      "→ 「取得実行」をクリック",
+      "→ 表示されたユーザ ID の数字をコピー",
     ].join("\n"),
   );
 
   const xUserId = await p.text({
     message: "X User ID（数字）",
-    placeholder: "tweeterid.com で取得した数字の ID",
+    placeholder: "develop.tools/x-idcheck/ で取得した数字の ID",
     validate(value) {
       if (!value || !/^\d+$/.test(value.trim())) {
         return "X User ID は数字で入力してください";

@@ -4,7 +4,7 @@ import type { Env } from '../index.js';
 
 export async function authMiddleware(c: Context<Env>, next: Next): Promise<Response | void> {
   const path = new URL(c.req.url).pathname;
-  if (path === '/api/health' || path === '/webhook/xaa' || path === '/api/followers/search' || path === '/api/users/search' || path.startsWith('/api/tokens/') || path.match(/^\/api\/engagement-gates\/[^/]+\/(verify|repliers)$/)) {
+  if (path === '/api/health' || path === '/webhook/xaa' || path === '/api/followers/search' || path === '/api/users/search' || path === '/setup' || path.startsWith('/api/tokens/') || path.match(/^\/api\/engagement-gates\/[^/]+\/(verify|repliers)$/)) {
     return next();
   }
 

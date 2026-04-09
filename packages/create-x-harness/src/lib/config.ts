@@ -13,7 +13,5 @@ export interface SetupState {
   xAccessTokenSecret?: string;
   xUserId?: string;
   xUsername?: string;
-  lineHarnessUrl?: string;
-  lineHarnessApiKey?: string;
   repoDir?: string;
 }

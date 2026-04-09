@@ -9,7 +9,6 @@ import { createDatabase } from "../steps/database.js";
 import { deployWorker } from "../steps/deploy-worker.js";
 import { deployAdmin } from "../steps/deploy-admin.js";
 import { setSecrets } from "../steps/secrets.js";
-import { lineHarnessIntegration } from "../steps/line-harness.js";
 import { generateMcpConfig } from "../steps/mcp-config.js";
 import { generateApiKey } from "../lib/crypto.js";
 import { wrangler, setAccountId } from "../lib/wrangler.js";
@@ -254,20 +253,29 @@ export async function runSetup(repoDir: string): Promise<void> {
     p.log.success(`Admin UI: デプロイ済み（${state.adminUrl}）`);
   }
 
-  // Step 11: Optional LINE Harness integration
-  if (!isDone(state, "lineHarness")) {
-    await lineHarnessIntegration(state);
-    markDone(state, "lineHarness");
-    saveState(repoDir, state);
-  }
-
-  // Step 12: Generate MCP config
-  const addMcp = await p.confirm({
-    message: "MCP 設定を .mcp.json に追加しますか？（Claude Code / Cursor 用）",
+  // Step 11: Update X Developer callback URI (now that we have real URLs)
+  p.log.message(
+    [
+      "■ X Developer Console でコールバック URI を設定してください",
+      "",
+      "→ ユーザ認証設定 → セットアップ → アプリ情報",
+      "",
+      "  コールバックURI / リダイレクトURL（必須）:",
+      `    ${state.workerUrl}/auth/callback`,
+      "",
+      "  ウェブサイトURL（必須）:",
+      `    ${state.adminUrl}`,
+      "",
+      "※ これを設定しないと X Harness との OAuth 連携が動作しません。",
+    ].join("\n"),
+  );
+  await p.text({
+    message: "コールバック URI の設定が完了したら Enter を押してください",
+    defaultValue: "done",
   });
-  if (addMcp && !p.isCancel(addMcp)) {
-    generateMcpConfig({ workerUrl: state.workerUrl!, apiKey: state.apiKey! });
-  }
+
+  // Step 12: Generate MCP config (always)
+  generateMcpConfig({ workerUrl: state.workerUrl!, apiKey: state.apiKey! });
 
   // Step 13: Show completion screen
   p.note(
@@ -275,7 +283,7 @@ export async function runSetup(repoDir: string): Promise<void> {
       `${pc.bold("Worker URL:")}`,
       `   ${pc.cyan(state.workerUrl!)}`,
       "",
-      `${pc.bold("Admin URL:")}`,
+      `${pc.bold("Admin URL（こちらが管理画面になります）:")}`,
       `   ${pc.cyan(state.adminUrl!)}`,
       "",
       `${pc.bold("API Key:")}`,

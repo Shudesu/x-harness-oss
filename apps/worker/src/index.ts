@@ -20,6 +20,7 @@ import { dm } from './routes/dm.js';
 import { usage } from './routes/usage.js';
 import { xaa } from './routes/xaa.js';
 import { campaigns } from './routes/campaigns.js';
+import { setup } from './routes/setup.js';
 import { processStepSequences } from './services/step-processor.js';
 
 export type Env = {
@@ -58,6 +59,7 @@ app.route('/', dm);
 app.route('/', usage);
 app.route('/', xaa);
 app.route('/', campaigns);
+app.route('/', setup);
 
 // Settings API (key-value store)
 app.get('/api/settings', async (c) => {
