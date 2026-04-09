@@ -27,8 +27,9 @@ async function getCachedEngagers(db: D1Database, gateId: string): Promise<Cached
 
   if (rows.results.length === 0) return null;
 
-  const cachedAt = new Date(rows.results[0].cached_at + 'Z').getTime();
-  if (Date.now() - cachedAt > CACHE_TTL_MS) return null;
+  // Cache never expires — it accumulates over time since getRetweetedBy
+  // only returns ~100 per call. When a user is not in cache, the verify
+  // endpoint triggers a refresh that adds new entries via UPSERT.
 
   return rows.results.map((r) => ({
     xUserId: r.x_user_id,
@@ -41,13 +42,24 @@ async function getCachedEngagers(db: D1Database, gateId: string): Promise<Cached
 }
 
 async function setCachedEngagers(db: D1Database, gateId: string, engagers: CachedEngager[]): Promise<void> {
-  await db.prepare('DELETE FROM replier_cache WHERE gate_id = ?').bind(gateId).run();
   if (engagers.length === 0) return;
 
+  // UPSERT: add new engagers, update existing ones. Never delete —
+  // getRetweetedBy only returns ~100 users per call, but returns a
+  // slightly different set each time. By accumulating, the cache
+  // eventually covers all retweeters.
   const now = new Date().toISOString();
   for (const r of engagers) {
     await db
-      .prepare('INSERT INTO replier_cache (gate_id, x_user_id, username, display_name, profile_image_url, eligible, conditions_json, cached_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .prepare(`INSERT INTO replier_cache (gate_id, x_user_id, username, display_name, profile_image_url, eligible, conditions_json, cached_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (gate_id, x_user_id) DO UPDATE SET
+          username = excluded.username,
+          display_name = excluded.display_name,
+          profile_image_url = excluded.profile_image_url,
+          eligible = excluded.eligible,
+          conditions_json = excluded.conditions_json,
+          cached_at = excluded.cached_at`)
       .bind(gateId, r.xUserId, r.username, r.displayName, r.profileImageUrl, r.eligible ? 1 : 0, JSON.stringify(r.conditions), now)
       .run();
   }
