@@ -86,7 +86,7 @@ export default function PostsPage() {
   // dependency (which would recreate loadHistory and double-trigger the
   // mount/account-switch effect).
   const historyAccountIdRef = useRef<string>('')
-  const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
