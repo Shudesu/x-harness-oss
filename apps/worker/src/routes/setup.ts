@@ -277,7 +277,6 @@ setup.get('/setup', (c) => {
         <div class="step-body">
           <p><kbd>Win</kbd>+<kbd>R</kbd> を押して「ファイル名を指定して実行」を開き、<kbd>cmd</kbd> と入力して <kbd>Enter</kbd> を押します。</p>
           <p>黒い画面（コマンドプロンプト）が開いたら、下のコマンドをコピーして<strong>右クリック</strong>で貼り付け、<kbd>Enter</kbd> で実行してください。</p>
-          <div class="note">⚠️ <strong>PowerShell ではなく「コマンドプロンプト（cmd）」を使ってください。</strong>PowerShell では <kbd>@</kbd> が特殊文字として扱われ、エラーになります。</div>
         </div>
       </div>
     </div>
@@ -323,7 +322,7 @@ setup.get('/setup', (c) => {
     <div class="command-section">
       <h2>実行コマンド</h2>
       <div class="command-box">
-        <div class="command-preview">$ npx "create-x-harness@latest"</div>
+        <div class="command-preview">npx "create-x-harness@latest"</div>
         <button class="copy-btn" onclick="copyCommand()">コピー</button>
       </div>
       <div class="copy-feedback" id="copy-feedback"></div>
