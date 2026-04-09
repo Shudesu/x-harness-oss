@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import type { MentionReply } from '@/lib/api'
 import Header from '@/components/layout/header'
+import ApiCostGate from '@/components/api-cost-gate'
 import { useCurrentAccountId } from '@/hooks/use-selected-account'
 
 function formatDate(iso: string) {
@@ -300,11 +301,10 @@ export default function RepliesPage() {
     }
   }, [])
 
-  useEffect(() => {
-    if (selectedAccountId) {
-      loadMentions(selectedAccountId)
-    }
-  }, [selectedAccountId, loadMentions])
+  const [fetched, setFetched] = useState(false)
+  const handleManualFetch = () => {
+    if (selectedAccountId) { setFetched(true); loadMentions(selectedAccountId) }
+  }
 
   const handleReplySuccess = (id: string) => {
     setToast(`リプライを送信しました (ID: ${id.slice(-8)})`)
@@ -334,6 +334,12 @@ export default function RepliesPage() {
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 bg-green-600 text-white text-sm px-4 py-3 rounded-lg shadow-lg transition-all">
           {toast}
+        </div>
+      )}
+
+      {!fetched && !loading && (
+        <div className="mb-4">
+          <ApiCostGate onFetch={handleManualFetch} loading={loading} description="メンション・リプライを X API から検索します（$0.005 × 2回）" />
         </div>
       )}
 

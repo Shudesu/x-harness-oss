@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import type { TweetHistory, ScheduledPost } from '@/lib/api'
 import Header from '@/components/layout/header'
+import ApiCostGate from '@/components/api-cost-gate'
 import { useCurrentAccountId } from '@/hooks/use-selected-account'
 
 type Tab = 'immediate' | 'scheduled'
@@ -188,12 +189,14 @@ export default function PostsPage() {
     }
   }, [])
 
-  useEffect(() => {
+  const [fetched, setFetched] = useState(false)
+  const handleManualFetch = () => {
     if (selectedAccountId) {
+      setFetched(true)
       loadHistory(undefined, selectedAccountId)
       loadSubscription(selectedAccountId)
     }
-  }, [selectedAccountId, loadHistory, loadSubscription])
+  }
 
   useEffect(() => {
     if (tab === 'scheduled') {
@@ -371,6 +374,12 @@ export default function PostsPage() {
   return (
     <div>
       <Header title="投稿管理" description="即時投稿・予約投稿・履歴" />
+
+      {!fetched && !historyLoading && (
+        <div className="mb-4">
+          <ApiCostGate onFetch={handleManualFetch} loading={historyLoading} description="投稿履歴・サブスクリプション情報を X API から取得します（$0.005 × 2回）" />
+        </div>
+      )}
 
       {/* Top section: tabs */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">

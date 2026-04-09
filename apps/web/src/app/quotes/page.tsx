@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import type { MentionReply, TweetHistory } from '@/lib/api'
 import Header from '@/components/layout/header'
+import ApiCostGate from '@/components/api-cost-gate'
 import { useCurrentAccountId } from '@/hooks/use-selected-account'
 
 function formatDate(iso: string) {
@@ -266,9 +267,10 @@ export default function QuotesPage() {
     }
   }, [selectedAccountId, syncing, loadQuotes])
 
-  useEffect(() => {
-    if (selectedAccountId) loadQuotes(selectedAccountId)
-  }, [selectedAccountId, loadQuotes])
+  const [fetched, setFetched] = useState(false)
+  const handleManualFetch = () => {
+    if (selectedAccountId) { setFetched(true); loadQuotes(selectedAccountId) }
+  }
 
   const toggleExpand = (tweetId: string) => {
     setExpandedIds((prev) => {
@@ -305,6 +307,12 @@ export default function QuotesPage() {
           </div>
         }
       />
+
+      {!fetched && !loading && (
+        <div className="mb-4">
+          <ApiCostGate onFetch={handleManualFetch} loading={loading} description="投稿履歴 + 各投稿の引用ツイートを取得します（$0.005 × 投稿数）" />
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 bg-red-50 border border-red-200 p-4 text-red-700 text-sm rounded-lg">{error}</div>

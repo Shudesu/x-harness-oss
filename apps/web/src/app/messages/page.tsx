@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import type { DmConversation, DmMessage } from '@/lib/api'
 import Header from '@/components/layout/header'
+import ApiCostGate from '@/components/api-cost-gate'
 import { useCurrentAccountId } from '@/hooks/use-selected-account'
 
 function formatTime(iso: string) {
@@ -108,13 +109,15 @@ export default function MessagesPage() {
     }
   }, [selectedConvId, selectedAccountId, msgsCursor])
 
-  useEffect(() => {
+  const [fetched, setFetched] = useState(false)
+  const handleManualFetch = () => {
     if (selectedAccountId) {
+      setFetched(true)
       setSelectedConvId(null)
       setMessages([])
       loadConversations(selectedAccountId)
     }
-  }, [selectedAccountId, loadConversations])
+  }
 
   useEffect(() => {
     if (selectedConvId && selectedAccountId) {
@@ -206,10 +209,18 @@ export default function MessagesPage() {
     <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
       <Header title="DM管理" description="ダイレクトメッセージの送受信" />
 
+      {!fetched && !convsLoading && (
+        <div className="mb-3">
+          <ApiCostGate onFetch={handleManualFetch} loading={convsLoading} description="DM 会話一覧を X API から取得します（$0.005/回）" />
+        </div>
+      )}
+
       {/* E2E notice */}
-      <div className="mb-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-xs text-amber-700">
-        暗号化された会話（E2E暗号化DM）はX APIから取得できません。通常のDMのみ表示されます。
-      </div>
+      {fetched && (
+        <div className="mb-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-xs text-amber-700">
+          暗号化された会話（E2E暗号化DM）はX APIから取得できません。通常のDMのみ表示されます。
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (
