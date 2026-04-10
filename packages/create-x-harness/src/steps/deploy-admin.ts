@@ -1,67 +1,8 @@
 import * as p from "@clack/prompts";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { execa } from "execa";
 import { wrangler } from "../lib/wrangler.js";
-
-// Probe pnpm from a neutral cwd so Corepack's `packageManager` lookup
-// doesn't pick up another project's pinning (npm/yarn).
-const NEUTRAL_CWD = tmpdir();
-
-async function hasPnpm(): Promise<boolean> {
-  try {
-    await execa("pnpm", ["--version"], { cwd: NEUTRAL_CWD });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-interface PnpmRunner {
-  cmd: string;
-  prefixArgs: string[];
-}
-
-async function npxPnpmWorks(): Promise<boolean> {
-  try {
-    await execa("npx", ["--yes", "pnpm@9.15.4", "--version"], {
-      cwd: NEUTRAL_CWD,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function ensurePnpm(): Promise<PnpmRunner> {
-  if (await hasPnpm()) return { cmd: "pnpm", prefixArgs: [] };
-
-  // Try corepack first (built into Node 16.13+)
-  try {
-    await execa("corepack", ["enable", "pnpm"], { cwd: NEUTRAL_CWD });
-    if (await hasPnpm()) return { cmd: "pnpm", prefixArgs: [] };
-  } catch {
-    // corepack may be missing or require admin on Windows
-  }
-
-  // Try global install via npm (may be blocked on locked-down machines)
-  try {
-    await execa("npm", ["install", "-g", "pnpm"], { cwd: NEUTRAL_CWD });
-    if (await hasPnpm()) return { cmd: "pnpm", prefixArgs: [] };
-  } catch {
-    // fall through
-  }
-
-  // Final fallback: invoke pnpm via npx (no global install required)
-  if (await npxPnpmWorks()) {
-    return { cmd: "npx", prefixArgs: ["--yes", "pnpm@9.15.4"] };
-  }
-
-  throw new Error(
-    "pnpm を起動できません。手動で `npm install -g pnpm` を実行してから再度お試しください。",
-  );
-}
+import { ensurePnpm, runPnpm, type PnpmRunner } from "../lib/pnpm.js";
 
 interface DeployAdminOptions {
   repoDir: string;
@@ -98,11 +39,7 @@ export async function deployAdmin(
   // Build Next.js (static export -> out/)
   s.message("Admin UI ビルド中...");
   try {
-    await execa(
-      pnpmRunner.cmd,
-      [...pnpmRunner.prefixArgs, "run", "build"],
-      { cwd: webDir },
-    );
+    await runPnpm(pnpmRunner, ["run", "build"], { cwd: webDir });
   } catch (error: any) {
     s.stop("Admin UI ビルド失敗");
     throw new Error(`Admin UI のビルドに失敗しました: ${error.message}`);

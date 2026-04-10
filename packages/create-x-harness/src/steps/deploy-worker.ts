@@ -1,8 +1,8 @@
 import * as p from "@clack/prompts";
-import { writeFileSync, existsSync, readFileSync, unlinkSync } from "node:fs";
+import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { execa } from "execa";
 import { wrangler } from "../lib/wrangler.js";
+import { ensurePnpm, runPnpm } from "../lib/pnpm.js";
 
 interface DeployWorkerOptions {
   repoDir: string;
@@ -48,10 +48,10 @@ crons = ["*/5 * * * *"]
 
   try {
     // Build workspace dependencies that the worker needs
-    await execa(
-      "npx",
+    const pnpmRunner = await ensurePnpm();
+    await runPnpm(
+      pnpmRunner,
       [
-        "pnpm",
         "-r",
         "--filter",
         "./packages/shared",

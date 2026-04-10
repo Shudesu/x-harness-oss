@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execa } from "execa";
+import { ensurePnpm, runPnpm } from "../lib/pnpm.js";
 
 const REPO_URL = "https://github.com/Shudesu/x-harness-oss.git";
 
@@ -55,13 +56,14 @@ export async function ensureRepo(repoDir: string | null): Promise<string> {
 
   // Install dependencies
   s.start("依存関係インストール中...");
+  const pnpmRunner = await ensurePnpm();
   try {
-    await execa("npx", ["pnpm", "install", "--frozen-lockfile"], {
+    await runPnpm(pnpmRunner, ["install", "--frozen-lockfile"], {
       cwd: homeDir,
     });
   } catch {
     // Try without frozen lockfile
-    await execa("npx", ["pnpm", "install"], { cwd: homeDir });
+    await runPnpm(pnpmRunner, ["install"], { cwd: homeDir });
   }
   s.stop("依存関係インストール完了");
 
