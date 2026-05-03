@@ -13,55 +13,10 @@ labels: bug
 
 <!-- 何が起きたかを 1〜2 行で。例) /api/posts/history にアクセスすると 500 が返る -->
 
-## 再現手順
+## 背景 / ユースケース
 
-<!--
-最小の再現手順を箇条書きで
-1. 〜にアクセスする
-2. 〜のボタンを押す
-3. エラーが表示される
--->
+<!-- なぜ問題か、どんな運用で困っているか -->
 
-## 期待する挙動
+## 期待する動作
 
 <!-- どうなるべきか -->
-
-## 実際の挙動
-
-<!-- エラーメッセージ、スタックトレース、`wrangler tail` のログ等があれば貼り付けてください -->
-
-## 影響範囲
-
-<!--
-該当する箇所をすべて選択 (チェック)
-- [ ] Worker (apps/worker)
-- [ ] 管理画面 (apps/web)
-- [ ] DB / マイグレーション (packages/db)
-- [ ] SDK (packages/sdk)
-- [ ] X API ラッパー (packages/x-sdk)
-- [ ] MCP サーバー (packages/mcp)
-- [ ] CLI セットアップ (packages/create-x-harness)
-- [ ] 共有型定義 (packages/shared)
-- [ ] ドキュメント / README
-- [ ] CI / GitHub Actions
-- [ ] その他
--->
-
-## バージョン / コミット
-
-<!-- 該当バージョンまたは git commit hash。例) main @ 866fccf, v0.5.1 -->
-
-## 環境情報
-
-<!--
-例:
-- OS: macOS 15.0
-- Node: 20.x
-- pnpm: 9.15.4
-- wrangler: 4.77.0
-- ブラウザ: Chrome 130
--->
-
-## 備考
-
-<!-- スクリーンショット、関連 Issue・PR、検証済みの仮説など -->
