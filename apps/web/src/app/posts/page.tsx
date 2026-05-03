@@ -749,8 +749,7 @@ export default function PostsPage() {
                     const isExpanded = expandedIds.has(tweet.id)
                     const truncated = tweet.text.length > 50
                     return (
-                      <>
-                        <tr key={tweet.id} className="hover:bg-gray-50 transition-colors">
+                      <tr key={tweet.id} className="hover:bg-gray-50 transition-colors">
                           <td className="px-4 py-3 text-sm text-gray-700 max-w-xs">
                             {isExpanded || !truncated ? tweet.text : `${tweet.text.slice(0, 50)}…`}
                           </td>
@@ -789,8 +788,7 @@ export default function PostsPage() {
                               </button>
                             </div>
                           </td>
-                        </tr>
-                      </>
+                      </tr>
                     )
                   })}
                 </tbody>
