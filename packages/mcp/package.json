@@ -2,15 +2,38 @@
   "name": "@x-harness/mcp",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "X Harness MCP Server",
+  "description": "MCP server for X Harness — operate an X (Twitter) account from Claude Code, Cursor, and other AI agents over MCP",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
     "x-harness-mcp": "./dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "x",
+    "twitter",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "ai-agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shudesu/x-harness-oss.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/Shudesu/x-harness-oss#readme",
+  "bugs": {
+    "url": "https://github.com/Shudesu/x-harness-oss/issues"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
