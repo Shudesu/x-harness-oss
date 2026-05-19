@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -13,6 +16,19 @@ import { analyticsToolDefs } from './tools/analytics.js';
 import { staffToolDefs } from './tools/staff.js';
 import { campaignToolDefs } from './tools/campaign.js';
 import { usageToolDefs } from './tools/usage.js';
+
+function readPackageVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    // dist/index.js → ../package.json (also resolves when run from src via tsx)
+    const pkg = JSON.parse(
+      readFileSync(join(here, '..', 'package.json'), 'utf-8'),
+    ) as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 
 const API_URL = process.env.X_HARNESS_API_URL ?? 'http://localhost:8787';
 const API_KEY = process.env.X_HARNESS_API_KEY ?? '';
@@ -32,7 +48,7 @@ const allTools = [
   ...usageToolDefs,
 ];
 
-const server = new Server({ name: 'x-harness', version: '0.1.0' }, { capabilities: { tools: {} } });
+const server = new Server({ name: 'x-harness', version: readPackageVersion() }, { capabilities: { tools: {} } });
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: allTools }));
 

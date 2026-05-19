@@ -11,7 +11,27 @@
   ],
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch"
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "x",
+    "twitter",
+    "crm",
+    "harness",
+    "cloudflare",
+    "workers",
+    "mcp",
+    "ai"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shudesu/x-harness-oss.git",
+    "directory": "packages/create-x-harness"
+  },
+  "homepage": "https://github.com/Shudesu/x-harness-oss#readme",
+  "bugs": {
+    "url": "https://github.com/Shudesu/x-harness-oss/issues"
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
@@ -19,8 +39,12 @@
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "license": "MIT",
   "publishConfig": {

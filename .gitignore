@@ -2,9 +2,17 @@ node_modules/
 dist/
 .wrangler/
 .dev.vars
+.env
+.env.local
+.env.production
+.env.staging
+.mcp.json
 *.log
 .next/
 out/
 *.tsbuildinfo
 .vercel/
+.DS_Store
 packages/mcp/dist/
+.x-harness-setup.json
+.x-harness-config.json

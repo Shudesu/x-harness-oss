@@ -19,6 +19,26 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit"
   },
+  "keywords": [
+    "x",
+    "twitter",
+    "crm",
+    "marketing-automation",
+    "sdk",
+    "ai"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shudesu/x-harness-oss.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/Shudesu/x-harness-oss#readme",
+  "bugs": {
+    "url": "https://github.com/Shudesu/x-harness-oss/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "license": "MIT",
   "devDependencies": {
     "tsup": "^8.0.0",
