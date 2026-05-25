@@ -169,9 +169,19 @@ pnpm install
 npx wrangler d1 create x-harness
 # 出力される database_id を apps/worker/wrangler.toml に記入
 
-# スキーマを適用
+# スキーマを適用（新規環境はこれだけでOK）
 npx wrangler d1 execute x-harness --file=packages/db/schema.sql
 ```
+
+> **既存環境をアップグレードする場合**: `schema.sql` を以前に適用済みなら、差分を `packages/db/migrations/` のマイグレーションで取り込みます。
+>
+> ```bash
+> for f in packages/db/migrations/*.sql; do
+>   npx wrangler d1 execute x-harness --file="$f"
+> done
+> ```
+>
+> 例えば `D1_ERROR: no such table: settings` がログに出るときは、`011-settings-and-line-connections.sql` 以降を流すと解消します。
 
 ### 4. Workers のシークレット設定
 
