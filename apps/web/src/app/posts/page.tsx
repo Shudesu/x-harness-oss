@@ -406,7 +406,7 @@ export default function PostsPage() {
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            予約投稿
+            予約投稿スケジュール
           </button>
         </div>
 
