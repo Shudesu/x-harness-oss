@@ -7,7 +7,33 @@ import Header from '@/components/layout/header'
 import ApiCostGate from '@/components/api-cost-gate'
 import { useCurrentAccountId } from '@/hooks/use-selected-account'
 
-type Tab = 'immediate' | 'scheduled'
+// 202606修正開始
+type Tab = 'immediate' | 'scheduled' | 'schedulePost'
+// 202606修正終了
+
+//202606追加開始
+type SchedulePreview = {
+  id: string;
+  sortOrder: number;
+  enabled: boolean;
+  weekday: string;
+  time: string;
+  offset: string;
+  timezone: string;
+  text: string;
+};
+
+type ScheduleItem = {
+  id: string;
+  enabled: boolean;
+  sortOrder: number;
+  weekday: string;
+  time: string;
+  text: string;
+  offset: string;
+  timezone: string;
+};
+//202606追加終了
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 const ALLOWED_VIDEO_TYPES = ['video/mp4']
@@ -76,6 +102,143 @@ export default function PostsPage() {
   const [scheduled, setScheduled] = useState<ScheduledPost[]>([])
   const [scheduledLoading, setScheduledLoading] = useState(false)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
+
+  // 202606追加開始
+  // ===== 定期スケジュール追加 =====
+  const [weekDay, setWeekDay] = useState('');
+  const WEEKDAY_LABELS: Record<string, string> = {
+  '0': '日曜日',
+  '1': '月曜日',
+  '2': '火曜日',
+  '3': '水曜日',
+  '4': '木曜日',
+  '5': '金曜日',
+  '6': '土曜日',
+  };
+  const [scheduleTime, setScheduleTime] = useState('');
+  const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
+  const hour = String(Math.floor(i / 2)).padStart(2, '0');
+  const minute = i % 2 === 0 ? '00' : '30';
+  return `${hour}:${minute}`;
+  });
+  const [timeOffset, setTimeOffset] = useState('5');
+  const [timezone, setTimezone] = useState('Asia/Tokyo');
+  const TIMEZONES = [
+  { value: 'Asia/Tokyo', label: '日本 (JST)' },
+  { value: 'America/New_York', label: '米国東部 (EST/EDT)' },
+  { value: 'America/Chicago', label: '米国中部 (CST/CDT)' },
+  { value: 'America/Denver', label: '米国山岳部 (MST/MDT)' },
+  { value: 'America/Los_Angeles', label: '米国西部 (PST/PDT)' },
+  { value: 'Europe/London', label: '英国 (GMT/BST)' },
+  { value: 'Europe/Paris', label: '中央ヨーロッパ (CET/CEST)' },
+  { value: 'Australia/Sydney', label: 'オーストラリア東部' },
+  { value: 'Asia/Seoul', label: '韓国 (KST)' },
+　{ value: 'Asia/Shanghai', label: '中国 (CST)' },
+　{ value: 'Asia/Singapore', label: 'シンガポール (SGT)' },
+  ];
+  const currentXAccountId = useCurrentAccountId();
+  const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL;
+  const [scheduleList, setScheduleList] = useState<SchedulePreview[]>([]);
+  const [menuOpenIndex, setMenuOpenIndex] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const handleDelete = (index: number) => {
+  setScheduleList(
+    scheduleList.filter((_, i) => i !== index)
+  );
+  };
+ const handleEdit = (index: number) => {
+  const item = scheduleList[index];
+
+  setEditingId(item.id);
+
+  setWeekDay(item.weekday);
+  setScheduleTime(item.time);
+  setSchText(item.text);
+  setTimeOffset(item.offset);
+  setTimezone(item.timezone);
+
+  setMenuOpenIndex(null);
+};
+const moveUp = (index: number) => {
+  if (index === 0) return;
+
+  const newList = [...scheduleList];
+
+  [newList[index - 1], newList[index]] = [
+    newList[index],
+    newList[index - 1],
+  ];
+
+  setScheduleList(newList);
+};
+
+const moveDown = (index: number) => {
+  if (index === scheduleList.length - 1) return;
+
+  const newList = [...scheduleList];
+
+  [newList[index + 1], newList[index]] = [
+    newList[index],
+    newList[index + 1],
+  ];
+
+  setScheduleList(newList);
+};
+const handleSchedulePost = async () => {
+  const newItem: SchedulePreview = {
+    id: editingId ?? crypto.randomUUID(),
+    weekday: weekDay,
+    time: scheduleTime,
+    offset: timeOffset,
+    timezone,
+    text: schText,
+    sortOrder: 0, // 後で再計算
+    enabled: true,
+  };
+
+  let updatedList: SchedulePreview[];
+
+  // ===== 編集モード =====
+  if (editingId) {
+    updatedList = scheduleList.map((item) =>
+      item.id === editingId ? newItem : item
+    );
+  } 
+  // ===== 新規モード =====
+  else {
+    updatedList = [...scheduleList, newItem];
+  }
+
+  // sortOrderを再採番
+  updatedList = updatedList.map((item, index) => ({
+    ...item,
+    sortOrder: index + 1,
+  }));
+
+  // ① UI更新
+  setScheduleList(updatedList);
+
+  // ② DB保存
+  await fetch('https://x-harness-worker.x-harness.workers.dev/api/weeks/bulk', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer test-key',
+  },
+  body: JSON.stringify({
+    xAccountId: currentXAccountId,
+    items: updatedList,
+  }),
+});
+
+  // ③ フォームリセット
+  setEditingId(null);
+  setWeekDay('');
+  setScheduleTime('');
+  setSchText('');
+};
+
+  // 202606追加終了
 
   // History
   const [history, setHistory] = useState<TweetHistory[]>([])
@@ -213,6 +376,12 @@ export default function PostsPage() {
       mediaFiles.forEach((m) => URL.revokeObjectURL(m.previewUrl))
     }
   }, [mediaFiles])
+
+  //202606新規追加開始
+  useEffect(() => {
+  console.log("WORKER_URL =", process.env.NEXT_PUBLIC_WORKER_URL);
+}, []);
+  //202606新規追加終了
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -406,9 +575,255 @@ export default function PostsPage() {
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            予約投稿スケジュール
+            予約投稿
           </button>
+{/* 202606追加 開始*/}
+          <button
+            onClick={() => setTab('schedulePost')}
+            className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              tab === 'schedulePost'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+            >
+              スケジュール投稿
+          </button>
+{/* 202606追加 終了*/}
         </div>
+
+{/* 202606追加開始 */}
+{tab === 'schedulePost' && (
+  <div className="space-y-4 mt-4">
+
+    <div className="flex gap-4 items-start flex-nowrap px-4">
+
+      {/* ===== 曜日選択 ===== */}
+      <div className="w-36">
+        <label className="block text-xs font-medium text-gray-600 mb-1">
+          曜日 <span className="text-red-500">*</span>
+        </label>
+
+        <select
+          value={weekDay}
+          onChange={(e) => setWeekDay(e.target.value)}
+          required
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">選択してください</option>
+          <option value="0">日曜日</option>
+          <option value="1">月曜日</option>
+          <option value="2">火曜日</option>
+          <option value="3">水曜日</option>
+          <option value="4">木曜日</option>
+          <option value="5">金曜日</option>
+          <option value="6">土曜日</option>
+        </select>
+      </div>
+
+      {/* ===== 時刻選択 ===== */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">
+          投稿時刻 <span className="text-red-500">*</span>
+        </label>
+
+        <select
+          value={scheduleTime}
+          onChange={(e) => setScheduleTime(e.target.value)}
+          required
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">選択してください</option>
+
+          {TIME_OPTIONS.map((time) => (
+            <option key={time} value={time}>
+              {time}
+            </option>
+          ))}
+        </select>
+      </div>
+      
+      {/* ===== 投稿テキスト ===== */}
+      <div className="flex-1">
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            投稿テキスト <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            value={schText}
+            onChange={(e) => setSchText(e.target.value)}
+            placeholder="ツイートの内容を入力..."
+            required
+            rows={4}
+            maxLength={280}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          />
+          <CharCounter length={schText.length} limit={280} />
+      </div>
+              
+      {/* ===== 時刻ずらし ===== */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">
+          時間ずらし
+        </label>
+
+        <select
+          value={timeOffset}
+          onChange={(e) => setTimeOffset(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="5">±5分</option>
+          <option value="10">±10分</option>
+          <option value="15">±15分</option>
+        </select>
+      </div>
+              
+      {/* ===== タイムゾーン ===== */}
+      <div className="w-48">
+        <label className="block text-xs font-medium text-gray-600 mb-1">
+          タイムゾーン
+        </label>
+
+        <select
+          value={timezone}
+          onChange={(e) => setTimezone(e.target.value)}
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          {TIMEZONES.map((tz) => (
+            <option
+              key={tz.value}
+              value={tz.value}
+            >
+              {tz.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* キューに追加ボタン */}
+      <div className="flex items-start pt-6">
+        <button
+          type="button"
+          onClick={handleSchedulePost}
+          className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+        >
+          キューに追加
+        </button>
+      </div>
+</div>
+    {/* ===== 登録済みスケジュール ===== */}
+    {scheduleList.length > 0 && (
+      <div className="mt-6 overflow-x-auto px-4">
+        <table className="min-w-full border border-gray-200 text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="border px-3 py-2 w-20"></th>
+              <th className="border px-3 py-2">曜日</th>
+              <th className="border px-3 py-2">投稿時刻</th>
+              <th className="border px-3 py-2">投稿テキスト</th>
+              <th className="border px-3 py-2">時刻ずらし</th>
+              <th className="border px-3 py-2">タイムゾーン</th>
+              <th className="border px-3 py-2 w-16"></th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {scheduleList.map((item, index) => (
+              <tr key={item.id}>
+
+                <td className="border px-3 py-2 whitespace-nowrap">
+                  <div className="flex items-center gap-2">
+
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => moveUp(index)}
+                      disabled={index === 0}
+                      className="px-1 text-gray-600 disabled:text-gray-300"
+                    >
+                      ↑
+                    </button>
+
+                    <span className="text-xs text-gray-500">
+                      {item.sortOrder}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => moveDown(index)}
+                      disabled={index === scheduleList.length - 1}
+                      className="px-1 text-gray-600 disabled:text-gray-300"
+                    >
+                      ↓
+                    </button>
+
+                  </div>
+                </td>
+                <td className="border px-3 py-2">
+                  {WEEKDAY_LABELS[item.weekday]}
+                </td>
+
+                <td className="border px-3 py-2">
+                  {item.time}
+                </td>
+
+                <td className="border px-3 py-2">
+                  {item.text}
+                </td>
+
+                <td className="border px-3 py-2">
+                  ±{item.offset}分
+                </td>
+
+                <td className="border px-3 py-2">
+                   {item.timezone}
+                </td>
+
+                <td className="border px-3 py-2 relative">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMenuOpenIndex(
+                        menuOpenIndex === index ? null : index
+                      )
+                    }
+                    className="px-2 py-1 rounded hover:bg-gray-100"
+                  >
+                    ⋮
+                  </button>
+
+                  {menuOpenIndex === index && (
+                    <div className="absolute right-2 mt-1 w-24 bg-white border rounded shadow-lg z-10">
+                      <button
+                        type="button"
+                        onClick={() => handleEdit(index)}
+                        className="block w-full text-left px-3 py-2 hover:bg-gray-100"
+                      >
+                        編集
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(index)}
+                        className="block w-full text-left px-3 py-2 text-red-500 hover:bg-gray-100"
+                      >
+                        削除
+                      </button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}        
+
+  </div>
+)}
+{/* 202606追加終了 */}
 
         <div className="p-5">
           {/* Immediate post tab */}
@@ -695,6 +1110,7 @@ export default function PostsPage() {
           )}
         </div>
       </div>
+
 
       {/* History section */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
