@@ -14,3 +14,15 @@ CREATE TABLE IF NOT EXISTS line_connections (
   api_key TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+-- 202606新規追加開始
+INSERT OR IGNORE INTO settings (
+  key,
+  value,
+  updated_at
+)
+VALUES (
+  'auto_features_enabled',
+  'true',
+  datetime('now')
+);
+-- 202606新規追加終了

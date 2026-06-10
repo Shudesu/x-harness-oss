@@ -22,6 +22,10 @@ import { xaa } from './routes/xaa.js';
 import { campaigns } from './routes/campaigns.js';
 import { setup } from './routes/setup.js';
 import { processStepSequences } from './services/step-processor.js';
+//202606新規追加開始
+import { weeks } from './routes/weeks.js';
+import { processWeeklySchedules }from './services/week-scheduler.js';
+//202606新規追加終了
 
 export type Env = {
   Bindings: {
@@ -60,6 +64,9 @@ app.route('/', usage);
 app.route('/', xaa);
 app.route('/', campaigns);
 app.route('/', setup);
+//202606新規追加開始
+app.route('/', weeks);
+//202606新規追加終了
 
 // Settings API (key-value store)
 app.get('/api/settings', async (c) => {
@@ -117,6 +124,9 @@ async function scheduled(
   env: Env['Bindings'],
   _ctx: ExecutionContext,
 ): Promise<void> {
+  //202606新規追加開始
+  console.log('[cron] started');
+  //202606新規追加終了
   // Auto-features are OFF by default to avoid unexpected API costs.
   // Users enable them from the dashboard settings page.
   const autoEnabled = await getSettingBool(env.DB, 'auto_features_enabled', false);
@@ -124,6 +134,9 @@ async function scheduled(
   const dbAccounts = await getXAccounts(env.DB);
 
   if (autoEnabled) {
+    //202606新規追加開始
+    await processWeeklySchedules(env.DB);
+    //202606新規追加終了
     const jobs: Promise<void>[] = [];
     for (const account of dbAccounts) {
       const xClient = account.consumer_key && account.consumer_secret && account.access_token_secret

@@ -1,7 +1,12 @@
 'use client'
-
-import { useState, useEffect, useCallback, useRef } from 'react'
 // 202606修正開始
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from 'react'
 import { api, fetchApi } from '@/lib/api'
 // 202606修正終了
 import type { TweetHistory, ScheduledPost } from '@/lib/api'
@@ -23,6 +28,7 @@ type SchedulePreview = {
   offset: string;
   timezone: string;
   text: string;
+  lastPostedAt?: string | null
 };
 
 type ScheduleItem = {
@@ -35,6 +41,7 @@ type ScheduleItem = {
   offset: string;
   timezone: string;
 };
+
 //202606追加終了
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
@@ -144,6 +151,24 @@ export default function PostsPage() {
   const [menuOpenIndex, setMenuOpenIndex] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // 週間ビュー用
+  const scheduleMap = useMemo(() => {
+    const map = new Map<string, SchedulePreview[]>()
+
+    scheduleList.forEach((item) => {
+      const key = `${item.weekday}-${item.time}`
+
+      if (!map.has(key)) {
+        map.set(key, [])
+      }
+
+      map.get(key)!.push(item)
+    })
+
+    return map
+  }, [scheduleList])
+  const formRef = useRef<HTMLDivElement>(null)
+
   // 必須チェック
   const isValid =
   weekDay !== '' &&
@@ -183,7 +208,14 @@ export default function PostsPage() {
   setTimezone(item.timezone);
 
   setMenuOpenIndex(null);
- };
+
+  requestAnimationFrame(() => {
+    formRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+  });
+};
 
 //↑ボタン
 const moveUp = async (index: number) => {
@@ -663,7 +695,10 @@ const handleSchedulePost = async () => {
 
 {/* 202606追加開始 */}
 {tab === 'schedulePost' && (
-  <div className="space-y-4 mt-4">
+  <div
+    ref={formRef}
+    className="space-y-4 mt-4"
+  >
 
     <div className="flex gap-4 items-start flex-nowrap px-4">
 
@@ -894,8 +929,94 @@ const handleSchedulePost = async () => {
           </tbody>
         </table>
       </div>
-    )}        
+            )}
+    {/* 週間ビュー用         */}
+    <div className="mt-6 overflow-auto px-4">
 
+      <table className="w-full border-collapse text-xs">
+
+        <thead>
+          <tr>
+            <th className="border bg-gray-100 w-20">
+              時刻
+            </th>
+
+            {['日', '月', '火', '水', '木', '金', '土'].map((day) => (
+              <th
+                key={day}
+                className="border bg-gray-100 w-40"
+              >
+                {day}
+              </th>
+            ))}
+          </tr>
+        </thead>
+
+        <tbody>
+          {TIME_OPTIONS.map((time) => (
+            <tr key={time}>
+
+              {/* 時刻 */}
+              <td className="border px-2 py-2 text-center bg-gray-50">
+                {time}
+              </td>
+
+              {/* 曜日 */}
+              {Array.from({ length: 7 }).map((_, weekday) => {
+
+                const key = `${weekday}-${time}`
+                const posts = scheduleMap.get(key) || []
+
+                return (
+                  <td
+                    key={weekday}
+                    className={`border align-top p-1 h-16 ${
+                      posts.length > 0
+                        ? 'bg-green-200'
+                        : ''
+                    }`}
+                  >
+                    <div className="space-y-1">
+
+                      {posts.map((post) => (
+                      <button
+                        key={post.id}
+                        type="button"
+                        onClick={() => {
+                          const index = scheduleList.findIndex(
+                            item => item.id === post.id
+                          )
+
+                          if (index >= 0) {
+                            handleEdit(index)
+                          }
+                        }}
+                        className={`w-full text-left rounded px-2 py-1 text-[10px] break-words
+                          hover:ring-2 hover:ring-blue-500 transition
+                          ${
+                            post.lastPostedAt
+                              ? 'bg-gray-300'
+                              : post.enabled
+                                ? 'bg-blue-200'
+                                : 'bg-gray-200'
+                          }
+                        `}
+                      >
+                        {post.text}
+                      </button>
+                    ))}
+
+                    </div>
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+
+      </table>
+
+    </div>
   </div>
 )}
 {/* 202606追加終了 */}
