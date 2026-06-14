@@ -243,6 +243,12 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+-- 202606新規追加開始
+INSERT OR IGNORE INTO settings (key, value, updated_at)
+VALUES
+  ('posting_enabled', 'true', datetime('now')),
+  ('auto_features_enabled', 'true', datetime('now'));
+-- 202606新規追加終了
 
 -- LINE Connections (L Harness 連携先)
 CREATE TABLE IF NOT EXISTS line_connections (
