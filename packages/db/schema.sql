@@ -121,6 +121,18 @@ CREATE TABLE IF NOT EXISTS scheduled_posts (
 );
 CREATE INDEX IF NOT EXISTS idx_scheduled_posts_status ON scheduled_posts(status);
 
+-- Burst guard: per-post event log for velocity-based rate limiting (Issue #3233).
+-- Records every actual tweet creation so the immediate-post path can count an
+-- account's posting velocity within a recent window. api_usage_logs aggregates
+-- by date and cannot answer "how many posts in the last N minutes".
+CREATE TABLE IF NOT EXISTS post_burst_log (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  posted_at TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'immediate'
+);
+CREATE INDEX IF NOT EXISTS idx_post_burst_account_time ON post_burst_log (x_account_id, posted_at);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deliveries_token ON engagement_gate_deliveries(token);
 
 -- Users (UUID — The Harness unification)

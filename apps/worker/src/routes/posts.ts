@@ -1,10 +1,19 @@
 import { Hono } from 'hono';
 import { XClient } from '@x-harness/x-sdk';
-import { createScheduledPost, getScheduledPosts, deleteScheduledPost, getXAccountById, getXAccounts, incrementApiUsage, saveQuoteTweets, getQuoteTweetsByAccount, getQuoteTweetsBySource, getLatestDiscoveredAt, recordAction, getActions } from '@x-harness/db';
+import { createScheduledPost, getScheduledPosts, deleteScheduledPost, getXAccountById, getXAccounts, incrementApiUsage, saveQuoteTweets, getQuoteTweetsByAccount, getQuoteTweetsBySource, getLatestDiscoveredAt, recordAction, getActions, recordPostEvent, countRecentPosts } from '@x-harness/db';
 import type { SaveQuoteTweetInput } from '@x-harness/db';
 import type { Env } from '../index.js';
 
 const posts = new Hono<Env>();
+
+// Burst guard (Issue #3233): velocity cap on the immediate-post path. An account
+// may fire at most BURST_MAX immediate posts within BURST_WINDOW_MINUTES. Batch
+// posting must go through POST /api/posts/schedule (with staggered scheduledAt)
+// instead; callers that genuinely need a burst pass { allowBurst: true }. The
+// 2026-06-11 13連発 — 13 immediate posts in minutes — got @shii10000 flagged for
+// spam; this is the physical block so an endpoint mix-up can never burst-fire again.
+const BURST_WINDOW_MINUTES = 10;
+const BURST_MAX = 3;
 
 // Helper: build XClient from account record
 function buildXClient(account: { consumer_key: string | null; consumer_secret: string | null; access_token: string; access_token_secret: string | null }): XClient {
@@ -20,10 +29,28 @@ function buildXClient(account: { consumer_key: string | null; consumer_secret: s
 }
 
 posts.post('/api/posts', async (c) => {
-  const { xAccountId, text, mediaIds, quoteTweetId } = await c.req.json<{ xAccountId: string; text: string; mediaIds?: string[]; quoteTweetId?: string }>();
+  const { xAccountId, text, mediaIds, quoteTweetId, allowBurst } = await c.req.json<{ xAccountId: string; text: string; mediaIds?: string[]; quoteTweetId?: string; allowBurst?: boolean }>();
   if (!text || !xAccountId) return c.json({ success: false, error: 'Missing required fields: xAccountId, text' }, 400);
   const account = await getXAccountById(c.env.DB, xAccountId);
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
+
+  // Burst guard (#3233): refuse to fire if this account already posted BURST_MAX
+  // times in the last BURST_WINDOW_MINUTES, unless explicitly overridden. Loud
+  // 429 with error_kind — No Silent Fallback (到達原則 #9).
+  if (allowBurst !== true) {
+    const recent = await countRecentPosts(c.env.DB, account.id, BURST_WINDOW_MINUTES);
+    if (recent >= BURST_MAX) {
+      return c.json(
+        {
+          success: false,
+          error_kind: 'burst_guard',
+          error: `BURST_GUARD: ${recent} posts in the last ${BURST_WINDOW_MINUTES} min reached the limit of ${BURST_MAX}. Use POST /api/posts/schedule for batch posting, or pass { "allowBurst": true } to override intentionally.`,
+        },
+        429,
+      );
+    }
+  }
+
   const xClient = buildXClient(account);
   try {
     const tweet = await xClient.createTweet({
@@ -31,6 +58,9 @@ posts.post('/api/posts', async (c) => {
       media: mediaIds ? { media_ids: mediaIds } : undefined,
       quote_tweet_id: quoteTweetId,
     });
+    // Awaited (not waitUntil) so a sequential posting loop sees this row before
+    // it counts for the next post — that is the burst shape we guard against.
+    await recordPostEvent(c.env.DB, account.id, 'immediate');
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'create_tweet'));
     return c.json({ success: true, data: tweet }, 201);
   } catch (err: any) {
