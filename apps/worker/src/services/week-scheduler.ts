@@ -1,4 +1,7 @@
 //202606新規追加開始
+//20260614修正開始
+import { calculateNextWeeklyRunAt } from './week-schedule-time.js';
+/*
 function calculateNextWeeklyRunAt(
   week: {
     weekday: number;
@@ -40,6 +43,8 @@ function calculateNextWeeklyRunAt(
 
   return targetUtc.toISOString();
 }
+*/
+//20260614修正終了
 
 export async function processWeeklySchedules(
   db: D1Database
@@ -130,7 +135,19 @@ export async function processWeeklySchedules(
     // ===============================
     // ③ 次回実行日時を計算
     // ===============================
-    const nextRunAt = calculateNextWeeklyRunAt(week, nowUTC);
+
+    //20260614修正開始
+    //const nextRunAt = calculateNextWeeklyRunAt(week, nowUTC);
+    const nextRunAt = calculateNextWeeklyRunAt(
+    {
+      weekday: week.weekday,
+      time: week.time,
+      offset: week.offset,
+      timezone: week.timezone,
+    },
+    nowUTC,
+);
+    //20260614修正終了
 
     // ===============================
     // ④ 先に scheduled_weeks を更新する

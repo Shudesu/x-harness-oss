@@ -31,7 +31,47 @@ type SchedulePreview = {
   nextRunAt?: string | null;
   lastPostedAt?: string | null
 };
+//0615追加開始
+function getWeeklyViewKey(item: SchedulePreview) {
+  if (!item.nextRunAt) {
+    return `${item.weekday}-${item.time}`;
+  }
 
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    hourCycle: 'h23',
+  }).formatToParts(new Date(item.nextRunAt));
+
+  const map: Record<string, string> = {};
+
+  for (const part of parts) {
+    if (part.type !== 'literal') {
+      map[part.type] = part.value;
+    }
+  }
+
+  const weekdayMap: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+  };
+
+  const hour = Number(map.hour);
+  const minute = Number(map.minute);
+  const bucketMinute = minute < 30 ? '00' : '30';
+  const bucketTime = `${String(hour).padStart(2, '0')}:${bucketMinute}`;
+
+  return `${weekdayMap[map.weekday]}-${bucketTime}`;
+}
+//0615追加終了
 type ScheduleItem = {
   id: string;
   enabled: boolean;
@@ -164,10 +204,13 @@ export default function PostsPage() {
   // 週間ビュー用
   const scheduleMap = useMemo(() => {
     const map = new Map<string, SchedulePreview[]>()
-
     scheduleList.forEach((item) => {
+  //0615修正開始
+      /*
       const key = `${item.weekday}-${item.time}`
-
+      */
+      const key = getWeeklyViewKey(item)
+  //0615修正終了
       if (!map.has(key)) {
         map.set(key, [])
       }
@@ -919,12 +962,22 @@ const loadScheduleList = useCallback(async () => {
 
                   </div>
                 </td>
-                <td className="border px-2 py-2 text-center">
+                {/* 20260614修正開始 */}
+                {/* <td className="border px-2 py-2 text-center">
                   {item.nextRunAt
                     ? new Date(item.nextRunAt).toLocaleDateString('ja-JP')
                     : '-'}
+                </td> */}
+                <td className="border px-2 py-2 text-center">
+                  {item.nextRunAt
+                    ? new Date(item.nextRunAt).toLocaleDateString('ja-JP', {
+                        timeZone: item.timezone || 'Asia/Tokyo',
+                        month: 'numeric',
+                        day: 'numeric',
+                      })
+                    : '-'}
                 </td>
-
+                {/* 20260614修正開始 */}
                 <td className="border px-3 py-2">
                   {WEEKDAY_LABELS[item.weekday]}
                 </td>
@@ -1053,13 +1106,33 @@ const hasPosted = postedPosts.length > 0
                               : 'bg-gray-200'
                           }
                         `}
-                      >
-                        <div className="font-semibold text-[10px]">
+                        >
+                        {/* 20260614修正開始 */}
+                        {/* <div className="font-semibold text-[10px]">
                           {post.nextRunAt
                             ? new Date(post.nextRunAt).toLocaleDateString('ja-JP')
                             : '-'}
-                        </div>
-
+                        </div> */}
+                        {/* <div className="font-semibold text-[10px]">
+                          {post.nextRunAt
+                            ? new Date(post.nextRunAt).toLocaleDateString('ja-JP', {
+                                timeZone: post.timezone || 'Asia/Tokyo',
+                              })
+                            : '-'}
+                        </div> */}
+                        <div className="font-semibold text-[10px]">
+                          {post.nextRunAt
+                            ? new Date(post.nextRunAt).toLocaleDateString('ja-JP', {
+                                timeZone: 'Asia/Tokyo',
+                                month: 'numeric',
+                                day: 'numeric',
+                              })
+                            : '-'}
+                        </div> 
+                        <div className="text-[9px] text-gray-500">
+                          {post.timezone}
+                        </div>  
+                        {/* 20260614修正終了 */}
                         <div className="mt-1">
                           {post.text.length > 10
                             ? `${post.text.slice(0, 10)}...`

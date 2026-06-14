@@ -2,6 +2,9 @@
 import { Hono } from 'hono';
 import type { Env } from '../index.js';
 
+//20260614新規追加開始
+import { calculateNextWeeklyRunAt } from '../services/week-schedule-time.js';
+//20260614新規追加終了
 export const weeks = new Hono<Env>();
 //0612追加開始
 weeks.get('/api/weeks', async (c) => {
@@ -93,6 +96,8 @@ const now = new Date().toISOString();
     `DELETE FROM scheduled_weeks WHERE x_account_id = ?`
   ).bind(xAccountId).run();
 
+  //20260614修正開始
+/*
 function getNextRunAt(weekday: number, time: string, offset: number) {
   const now = new Date();
 
@@ -132,7 +137,9 @@ function getNextRunAt(weekday: number, time: string, offset: number) {
 
   return targetUtc.toISOString();
 }
-  
+*/
+  //20260614修正終了
+
   const stmt = c.env.DB.prepare(`
     INSERT INTO scheduled_weeks (
       id,
@@ -145,9 +152,10 @@ function getNextRunAt(weekday: number, time: string, offset: number) {
       sort_order,
       enabled,
       next_run_at,
+      last_posted_at,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const item of items) {
@@ -161,7 +169,16 @@ function getNextRunAt(weekday: number, time: string, offset: number) {
       item.text,
       item.sortOrder ?? 0,
       item.enabled ? 1 : 0,
-      getNextRunAt(Number(item.weekday), item.time, Number(item.offset)),
+      //20260614修正開始
+      //getNextRunAt(Number(item.weekday), item.time, Number(item.offset)),
+      calculateNextWeeklyRunAt({
+        weekday: item.weekday,
+        time: item.time,
+        offset: item.offset,
+        timezone: item.timezone,
+      }),
+      item.lastPostedAt ?? null,
+      //20260614修正終了
       now,
       now
     ).run();
