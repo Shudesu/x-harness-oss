@@ -206,10 +206,7 @@ export default function PostsPage() {
     const map = new Map<string, SchedulePreview[]>()
     scheduleList.forEach((item) => {
   //0615修正開始
-      /*
-      const key = `${item.weekday}-${item.time}`
-      */
-      const key = getWeeklyViewKey(item)
+    const key = getWeeklyViewKey(item)
   //0615修正終了
       if (!map.has(key)) {
         map.set(key, [])
@@ -376,10 +373,7 @@ const handleSchedulePost = async () => {
     sortOrder: index + 1,
   }));
 
-  // ① UI更新
-  //setScheduleList(updatedList);
-
-  // ② DB保存
+  //DB保存
   
   await fetchApi('/api/weeks/bulk', {
   method: 'POST',
@@ -391,7 +385,7 @@ const handleSchedulePost = async () => {
   
   await loadScheduleList();
 
-  // ③ フォームリセット
+  //フォームリセット
   setEditingId(null);
   setWeekDay('');
   setScheduleTime('');
@@ -963,11 +957,6 @@ const loadScheduleList = useCallback(async () => {
                   </div>
                 </td>
                 {/* 20260614修正開始 */}
-                {/* <td className="border px-2 py-2 text-center">
-                  {item.nextRunAt
-                    ? new Date(item.nextRunAt).toLocaleDateString('ja-JP')
-                    : '-'}
-                </td> */}
                 <td className="border px-2 py-2 text-center">
                   {item.nextRunAt
                     ? new Date(item.nextRunAt).toLocaleDateString('ja-JP', {
@@ -1108,18 +1097,6 @@ const hasPosted = postedPosts.length > 0
                         `}
                         >
                         {/* 20260614修正開始 */}
-                        {/* <div className="font-semibold text-[10px]">
-                          {post.nextRunAt
-                            ? new Date(post.nextRunAt).toLocaleDateString('ja-JP')
-                            : '-'}
-                        </div> */}
-                        {/* <div className="font-semibold text-[10px]">
-                          {post.nextRunAt
-                            ? new Date(post.nextRunAt).toLocaleDateString('ja-JP', {
-                                timeZone: post.timezone || 'Asia/Tokyo',
-                              })
-                            : '-'}
-                        </div> */}
                         <div className="font-semibold text-[10px]">
                           {post.nextRunAt
                             ? new Date(post.nextRunAt).toLocaleDateString('ja-JP', {

@@ -70,10 +70,6 @@ weeks.get('/api/weeks', async (c) => {
 weeks.post('/api/weeks/bulk', async (c) => {
 
   //0612修正開始
-  /*
-  const { xAccountId, items } = await c.req.json();
-  const now = new Date().toISOString();
-  */
   const { xAccountId, items } = await c.req.json();
 
     if (!xAccountId || !Array.isArray(items)) {
@@ -96,49 +92,6 @@ const now = new Date().toISOString();
     `DELETE FROM scheduled_weeks WHERE x_account_id = ?`
   ).bind(xAccountId).run();
 
-  //20260614修正開始
-/*
-function getNextRunAt(weekday: number, time: string, offset: number) {
-  const now = new Date();
-
-  // JST現在時刻を作る
-  const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-
-  const currentWeekday = jstNow.getUTCDay();
-
-  const [hour, minute] = time.split(':').map(Number);
-
-  // -offset ～ +offset のランダム分数
-  const randomOffsetMinutes =
-    offset === 0
-      ? 0
-      : Math.floor(Math.random() * (offset * 2 + 1)) - offset;
-
-  let diff = weekday - currentWeekday;
-
-  if (diff < 0) {
-    diff += 7;
-  }
-
-  const targetJst = new Date(jstNow);
-  targetJst.setUTCDate(jstNow.getUTCDate() + diff);
-  targetJst.setUTCHours(hour, minute, 0, 0);
-
-  // ランダムに時刻をずらす
-  targetJst.setUTCMinutes(targetJst.getUTCMinutes() + randomOffsetMinutes);
-
-  // 今日の同じ曜日で、時刻を過ぎていたら翌週
-  if (targetJst.getTime() <= jstNow.getTime()) {
-    targetJst.setUTCDate(targetJst.getUTCDate() + 7);
-  }
-
-  // JST時刻をUTCに戻して保存
-  const targetUtc = new Date(targetJst.getTime() - 9 * 60 * 60 * 1000);
-
-  return targetUtc.toISOString();
-}
-*/
-  //20260614修正終了
 
   const stmt = c.env.DB.prepare(`
     INSERT INTO scheduled_weeks (
@@ -170,7 +123,6 @@ function getNextRunAt(weekday: number, time: string, offset: number) {
       item.sortOrder ?? 0,
       item.enabled ? 1 : 0,
       //20260614修正開始
-      //getNextRunAt(Number(item.weekday), item.time, Number(item.offset)),
       calculateNextWeeklyRunAt({
         weekday: item.weekday,
         time: item.time,
