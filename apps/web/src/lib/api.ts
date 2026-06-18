@@ -109,6 +109,9 @@ export interface XAccount {
   xUserId: string;
   username: string;
   displayName: string | null;
+  // 0618追加開始
+  profileImageUrl: string | null;
+  // 0618追加終了
   isActive: boolean;
   createdAt: string;
 }

@@ -198,15 +198,30 @@ export default function AccountsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {accounts.map((account) => (
             <div key={account.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+              {/* 202606修正開始 */}
               <div className="flex items-start justify-between mb-3">
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">
-                    @{account.username}
-                  </p>
-                  {account.displayName && (
-                    <p className="text-xs text-gray-500 mt-0.5">{account.displayName}</p>
+                <div className="flex items-center gap-3">
+                  {account.profileImageUrl ? (
+                    <img
+                      src={account.profileImageUrl}
+                      alt={account.displayName ?? account.username}
+                      className="h-10 w-10 rounded-full"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded-full bg-gray-200" />
                   )}
+
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {account.displayName ?? account.username}
+                    </p>
+
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      @{account.username}
+                    </p>
+                  </div>
                 </div>
+              {/* 202606修正終了 */}
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                     account.isActive
