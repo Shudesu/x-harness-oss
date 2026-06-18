@@ -61,14 +61,42 @@ export function useSelectedAccount() {
   }, [])
 
   // Listen for cross-component sync events
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const id = (e as CustomEvent<string>).detail
-      setSelectedAccountIdState(id)
+useEffect(() => {
+  const handler = (e: Event) => {
+    const id = (e as CustomEvent<string>).detail
+    setSelectedAccountIdState(id)
+  }
+
+  // 0618追加開始
+  const refreshHandler = async () => {
+    setLoading(true)
+
+    try {
+      const res = await api.accounts.list()
+
+      if (res.success) {
+        setAccounts(res.data)
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setLoading(false)
     }
-    window.addEventListener('xh_account_change', handler)
-    return () => window.removeEventListener('xh_account_change', handler)
-  }, [])
+  }
+  // 0618追加終了
+
+  window.addEventListener('xh_account_change', handler)
+  // 0618追加開始
+  window.addEventListener('xh_accounts_refresh', refreshHandler)
+  // 0618追加終了
+
+  return () => {
+    window.removeEventListener('xh_account_change', handler)
+    // 0618追加開始
+    window.removeEventListener('xh_accounts_refresh', refreshHandler)
+    // 0618追加終了
+  }
+}, [])
 
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId) ?? null
 

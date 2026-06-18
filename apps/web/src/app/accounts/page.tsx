@@ -80,7 +80,23 @@ export default function AccountsPage() {
       setTogglingId(null)
     }
   }
+// 0618追加開始
+const handleRefreshProfile = async (account: XAccount) => {
+  try {
+    const res = await api.accounts.refreshProfile(account.id);
 
+    if (res.success) {
+      await loadAccounts();
+      window.dispatchEvent(new CustomEvent('xh_accounts_refresh'));
+      alert('プロフィールを更新しました');
+    } else {
+      alert(res.error ?? 'プロフィール更新に失敗しました');
+    }
+  } catch {
+    alert('プロフィール更新に失敗しました');
+  }
+};
+// 0618追加終了
   return (
     <div>
       <Header
@@ -239,6 +255,15 @@ export default function AccountsPage() {
                 <p className="text-xs text-gray-400">
                   {new Date(account.createdAt).toLocaleDateString('ja-JP')}
                 </p>
+                {/* 0618追加開始 */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleRefreshProfile(account)}
+                    className="text-xs px-3 py-1.5 rounded-md border border-blue-200 text-blue-600 hover:bg-blue-50"
+                  >
+                    更新
+                  </button>
+                {/* 0618追加終了 */}
                 <button
                   onClick={() => handleToggleActive(account)}
                   disabled={togglingId === account.id}
@@ -253,7 +278,8 @@ export default function AccountsPage() {
                     : account.isActive
                     ? '無効化'
                     : '有効化'}
-                </button>
+                  </button>
+                </div>
               </div>
             </div>
           ))}

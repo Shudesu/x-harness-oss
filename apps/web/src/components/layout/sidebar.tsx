@@ -55,9 +55,40 @@ function NavIcon({ d }: { d: string }) {
     </svg>
   )
 }
+//202606追加開始
+function AccountAvatar({
+  account,
+}: {
+  account: {
+    username: string
+    displayName: string | null
+    profileImageUrl?: string | null
+  }
+}) {
+  if (account.profileImageUrl) {
+    return (
+      <img
+        src={account.profileImageUrl}
+        alt={account.displayName ?? account.username}
+        className="h-7 w-7 rounded-full object-cover shrink-0"
+      />
+    )
+  }
+
+  return (
+    <div className="h-7 w-7 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs font-semibold shrink-0">
+      {(account.displayName ?? account.username).slice(0, 1).toUpperCase()}
+    </div>
+  )
+}
+//202606追加終了
+
 
 function AccountSwitcher() {
   const { accounts, loading, selectedAccountId, selectedAccount, setSelectedAccountId } = useSelectedAccount()
+  //202606追加開始
+  const [open, setOpen] = useState(false)
+  //202606追加終了
 
   if (loading) {
     return (
@@ -74,7 +105,8 @@ function AccountSwitcher() {
       <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-2 mb-1.5">
         Xアカウント
       </label>
-      <select
+{/* 202606修正開始 */}
+      {/* <select
         value={selectedAccountId}
         onChange={(e) => setSelectedAccountId(e.target.value)}
         className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm font-medium text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
@@ -91,13 +123,67 @@ function AccountSwitcher() {
             @{a.username}{a.displayName ? ` (${a.displayName})` : ''}
           </option>
         ))}
-      </select>
-      {selectedAccount && (
+      </select> */}
+      
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm font-medium text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer flex items-center gap-2"
+        >
+          {selectedAccount && <AccountAvatar account={selectedAccount} />}
+
+          <span className="flex-1 text-left truncate">
+            {selectedAccount?.displayName ?? selectedAccount?.username ?? 'Select account'}
+          </span>
+
+          <svg
+            className="w-4 h-4 text-gray-400 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+              {open && (
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg overflow-hidden">
+          {accounts.map((account) => (
+            <button
+              key={account.id}
+              type="button"
+              onClick={() => {
+                setSelectedAccountId(account.id)
+                setOpen(false)
+              }}
+              className={`w-full px-2.5 py-2 flex items-center gap-2 text-left hover:bg-gray-50 ${
+                account.id === selectedAccountId ? 'bg-blue-50' : ''
+              }`}
+            >
+              <AccountAvatar account={account} />
+
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-gray-900 truncate">
+                  {account.displayName ?? account.username}
+                </span>
+                <span className="block text-xs text-gray-400 truncate">
+                  @{account.username}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      </div>
+
+
+      {/* {selectedAccount && (
         <p className="px-2 mt-1 text-xs text-gray-400 truncate">
           {selectedAccount.displayName ?? `@${selectedAccount.username}`}
         </p>
-      )}
+      )} */}
     </div>
+    {/* 202606修正終了 */}
   )
 }
 
