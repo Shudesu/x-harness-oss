@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
-import { createXAccount, getXAccounts, getXAccountById, updateXAccount, getEngagementGates, getSnapshots, hasSnapshotForToday, recordSnapshot } from '@x-harness/db';
+//0618修正開始
+import { createXAccount, getXAccounts, getXAccountById, updateXAccount, updateXAccountProfile, getEngagementGates, getSnapshots, hasSnapshotForToday, recordSnapshot } from '@x-harness/db';
+//0618修正終了
 import { XClient } from '@x-harness/x-sdk';
 import type { Env } from '../index.js';
 
@@ -11,6 +13,9 @@ function serialize(a: any) {
     xUserId: a.x_user_id,
     username: a.username,
     displayName: a.display_name,
+    // 0618追加開始
+    profileImageUrl: a.profile_image_url,
+    // 0618追加終了
     isActive: !!a.is_active,
     createdAt: a.created_at,
   };
@@ -23,6 +28,9 @@ xAccounts.post('/api/x-accounts', async (c) => {
     accessToken: string;
     refreshToken?: string;
     displayName?: string;
+    // 0618追加開始
+    profileImageUrl?: string;
+    // 0618追加終了
     consumerKey?: string;
     consumerSecret?: string;
     accessTokenSecret?: string;
@@ -30,8 +38,36 @@ xAccounts.post('/api/x-accounts', async (c) => {
   if (!body.xUserId || !body.username || !body.accessToken) {
     return c.json({ success: false, error: 'Missing required fields' }, 400);
   }
+  //202606修正開始
+  /*
   const account = await createXAccount(c.env.DB, body);
   return c.json({ success: true, data: serialize(account) }, 201);
+  */
+  let accountInput = body;
+
+if (body.consumerKey && body.consumerSecret && body.accessTokenSecret) {
+  const xClient = new XClient({
+    type: 'oauth1',
+    consumerKey: body.consumerKey,
+    consumerSecret: body.consumerSecret,
+    accessToken: body.accessToken,
+    accessTokenSecret: body.accessTokenSecret,
+  });
+
+  const me = await xClient.getMe();
+
+  accountInput = {
+    ...body,
+    xUserId: me.id,
+    username: me.username,
+    displayName: me.name,
+    profileImageUrl: me.profile_image_url,
+  };
+}
+
+const account = await createXAccount(c.env.DB, accountInput);
+return c.json({ success: true, data: serialize(account) }, 201);
+  //202606修正終了
 });
 
 xAccounts.get('/api/x-accounts', async (c) => {
@@ -68,12 +104,55 @@ xAccounts.put('/api/x-accounts/:id', async (c) => {
     accessTokenSecret?: string;
     isActive?: boolean;
   }>();
+  
   const existing = await getXAccountById(c.env.DB, c.req.param('id'));
   if (!existing) return c.json({ success: false, error: 'Not found' }, 404);
   await updateXAccount(c.env.DB, c.req.param('id'), body);
   return c.json({ success: true });
 });
+// 0618追加開始
+xAccounts.post('/api/x-accounts/:id/refresh-profile', async (c) => {
+  const id = c.req.param('id');
 
+  const account = await getXAccountById(c.env.DB, id);
+  if (!account) {
+    return c.json({ success: false, error: 'Not found' }, 404);
+  }
+
+  if (!account.consumer_key || !account.consumer_secret || !account.access_token_secret) {
+    return c.json(
+      {
+        success: false,
+        error: 'プロフィール更新には OAuth1 情報が必要です',
+      },
+      400,
+    );
+  }
+
+  const xClient = new XClient({
+    type: 'oauth1',
+    consumerKey: account.consumer_key,
+    consumerSecret: account.consumer_secret,
+    accessToken: account.access_token,
+    accessTokenSecret: account.access_token_secret,
+  });
+
+  const me = await xClient.getMe();
+
+  await updateXAccountProfile(c.env.DB, id, {
+    username: me.username,
+    displayName: me.name,
+    profileImageUrl: me.profile_image_url,
+  });
+
+  const updated = await getXAccountById(c.env.DB, id);
+
+  return c.json({
+    success: true,
+    data: updated ? serialize(updated) : null,
+  });
+});
+// 0618追加終了
 xAccounts.get('/api/x-accounts/:id/stats', async (c) => {
   const id = c.req.param('id');
   const existing = await getXAccountById(c.env.DB, id);
