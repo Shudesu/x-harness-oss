@@ -5,6 +5,9 @@ export interface DbXAccount {
   x_user_id: string;
   username: string;
   display_name: string | null;
+  // 0618追加開始
+  profile_image_url: string | null;
+  // 0618追加終了
   access_token: string;
   refresh_token: string | null;
   consumer_key: string | null;
@@ -23,6 +26,9 @@ export async function createXAccount(
     accessToken: string;
     refreshToken?: string;
     displayName?: string;
+    // 0618追加開始
+    profileImageUrl?: string;
+    // 0618追加終了
     consumerKey?: string;
     consumerSecret?: string;
     accessTokenSecret?: string;
@@ -31,15 +37,21 @@ export async function createXAccount(
   const id = crypto.randomUUID();
   const now = jstNow();
   const result = await db
+    // 0618修正開始
     .prepare(
-      `INSERT INTO x_accounts (id, x_user_id, username, display_name, access_token, refresh_token, consumer_key, consumer_secret, access_token_secret, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
-    )
+      `INSERT INTO x_accounts (id, x_user_id, username, display_name, profile_image_url, access_token, refresh_token, consumer_key, consumer_secret, access_token_secret, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+  )
+    // 0618修正終了
     .bind(
       id,
       input.xUserId,
       input.username,
-      input.displayName ?? null,
+      //202606修正開始
+      //input.displayName ?? null,
+      input.displayName ?? input.username,
+      input.profileImageUrl ?? null,
+      //202606修正終了
       input.accessToken,
       input.refreshToken ?? null,
       input.consumerKey ?? null,
@@ -92,3 +104,34 @@ export async function updateXAccount(
     )
     .run();
 }
+// 202606追加開始
+export async function updateXAccountProfile(
+  db: D1Database,
+  id: string,
+  updates: {
+    displayName?: string | null;
+    profileImageUrl?: string | null;
+    username?: string;
+  },
+): Promise<void> {
+  const now = jstNow();
+
+  await db
+    .prepare(
+      `UPDATE x_accounts
+       SET display_name = ?,
+           profile_image_url = ?,
+           username = ?,
+           updated_at = ?
+       WHERE id = ?`,
+    )
+    .bind(
+      updates.displayName ?? null,
+      updates.profileImageUrl ?? null,
+      updates.username,
+      now,
+      id,
+    )
+    .run();
+}
+// 202606追加終了
