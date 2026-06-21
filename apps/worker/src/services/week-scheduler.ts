@@ -2,6 +2,9 @@
 //20260614修正開始
 import { calculateNextWeeklyRunAt } from './week-schedule-time.js';
 //20260614修正終了
+// scheduled_at の比較(getDueScheduledPosts)は JST(+09:00) 文字列前提のため、
+// ここで保存する時刻も jstNow() に統一する。
+import { jstNow } from '@x-harness/db';
 
 export async function processWeeklySchedules(
   db: D1Database
@@ -30,7 +33,8 @@ export async function processWeeklySchedules(
 
   for (const week of weeks.results) {
     const nowUTC = new Date();
-    const now = nowUTC.toISOString();
+    // DB 保存・文字列比較用は JST(+09:00) 形式に統一。時刻計算(getTime比較)には nowUTC を使う。
+    const now = jstNow();
 
     console.log('[week-scheduler:start]', {
       id: week.id,
@@ -40,7 +44,7 @@ export async function processWeeklySchedules(
       timezone: week.timezone,
       next_run_at: week.next_run_at,
       last_posted_at: week.last_posted_at,
-      now_utc: now,
+      now_jst: now,
     });
 
     // ===============================
@@ -79,7 +83,7 @@ export async function processWeeklySchedules(
     console.log('[week-scheduler:check next_run_at]', {
       id: week.id,
       next_run_at: week.next_run_at,
-      now_utc: now,
+      now_jst: now,
     });
 
     if (nextRunAtDate.getTime() > nowUTC.getTime()) {
