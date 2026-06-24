@@ -62,7 +62,30 @@ export async function processEngagementGates(
             .prepare('UPDATE engagement_gates SET next_poll_at = ?, api_calls_total = api_calls_total + 1, updated_at = ? WHERE id = ?')
             .bind(nextPollAt, now, gate.id)
             .run();
-          await incrementApiUsage(db, gate.x_account_id, 'engagement_gate_poll').catch(() => {});
+  // ======================================
+  // 202606 API使用量記録機能修正開始
+  // Engagement GateごとにAPI使用量を記録
+  // ======================================
+  try {
+    await incrementApiUsage(
+      db,
+      gate.x_account_id,
+      `engagement_gate_poll:${gate.id}`,
+      {
+        method: 'GET',
+        source: `engagement-gate:${gate.id}`,
+      },
+    );
+  } catch (usageError) {
+    console.error(
+      `Failed to record API usage for gate ${gate.id}:`,
+      usageError,
+    );
+  }
+          //await incrementApiUsage(db, gate.x_account_id, 'engagement_gate_poll').catch(() => {});
+// ======================================
+// 202606 API使用量記録機能修正終了
+// ======================================
         } else {
           await db
             .prepare('UPDATE engagement_gates SET next_poll_at = ?, updated_at = ? WHERE id = ?')

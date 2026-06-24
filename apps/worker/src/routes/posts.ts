@@ -1,7 +1,10 @@
 import { Hono } from 'hono';
 import { XClient } from '@x-harness/x-sdk';
-import { createScheduledPost, getScheduledPosts, deleteScheduledPost, getXAccountById, getXAccounts, incrementApiUsage, saveQuoteTweets, getQuoteTweetsByAccount, getQuoteTweetsBySource, getLatestDiscoveredAt, recordAction, getActions } from '@x-harness/db';
 
+//202606修正開始
+import { createScheduledPost, getScheduledPosts, deleteScheduledPost, getXAccountById, getXAccounts, incrementApiUsage, recordApiUsageNonFatal, saveQuoteTweets, getQuoteTweetsByAccount, getQuoteTweetsBySource, getLatestDiscoveredAt, recordAction, getActions } from '@x-harness/db';
+// import { createScheduledPost, getScheduledPosts, deleteScheduledPost, getXAccountById, getXAccounts, incrementApiUsage, saveQuoteTweets, getQuoteTweetsByAccount, getQuoteTweetsBySource, getLatestDiscoveredAt, recordAction, getActions } from '@x-harness/db';
+//202606修正完了
 
 import type { SaveQuoteTweetInput } from '@x-harness/db';
 import type { Env } from '../index.js';
@@ -229,6 +232,23 @@ posts.get('/api/posts/mentions', async (c) => {
       };
       meta?: { next_token?: string };
     };
+
+
+    // ======================================
+    // 202606 API使用量記録機能追加開始
+    // メンション検索でX APIを1回呼んだため記録
+    // ======================================
+    await recordApiUsageNonFatal(
+      c.env.DB,
+      account.id,
+      'search_mentions',
+      'GET',
+      'posts-mentions',
+    );
+    // ======================================
+    // 202606 API使用量記録機能追加終了
+    // ======================================
+
     const usersMap = new Map<string, { username: string; name: string; profile_image_url?: string }>();
     for (const u of raw.includes?.users ?? []) {
       usersMap.set(u.id, { username: u.username, name: u.name, profile_image_url: u.profile_image_url });
@@ -262,8 +282,26 @@ posts.get('/api/posts/mentions', async (c) => {
     let ownReplies: typeof data = [];
     try {
       const ownQuery = `from:${account.username} is:reply`;
-      c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'search_own_replies'));
+      // 202606 API使用量記録機能修正開始
+      // waitUntil だと記録失敗が見えにくいため、X API成功後に記録する
+      //c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'search_own_replies'));
+      //// 202606 API使用量記録機能修正終了
       const ownRaw = await xClient.searchRecentTweets(ownQuery, sinceId ?? undefined) as typeof raw;
+
+// ======================================
+// 202606 API使用量記録機能追加開始
+// 自分の返信検索でX APIを1回呼んだため記録
+// ======================================
+await recordApiUsageNonFatal(
+  c.env.DB,
+  account.id,
+  'search_own_replies',
+  'GET',
+  'posts-mentions-own-replies',
+);
+// ======================================
+// 202606 API使用量記録機能追加終了
+// ======================================
       const ownUsersMap = new Map<string, { username: string; name: string; profile_image_url?: string }>();
       for (const u of ownRaw.includes?.users ?? []) {
         ownUsersMap.set(u.id, { username: u.username, name: u.name, profile_image_url: u.profile_image_url });
@@ -519,7 +557,10 @@ posts.get('/api/posts/:id/quotes', async (c) => {
     if (toSave.length > 0) {
       c.executionCtx.waitUntil(saveQuoteTweets(c.env.DB, account.id, tweetId, toSave));
     }
-    c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'get_quote_tweets'));
+    // 202606 API使用量記録機能修正開始
+    // waitUntil だと記録失敗が見えにくいため、X API成功後に記録する
+    //c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'get_quote_tweets'));
+    // 202606 API使用量記録機能修正終了
   } catch {
     // API failed — fall back to DB-only results
   }
@@ -585,6 +626,22 @@ posts.post('/api/quotes/sync', async (c) => {
   try {
     // Get recent tweets
     const tweetsRes = await xClient.getUserTweets(account.x_user_id, 100);
+
+// ======================================
+// 202606 API使用量記録機能追加開始
+// 引用RT同期の対象投稿一覧取得でX APIを1回呼んだため記録
+// ======================================
+await recordApiUsageNonFatal(
+  c.env.DB,
+  account.id,
+  'get_user_tweets',
+  'GET',
+  'quotes-sync-tweets',
+);
+// ======================================
+// 202606 API使用量記録機能追加終了
+// ======================================
+    
     const tweets = tweetsRes.data ?? [];
     let totalSaved = 0;
 
@@ -595,6 +652,22 @@ posts.post('/api/quotes/sync', async (c) => {
           data: Array<{ id: string; text: string; author_id: string; created_at?: string }>;
           includes?: { users?: Array<{ id: string; username: string; name: string; profile_image_url?: string }> };
         };
+
+// ======================================
+// 202606 API使用量記録機能追加開始
+// 引用RT同期中に、各投稿の引用RT取得でX APIを1回呼んだため記録
+// ======================================
+await recordApiUsageNonFatal(
+  c.env.DB,
+  account.id,
+  'get_quote_tweets',
+  'GET',
+  `quotes-sync:${tweet.id}`,
+);
+// ======================================
+// 202606 API使用量記録機能追加終了
+// ======================================
+        
         const usersMap = new Map<string, { username: string; name: string; profile_image_url?: string }>();
         for (const u of raw.includes?.users ?? []) {
           usersMap.set(u.id, { username: u.username, name: u.name, profile_image_url: u.profile_image_url });
@@ -621,8 +694,17 @@ posts.post('/api/quotes/sync', async (c) => {
         // Skip individual tweet errors
       }
     }
+// ======================================
+// 202606 API使用量記録機能修正開始
+// sync_quotes の一括加算は廃止
+// 実際のX API呼び出しごとに
+// get_user_tweets / get_quote_tweets を記録する
+// ======================================
+    //c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'sync_quotes'));
+// ======================================
+// 202606 API使用量記録機能修正終了
+// ======================================
 
-    c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'sync_quotes'));
     return c.json({ success: true, data: { tweetsChecked: tweets.length, quotesSaved: totalSaved } });
   } catch (err: any) {
     return c.json({ success: false, error: err.message ?? 'Failed to sync quotes' }, 500);

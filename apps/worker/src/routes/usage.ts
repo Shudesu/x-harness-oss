@@ -40,7 +40,21 @@ usage.get('/api/usage/daily', async (c) => {
 // GET /api/usage/by-gate — API usage grouped by engagement gate
 usage.get('/api/usage/by-gate', async (c) => {
   try {
-    const data = await getUsageByGate(c.env.DB);
+    // ======================================
+    // 202606 API使用量ゲート別集計修正開始
+    // 指定されたXアカウントのみ取得
+    // ======================================
+    const xAccountId = c.req.query('xAccountId');
+
+    const data = await getUsageByGate(
+      c.env.DB,
+      xAccountId ?? undefined,
+    );
+    //const data = await getUsageByGate(c.env.DB);
+    // ======================================
+    // 202606 API使用量ゲート別集計修正終了
+    // ======================================
+    
     // Serialize snake_case to camelCase for frontend
     const serialized = data.map((g) => ({
       id: g.id,

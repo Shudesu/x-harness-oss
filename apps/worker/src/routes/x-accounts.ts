@@ -74,8 +74,38 @@ xAccounts.get('/api/x-accounts', async (c) => {
   const result = await c.env.DB.prepare('SELECT * FROM x_accounts ORDER BY created_at').all<any>();
 
   const activeGates = await getEngagementGates(c.env.DB, { activeOnly: true });
-  const totalApiCalls = activeGates.reduce((sum, g) => sum + (g.api_calls_total ?? 0), 0);
 
+// ======================================
+// 202606 API使用量集計修正開始
+// polling.totalApiCalls は既存 engagement_gates.api_calls_total と
+// api_usage_logs の engagement_gate_poll 記録の大きい方を使う
+// 既存データを壊さないため、古い値もfallbackとして残す
+// ======================================
+const pollingTotal = await c.env.DB
+  .prepare(`
+    SELECT COALESCE(SUM(api_calls_total), 0) AS total
+    FROM engagement_gates
+  `)
+  .first<{ total: number }>();
+
+const usagePollingTotal = await c.env.DB
+  .prepare(`
+    SELECT COALESCE(SUM(request_count), 0) AS total
+    FROM api_usage_logs
+    WHERE endpoint = 'engagement_gate_poll'
+       OR endpoint LIKE 'engagement_gate_poll:%'
+  `)
+  .first<{ total: number }>();
+
+const totalApiCalls = Math.max(
+  Number(pollingTotal?.total ?? 0),
+  Number(usagePollingTotal?.total ?? 0),
+);
+  //const totalApiCalls = activeGates.reduce((sum, g) => sum + (g.api_calls_total ?? 0), 0);
+// ======================================
+// 202606 API使用量集計修正終了
+// ======================================
+  
   return c.json({
     success: true,
     data: result.results.map(serialize),
