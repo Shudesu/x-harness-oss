@@ -1,4 +1,7 @@
 //20260614新規追加開始
+// next_run_at も他の時刻カラムと同じ JST(+09:00) 形式で揃える。
+import { toJstString } from '@x-harness/db';
+
 export type WeeklyScheduleTime = {
   weekday: number | string;
   time: string;
@@ -169,6 +172,6 @@ export function calculateNextWeeklyRunAt(
     targetUtc = buildTarget(daysUntil + 7);
   }
 
-  return targetUtc.toISOString();
+  return toJstString(targetUtc);
 }
 //20260614新規追加終了

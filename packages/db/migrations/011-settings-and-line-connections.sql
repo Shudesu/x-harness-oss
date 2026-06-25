@@ -7,13 +7,6 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at TEXT NOT NULL
 );
 
---202606追加開始
-INSERT OR IGNORE INTO settings (key, value, updated_at)
-VALUES
-  ('posting_enabled', 'true', datetime('now')),
-  ('auto_features_enabled', 'true', datetime('now'));
---202606追加終了
-
 CREATE TABLE IF NOT EXISTS line_connections (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
