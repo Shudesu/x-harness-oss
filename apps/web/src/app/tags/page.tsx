@@ -4,6 +4,19 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import type { Tag } from '@/lib/api'
 import Header from '@/components/layout/header'
+//0625追加開始
+import { useSelectedAccount } from '@/hooks/use-selected-account'
+
+function formatAccountLabel(
+  account: { displayName: string | null; username: string } | null
+): string {
+  if (!account?.username) return ''
+
+  return account.displayName
+    ? `${account.displayName} / @${account.username}`
+    : `@${account.username}`
+}
+//0625追加終了
 
 function TagBadgePreview({ name, color }: { name: string; color: string }) {
   const bg = color || '#3B82F6'
@@ -28,11 +41,22 @@ export default function TagsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showCreateForm, setShowCreateForm] = useState(false)
+  //0625追加開始
+  const {
+  loading: accountsLoading,
+  selectedAccountId,
+  selectedAccount,
+} = useSelectedAccount()
+
+const selectedAccountLabel = formatAccountLabel(selectedAccount)
+  //0625追加終了
 
   // Create form state
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState('#3B82F6')
-  const [newAccountId, setNewAccountId] = useState('')
+  //0625修正開始
+  //const [newAccountId, setNewAccountId] = useState('')
+  //0625修正終了
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
 
@@ -43,50 +67,113 @@ export default function TagsPage() {
   const [editLoading, setEditLoading] = useState(false)
   const [editError, setEditError] = useState('')
 
-  const loadTags = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const res = await api.tags.list()
-      if (res.success) {
-        setTags(res.data)
-      } else {
-        setError(res.error ?? 'エラーが発生しました')
-      }
-    } catch {
-      setError('タグの読み込みに失敗しました。もう一度お試しください。')
-    } finally {
-      setLoading(false)
+  //0625修正開始
+  // const loadTags = useCallback(async () => {
+  //   setLoading(true)
+  //   setError('')
+  //   try {
+  //     const res = await api.tags.list()
+  //     if (res.success) {
+  //       setTags(res.data)
+  //     } else {
+  //       setError(res.error ?? 'エラーが発生しました')
+  //     }
+  //   } catch {
+  //     setError('タグの読み込みに失敗しました。もう一度お試しください。')
+  //   } finally {
+  //     setLoading(false)
+  //   }
+  // }, [])
+
+ const loadTags = useCallback(async () => {
+  if (accountsLoading) return
+
+  if (!selectedAccountId) {
+    setTags([])
+    setLoading(false)
+    return
+  }
+
+  setLoading(true)
+  setError('')
+
+  try {
+    const res = await api.tags.list({
+      xAccountId: selectedAccountId,
+    })
+
+    if (res.success) {
+      setTags(res.data)
+    } else {
+      setError(res.error ?? 'エラーが発生しました')
     }
-  }, [])
+  } catch {
+    setError('タグの読み込みに失敗しました。もう一度お試しください。')
+  } finally {
+    setLoading(false)
+  }
+}, [accountsLoading, selectedAccountId])
+  //0625修正終了
+  
 
   useEffect(() => {
     loadTags()
   }, [loadTags])
 
+  //0625修正開始
+  // const handleCreate = async (e: React.FormEvent) => {
+  //   e.preventDefault()
+  //   if (!newName.trim() || !newAccountId.trim()) return
+  //   setCreating(true)
+  //   setCreateError('')
+  //   try {
+  //     const res = await api.tags.create(newAccountId.trim(), newName.trim(), newColor)
+  //     if (res.success) {
+  //       setNewName('')
+  //       setNewColor('#3B82F6')
+  //       setNewAccountId('')
+  //       setShowCreateForm(false)
+  //       loadTags()
+  //     } else {
+  //       setCreateError(res.error ?? 'エラーが発生しました')
+  //     }
+  //   } catch {
+  //     setCreateError('タグの作成に失敗しました')
+  //   } finally {
+  //     setCreating(false)
+  //   }
+  // }
+
   const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newName.trim() || !newAccountId.trim()) return
-    setCreating(true)
-    setCreateError('')
-    try {
-      const res = await api.tags.create(newAccountId.trim(), newName.trim(), newColor)
-      if (res.success) {
-        setNewName('')
-        setNewColor('#3B82F6')
-        setNewAccountId('')
-        setShowCreateForm(false)
-        loadTags()
-      } else {
-        setCreateError(res.error ?? 'エラーが発生しました')
-      }
-    } catch {
-      setCreateError('タグの作成に失敗しました')
-    } finally {
-      setCreating(false)
-    }
+  e.preventDefault()
+
+  if (!selectedAccountId) {
+    setCreateError('Xアカウントを選択してください')
+    return
   }
 
+  if (!newName.trim()) return
+
+  setCreating(true)
+  setCreateError('')
+
+  try {
+    const res = await api.tags.create(selectedAccountId, newName.trim(), newColor)
+    if (res.success) {
+      setNewName('')
+      setNewColor('#3B82F6')
+      setShowCreateForm(false)
+      loadTags()
+    } else {
+      setCreateError(res.error ?? 'エラーが発生しました')
+    }
+  } catch {
+    setCreateError('タグの作成に失敗しました')
+  } finally {
+    setCreating(false)
+  }
+}
+  //0625修正完了
   const startEdit = (tag: Tag) => {
     setEditingId(tag.id)
     setEditName(tag.name)
@@ -131,7 +218,10 @@ export default function TagsPage() {
         action={
           <button
             onClick={() => setShowCreateForm((v) => !v)}
-            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            //0625追加開始
+            disabled={accountsLoading || !selectedAccountId}
+            //0625追加終了
+            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
           >
             {showCreateForm ? 'キャンセル' : '+ New Tag'}
           </button>
@@ -149,7 +239,8 @@ export default function TagsPage() {
           )}
           <form onSubmit={handleCreate} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
+              {/* 0625修正開始 */}
+              {/* <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   X Account ID <span className="text-red-500">*</span>
                 </label>
@@ -161,7 +252,18 @@ export default function TagsPage() {
                   required
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div> */}
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  対象アカウント
+                </label>
+                <div className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-700">
+                  {selectedAccountLabel || 'Xアカウントを選択してください'}
+                </div>
               </div>
+              {/* 0625修正完了 */}
+
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   タグ名 <span className="text-red-500">*</span>
@@ -198,7 +300,10 @@ export default function TagsPage() {
               </button>
               <button
                 type="submit"
-                disabled={creating || !newName.trim() || !newAccountId.trim()}
+                //0625修正開始
+                //disabled={creating || !newName.trim() || !newAccountId.trim()}
+                disabled={creating || !newName.trim() || !selectedAccountId}
+                //0625修正開始
                 className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
               >
                 {creating ? '作成中...' : '作成'}

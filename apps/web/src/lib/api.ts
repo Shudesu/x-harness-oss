@@ -232,15 +232,35 @@ export const api = {
       fetchApi<ApiResponse<void>>(`/api/followers/${id}/tags/${tagId}`, { method: 'DELETE' }),
   },
 
-  tags: {
-    list: () => fetchApi<ApiResponse<Tag[]>>('/api/tags'),
-    create: (xAccountId: string, name: string, color?: string) =>
-      fetchApi<ApiResponse<Tag>>('/api/tags', { method: 'POST', body: JSON.stringify({ xAccountId, name, color }) }),
-    update: (id: string, data: { name?: string; color?: string }) =>
-      fetchApi<ApiResponse<Tag>>(`/api/tags/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete: (id: string) => fetchApi<ApiResponse<void>>(`/api/tags/${id}`, { method: 'DELETE' }),
-  },
+  //0625修正開始
+  // tags: {
+  //   list: () => fetchApi<ApiResponse<Tag[]>>('/api/tags'),
+  //   create: (xAccountId: string, name: string, color?: string) =>
+  //     fetchApi<ApiResponse<Tag>>('/api/tags', { method: 'POST', body: JSON.stringify({ xAccountId, name, color }) }),
+  //   update: (id: string, data: { name?: string; color?: string }) =>
+  //     fetchApi<ApiResponse<Tag>>(`/api/tags/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  //   delete: (id: string) => fetchApi<ApiResponse<void>>(`/api/tags/${id}`, { method: 'DELETE' }),
+  // },
+    tags: {
+      list: (params?: { xAccountId?: string }) => {
+        const searchParams = new URLSearchParams();
 
+        if (params?.xAccountId) {
+          searchParams.set('xAccountId', params.xAccountId);
+        }
+
+        const query = searchParams.toString();
+
+        return fetchApi<ApiResponse<Tag[]>>(`/api/tags${query ? `?${query}` : ''}`);
+      },
+      create: (xAccountId: string, name: string, color?: string) =>
+        fetchApi<ApiResponse<Tag>>('/api/tags', { method: 'POST', body: JSON.stringify({ xAccountId, name, color }) }),
+      update: (id: string, data: { name?: string; color?: string }) =>
+        fetchApi<ApiResponse<Tag>>(`/api/tags/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+      delete: (id: string) => fetchApi<ApiResponse<void>>(`/api/tags/${id}`, { method: 'DELETE' }),
+    },
+  //0625修正完了
+    
   staff: {
     list: () => fetchApi<ApiResponse<StaffMember[]>>('/api/staff'),
     me: () => fetchApi<ApiResponse<StaffMember>>('/api/staff/me'),

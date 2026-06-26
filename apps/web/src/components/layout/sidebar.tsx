@@ -105,7 +105,6 @@ function AccountSwitcher() {
       <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-2 mb-1.5">
         Xアカウント
       </label>
-{/* 202606修正開始 */}
       {/* <select
         value={selectedAccountId}
         onChange={(e) => setSelectedAccountId(e.target.value)}
@@ -183,7 +182,6 @@ function AccountSwitcher() {
         </p>
       )} */}
     </div>
-    {/* 202606修正終了 */}
   )
 }
 
