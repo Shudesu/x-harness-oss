@@ -47,6 +47,8 @@ const COST_BY_ENDPOINT: Record<string, number> = {
   verify_get_liking_users: 0.005,
   verify_search_replies: 0.005,
   user_search: 0.005,
+  news_search: 0.005,
+  news_get: 0.005,
   // Write operations — $0.010 per request
   create_tweet: 0.010,
   delete_tweet: 0.010,
@@ -54,6 +56,8 @@ const COST_BY_ENDPOINT: Record<string, number> = {
   retweet: 0.010,
   upload_media: 0.010,
   dm_send: 0.010,
+  article_draft: 0.010,
+  article_publish: 0.010,
 };
 const DEFAULT_COST = 0.005;
 

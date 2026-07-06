@@ -39,6 +39,47 @@ export interface CreateTweetParams {
   media?: { media_ids: string[] };
   reply?: { in_reply_to_tweet_id: string };
   quote_tweet_id?: string;
+  // Paid promotion disclosure (X API 2026-06-03)
+  paid_partnership?: boolean;
+}
+
+// ─── Articles API (X API 2026-06-11) ───
+
+// DraftJS-style content blocks accepted by POST /2/articles/draft.
+// The docs example shows only text/type; the remaining fields are the
+// standard DraftJS raw shape (safe superset).
+export interface ArticleContentBlock {
+  text: string;
+  type: string; // 'unstyled' | 'header-one' | 'header-two' | 'unordered-list-item' | 'ordered-list-item' | 'blockquote' | ...
+  key?: string;
+  depth?: number;
+  inlineStyleRanges?: unknown[];
+  entityRanges?: unknown[];
+  data?: Record<string, unknown>;
+}
+
+export interface ArticleContentState {
+  blocks: ArticleContentBlock[];
+  entities: unknown[];
+}
+
+export interface CreateArticleDraftParams {
+  title: string;
+  content_state: ArticleContentState;
+  cover_media?: { media_id: string };
+}
+
+// ─── News API ───
+
+export interface XNewsStory {
+  id: string;
+  name?: string;
+  category?: string;
+  summary?: string;
+  hook?: string;
+  contexts?: unknown;
+  cluster_posts_results?: unknown;
+  last_updated_at_ms?: number;
 }
 
 export type XClientConfig =
@@ -77,6 +118,8 @@ export interface CreateTweetFullParams {
   nullcast?: boolean;
   for_super_followers_only?: boolean;
   poll?: { options: string[]; duration_minutes: number };
+  // Paid promotion disclosure (X API 2026-06-03)
+  paid_partnership?: boolean;
 }
 
 export interface XDmEvent {

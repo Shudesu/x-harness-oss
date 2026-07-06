@@ -13,6 +13,7 @@ import { analyticsToolDefs } from './tools/analytics.js';
 import { staffToolDefs } from './tools/staff.js';
 import { campaignToolDefs } from './tools/campaign.js';
 import { usageToolDefs } from './tools/usage.js';
+import { articleToolDefs } from './tools/articles.js';
 
 const API_URL = process.env.X_HARNESS_API_URL ?? 'http://localhost:8787';
 const API_KEY = process.env.X_HARNESS_API_KEY ?? '';
@@ -30,6 +31,7 @@ const allTools = [
   ...staffToolDefs,
   ...campaignToolDefs,
   ...usageToolDefs,
+  ...articleToolDefs,
 ];
 
 const server = new Server({ name: 'x-harness', version: '0.1.0' }, { capabilities: { tools: {} } });
@@ -49,7 +51,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ...(a.replyToTweetId ? { replyToTweetId: a.replyToTweetId } : {}),
           ...(a.quoteTweetId ? { quoteTweetId: a.quoteTweetId } : {}),
           ...(a.mediaIds ? { mediaIds: a.mediaIds } : {}),
+          ...(a.paidPartnership ? { paidPartnership: true } : {}),
         });
+        break;
+      case 'create_article':
+        result = await client.post('/api/articles/draft', {
+          xAccountId: a.xAccountId,
+          title: a.title,
+          body: a.body,
+          ...(a.coverMediaId ? { coverMediaId: a.coverMediaId } : {}),
+        });
+        break;
+      case 'publish_article':
+        result = await client.post(`/api/articles/${encodeURIComponent(a.articleId)}/publish`, { xAccountId: a.xAccountId });
+        break;
+      case 'search_news':
+        result = await client.get(`/api/news/search?query=${encodeURIComponent(a.query)}${a.maxResults ? `&maxResults=${a.maxResults}` : ''}${a.xAccountId ? `&xAccountId=${encodeURIComponent(a.xAccountId)}` : ''}`);
+        break;
+      case 'get_news':
+        result = await client.get(`/api/news/${encodeURIComponent(a.newsId)}${a.xAccountId ? `?xAccountId=${encodeURIComponent(a.xAccountId)}` : ''}`);
+        break;
+      case 'get_activity_events':
+        result = await client.get(`/api/xaa/events?${a.eventType ? `eventType=${encodeURIComponent(a.eventType)}&` : ''}${a.limit ? `limit=${a.limit}` : ''}`);
         break;
       case 'create_thread':
         result = await client.post('/api/posts/thread', { xAccountId: a.xAccountId, texts: a.texts });

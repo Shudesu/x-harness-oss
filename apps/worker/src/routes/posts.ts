@@ -20,7 +20,7 @@ function buildXClient(account: { consumer_key: string | null; consumer_secret: s
 }
 
 posts.post('/api/posts', async (c) => {
-  const { xAccountId, text, mediaIds, quoteTweetId } = await c.req.json<{ xAccountId: string; text: string; mediaIds?: string[]; quoteTweetId?: string }>();
+  const { xAccountId, text, mediaIds, quoteTweetId, paidPartnership } = await c.req.json<{ xAccountId: string; text: string; mediaIds?: string[]; quoteTweetId?: string; paidPartnership?: boolean }>();
   if (!text || !xAccountId) return c.json({ success: false, error: 'Missing required fields: xAccountId, text' }, 400);
   const account = await getXAccountById(c.env.DB, xAccountId);
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
@@ -30,6 +30,7 @@ posts.post('/api/posts', async (c) => {
       text,
       media: mediaIds ? { media_ids: mediaIds } : undefined,
       quote_tweet_id: quoteTweetId,
+      ...(paidPartnership ? { paid_partnership: true } : {}),
     });
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'create_tweet'));
     return c.json({ success: true, data: tweet }, 201);

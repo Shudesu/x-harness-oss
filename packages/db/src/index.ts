@@ -11,3 +11,4 @@ export * from './usage.js';
 export * from './follower-snapshots.js';
 export * from './quote-tweets.js';
 export * from './engagement-actions.js';
+export * from './xaa-events.js';

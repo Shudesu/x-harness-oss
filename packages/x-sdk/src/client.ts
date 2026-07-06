@@ -1,4 +1,4 @@
-import type { XUser, XTweet, XApiResponse, CreateTweetParams, XClientConfig, XTweetSearchResult, XTweetWithMetrics, CreateTweetFullParams, XDmEvent, XDmMessage, XList } from './types.js';
+import type { XUser, XTweet, XApiResponse, CreateTweetParams, XClientConfig, XTweetSearchResult, XTweetWithMetrics, CreateTweetFullParams, XDmEvent, XDmMessage, XList, CreateArticleDraftParams, XNewsStory } from './types.js';
 import { buildOAuth1Header } from './oauth1.js';
 import type { OAuth1Config } from './oauth1.js';
 
@@ -13,6 +13,37 @@ export class XClient {
 
   async createTweet(params: CreateTweetParams): Promise<{ id: string; text: string }> {
     const res = await this.post<{ data: { id: string; text: string } }>('/tweets', params);
+    return res.data;
+  }
+
+  // ─── Articles API (long-form posts, X API 2026-06-11) ───
+  // Requires user-context auth (OAuth1/OAuth2) with tweet.read/tweet.write/users.read.
+  // Publishing requires the account to be eligible for Articles (Premium+).
+
+  async createArticleDraft(params: CreateArticleDraftParams): Promise<{ id: string; title: string }> {
+    const res = await this.post<{ data: { id: string; title: string } }>('/articles/draft', params);
+    return res.data;
+  }
+
+  async publishArticle(articleId: string): Promise<{ post_id: string }> {
+    const res = await this.post<{ data: { post_id: string } }>(`/articles/${articleId}/publish`, {});
+    return res.data;
+  }
+
+  // ─── News API ───
+
+  async searchNews(query: string, maxResults = 10): Promise<XApiResponse<XNewsStory[]>> {
+    const params = new URLSearchParams({
+      query,
+      max_results: String(maxResults),
+      'news.fields': 'contexts,cluster_posts_results',
+    });
+    return this.get<XApiResponse<XNewsStory[]>>(`/news/search?${params}`);
+  }
+
+  async getNews(newsId: string): Promise<XNewsStory> {
+    const params = new URLSearchParams({ 'news.fields': 'contexts,cluster_posts_results' });
+    const res = await this.get<{ data: XNewsStory }>(`/news/${newsId}?${params}`);
     return res.data;
   }
 
