@@ -90,6 +90,47 @@ engagementGates.get('/api/engagement-gates/:id/deliveries', async (c) => {
   return c.json({ success: true, data: deliveries.map(serializeDelivery) });
 });
 
+// Delivery stats summary — consumed by the dashboard and the MCP
+// get_gate_analytics tool.
+engagementGates.get('/api/engagement-gates/:id/analytics', async (c) => {
+  const gateId = c.req.param('id');
+  const gate = await getEngagementGateById(c.env.DB, gateId);
+  if (!gate) return c.json({ success: false, error: 'Not found' }, 404);
+
+  const byStatusRows = await c.env.DB
+    .prepare('SELECT status, COUNT(*) as count FROM engagement_gate_deliveries WHERE gate_id = ? GROUP BY status')
+    .bind(gateId)
+    .all<{ status: string; count: number }>();
+
+  const byDateRows = await c.env.DB
+    .prepare(`SELECT substr(created_at, 1, 10) as date, COUNT(*) as count
+              FROM engagement_gate_deliveries WHERE gate_id = ?
+              GROUP BY substr(created_at, 1, 10) ORDER BY date DESC LIMIT 90`)
+    .bind(gateId)
+    .all<{ date: string; count: number }>();
+
+  const range = await c.env.DB
+    .prepare('SELECT MIN(created_at) as first, MAX(created_at) as last, COUNT(*) as total FROM engagement_gate_deliveries WHERE gate_id = ?')
+    .bind(gateId)
+    .first<{ first: string | null; last: string | null; total: number }>();
+
+  const byStatus: Record<string, number> = {};
+  for (const r of byStatusRows.results) byStatus[r.status] = r.count;
+
+  return c.json({
+    success: true,
+    data: {
+      gateId,
+      totalDeliveries: range?.total ?? 0,
+      byStatus,
+      byDate: byDateRows.results,
+      firstDeliveryAt: range?.first ?? null,
+      lastDeliveryAt: range?.last ?? null,
+      apiCallsTotal: (gate as any).api_calls_total ?? 0,
+    },
+  });
+});
+
 // Debug: manually trigger engagement gate processing
 engagementGates.post('/api/engagement-gates/process', async (c) => {
   const { XClient } = await import('@x-harness/x-sdk');

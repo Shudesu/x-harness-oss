@@ -344,7 +344,7 @@ function GateCard({ gate, onToggleActive, onDelete }: GateCardProps) {
               <div className="space-y-2">
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">LINE Harness URL</label>
-                  <input type="text" className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" placeholder="https://line-harness.noda-c40.workers.dev" value={campaignUrlBase} onChange={(e) => setCampaignUrlBase(e.target.value)} />
+                  <input type="text" className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" placeholder="https://line-harness.your-subdomain.workers.dev" value={campaignUrlBase} onChange={(e) => setCampaignUrlBase(e.target.value)} />
                 </div>
                 <div className="flex gap-2">
                   <div className="flex-1">

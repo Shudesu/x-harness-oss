@@ -50,11 +50,12 @@ xaa.post('/webhook/xaa', async (c) => {
   }
 
   const eventType = (body.event_type as string | undefined) ?? 'unknown';
-  console.log('[XAA] Received event:', eventType, JSON.stringify(body));
+  console.log(`[XAA] Received event: ${eventType}`);
 
-  // DM events: log for now; DB storage to be added later
+  // DM events: DB storage to be added later
   if (eventType.includes('dm') || 'direct_message_events' in body) {
-    console.log('[XAA] DM event payload:', JSON.stringify(body));
+    console.log('[XAA] DM event received');
+    // TODO: persist DM events to D1
   }
 
   return c.json({ success: true }, 200);

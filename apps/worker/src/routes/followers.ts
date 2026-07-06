@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getFollowers, getFollowerById, getFollowerCount, addTagToFollower, removeTagFromFollower, getFollowerTags, getTagById, getXAccounts } from '@x-harness/db';
+import { getFollowers, getFollowerById, getFollowerCount, addTagToFollower, removeTagFromFollower, getFollowerTags, getTagById, getXAccounts, incrementApiUsage, getEndpointUsageForDate } from '@x-harness/db';
 import type { Env } from '../index.js';
 
 interface FollowerSearchResult {
@@ -32,21 +32,74 @@ function serialize(row: any) {
   };
 }
 
+// Local followers-table search, shared by /api/followers/search and the
+// daily-cap fallback of /api/users/search.
+async function searchLocalFollowers(db: D1Database, q: string, limit: number): Promise<FollowerSearchResult[]> {
+  const pattern = `%${q}%`;
+  const result = await db.prepare(
+    `SELECT x_user_id, username, display_name, profile_image_url
+     FROM followers
+     WHERE (username LIKE ? OR display_name LIKE ?)
+     ORDER BY
+       CASE WHEN username LIKE ? THEN 0 ELSE 1 END,
+       username ASC
+     LIMIT ?`,
+  )
+    .bind(pattern, pattern, `${q}%`, limit)
+    .all<{ x_user_id: string; username: string; display_name: string; profile_image_url: string | null }>();
+
+  return (result.results ?? []).map((r) => ({
+    id: r.x_user_id,
+    username: r.username,
+    displayName: r.display_name,
+    profileImageUrl: r.profile_image_url,
+  }));
+}
+
+// This endpoint is public (LIFF browsers call it without auth), so each
+// request spends real X API money. Cap it per day and degrade to the local
+// followers table when the cap is hit.
+const USER_SEARCH_DEFAULT_DAILY_LIMIT = 300;
+
 // Public live user search endpoint — calls X API directly (called from LIFF browser)
 followers.get('/api/users/search', async (c) => {
   const q = (c.req.query('q') ?? '').trim();
   const limit = Math.min(Number(c.req.query('limit') ?? '5'), 20);
 
-  if (!q) {
+  // Single characters match too broadly to be worth a billable API call
+  if (q.length < 2) {
     return c.json({ success: true, data: [] as FollowerSearchResult[] });
   }
 
   try {
+    // Absent/invalid env → default; explicit 0 disables paid search entirely.
+    const envLimit = c.env.USER_SEARCH_DAILY_LIMIT;
+    const parsedLimit = envLimit === undefined || envLimit === '' ? NaN : Number(envLimit);
+    const dailyLimit = Number.isFinite(parsedLimit) && parsedLimit >= 0 ? parsedLimit : USER_SEARCH_DEFAULT_DAILY_LIMIT;
+
+    if (dailyLimit === 0) {
+      const data = await searchLocalFollowers(c.env.DB, q, limit);
+      return c.json({ success: true, data, capped: true });
+    }
+
     const { XClient } = await import('@x-harness/x-sdk');
     const accounts = await getXAccounts(c.env.DB);
     const account = accounts[0] ?? null;
     if (!account) {
       return c.json({ success: true, data: [] as FollowerSearchResult[] });
+    }
+
+    // Reserve quota atomically BEFORE spending: increment first, then read
+    // back. Concurrent bursts each reserve their own slot, so the read-back
+    // reflects at least this request's reservation and the cap cannot be
+    // raced past. The quota counter (user_search_quota) is non-billable and
+    // excluded from usage reports; actual spend is recorded separately below.
+    await incrementApiUsage(c.env.DB, account.id, 'user_search_quota');
+    const usedToday = await getEndpointUsageForDate(c.env.DB, 'user_search_quota');
+    if (usedToday > dailyLimit) {
+      console.warn(`[user-search] daily cap reached (${usedToday}/${dailyLimit}), falling back to local search`);
+      const data = await searchLocalFollowers(c.env.DB, q, limit);
+      return c.json({ success: true, data, capped: true });
     }
 
     const xClient = account.consumer_key && account.consumer_secret && account.access_token_secret
@@ -59,6 +112,8 @@ followers.get('/api/users/search', async (c) => {
         })
       : new XClient(account.access_token);
 
+    // Track billable spend just before the call — failures are billed too
+    c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'user_search'));
     const result = await xClient.searchUsers(q);
     const users = (result.data ?? []).slice(0, limit);
 
@@ -85,26 +140,7 @@ followers.get('/api/followers/search', async (c) => {
     return c.json({ success: true, data: [] as FollowerSearchResult[] });
   }
 
-  const pattern = `%${q}%`;
-  const result = await c.env.DB.prepare(
-    `SELECT x_user_id, username, display_name, profile_image_url
-     FROM followers
-     WHERE (username LIKE ? OR display_name LIKE ?)
-     ORDER BY
-       CASE WHEN username LIKE ? THEN 0 ELSE 1 END,
-       username ASC
-     LIMIT ?`,
-  )
-    .bind(pattern, pattern, `${q}%`, limit)
-    .all<{ x_user_id: string; username: string; display_name: string; profile_image_url: string | null }>();
-
-  const data: FollowerSearchResult[] = (result.results ?? []).map((r) => ({
-    id: r.x_user_id,
-    username: r.username,
-    displayName: r.display_name,
-    profileImageUrl: r.profile_image_url,
-  }));
-
+  const data = await searchLocalFollowers(c.env.DB, q, limit);
   return c.json({ success: true, data });
 });
 

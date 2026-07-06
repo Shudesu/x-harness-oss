@@ -7,23 +7,27 @@ export class EngagementCache {
   private retweetedBy = new Map<string, XUser[]>();
   private followerIds = new Map<string, Set<string>>();
 
+  // Called once per actual X API request (per page). Cache hits never fire it,
+  // so callers can meter billable usage accurately.
+  constructor(private onApiCall?: (endpoint: string) => void) {}
+
   async getLikingUsers(xClient: XClient, postId: string): Promise<XUser[]> {
     if (this.likingUsers.has(postId)) return this.likingUsers.get(postId)!;
-    const users = await this.fetchAllPages((token) => xClient.getLikingUsers(postId, token));
+    const users = await this.fetchAllPages((token) => xClient.getLikingUsers(postId, token), 10, 'verify_get_liking_users');
     this.likingUsers.set(postId, users);
     return users;
   }
 
   async getRetweetedBy(xClient: XClient, postId: string): Promise<XUser[]> {
     if (this.retweetedBy.has(postId)) return this.retweetedBy.get(postId)!;
-    const users = await this.fetchAllPages((token) => xClient.getRetweetedBy(postId, token));
+    const users = await this.fetchAllPages((token) => xClient.getRetweetedBy(postId, token), 10, 'verify_get_retweeted_by');
     this.retweetedBy.set(postId, users);
     return users;
   }
 
   async getFollowerIds(xClient: XClient, userId: string): Promise<Set<string>> {
     if (this.followerIds.has(userId)) return this.followerIds.get(userId)!;
-    const users = await this.fetchAllPages((token) => xClient.getFollowers(userId, token), 10);
+    const users = await this.fetchAllPages((token) => xClient.getFollowers(userId, token), 10, 'verify_get_followers');
     const ids = new Set(users.map((u) => u.id));
     this.followerIds.set(userId, ids);
     return ids;
@@ -32,11 +36,13 @@ export class EngagementCache {
   private async fetchAllPages(
     fetcher: (token?: string) => Promise<XApiResponse<XUser[]>>,
     maxPages = 10,
+    endpoint = 'engagement_gate_poll',
   ): Promise<XUser[]> {
     const allUsers: XUser[] = [];
     let paginationToken: string | undefined;
     let page = 0;
     do {
+      this.onApiCall?.(endpoint);
       const result = await fetcher(paginationToken);
       if (result.data) allUsers.push(...result.data);
       paginationToken = (result as any).meta?.next_token;

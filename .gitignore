@@ -8,3 +8,5 @@ out/
 *.tsbuildinfo
 .vercel/
 packages/mcp/dist/
+.DS_Store
+.worktrees/

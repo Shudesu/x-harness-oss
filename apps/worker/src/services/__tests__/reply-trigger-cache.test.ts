@@ -117,6 +117,52 @@ describe('EngagementCache', () => {
     expect(result[1].id).toBe('u2');
     expect(page).toBe(2);
   });
+
+  it('onApiCall fires once per page with the endpoint name', async () => {
+    let page = 0;
+    const xClient = createMockXClient({
+      getFollowers: async () => {
+        page++;
+        if (page < 3) {
+          return { data: [{ id: `f${page}`, name: 'F', username: `f${page}` }], meta: { next_token: `p${page + 1}` } };
+        }
+        return { data: [{ id: 'f3', name: 'F', username: 'f3' }] };
+      },
+    });
+
+    const calls: string[] = [];
+    const cache = new EngagementCache((ep) => calls.push(ep));
+    await cache.getFollowerIds(xClient, 'user-1');
+
+    expect(calls).toEqual(['verify_get_followers', 'verify_get_followers', 'verify_get_followers']);
+  });
+
+  it('onApiCall does not fire on cache hits', async () => {
+    const xClient = createMockXClient({
+      getLikingUsers: async () => ({ data: [{ id: 'u1', name: 'A', username: 'a' }] }),
+    });
+
+    const calls: string[] = [];
+    const cache = new EngagementCache((ep) => calls.push(ep));
+    await cache.getLikingUsers(xClient, 'post-1');
+    await cache.getLikingUsers(xClient, 'post-1');
+
+    expect(calls).toEqual(['verify_get_liking_users']);
+  });
+
+  it('onApiCall tracks distinct endpoints per method', async () => {
+    const xClient = createMockXClient({
+      getRetweetedBy: async () => ({ data: [{ id: 'u1', name: 'A', username: 'a' }] }),
+      getFollowers: async () => ({ data: [{ id: 'f1', name: 'F', username: 'f1' }] }),
+    });
+
+    const calls: string[] = [];
+    const cache = new EngagementCache((ep) => calls.push(ep));
+    await cache.getRetweetedBy(xClient, 'post-1');
+    await cache.getFollowerIds(xClient, 'user-1');
+
+    expect(calls).toEqual(['verify_get_retweeted_by', 'verify_get_followers']);
+  });
 });
 
 // ---------------------------------------------------------------------------

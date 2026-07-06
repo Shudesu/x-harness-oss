@@ -33,6 +33,8 @@ export type Env = {
     WORKER_URL: string;
     LINE_HARNESS_URL?: string;
     LINE_HARNESS_API_KEY?: string;
+    USER_SEARCH_DAILY_LIMIT?: string;
+    VERIFY_LOOKUP_DAILY_LIMIT?: string;
   };
   Variables: {
     staffRole?: 'admin' | 'editor' | 'viewer';
