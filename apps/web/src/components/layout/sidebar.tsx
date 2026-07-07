@@ -24,6 +24,13 @@ const menuSections = [
     ],
   },
   {
+    label: 'コンテンツ',
+    items: [
+      { href: '/articles', label: '記事作成', icon: 'M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l6 6v8a2 2 0 01-2 2zM9 9h3m-3 4h6m-6 4h6' },
+      { href: '/news', label: 'ニュース', icon: 'M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v12a2 2 0 01-2 2zM7 8h10M7 12h10M7 16h6' },
+    ],
+  },
+  {
     label: 'メッセージ',
     items: [
       { href: '/messages', label: 'DM', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z' },
