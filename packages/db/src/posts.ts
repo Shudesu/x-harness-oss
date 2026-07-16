@@ -5,6 +5,7 @@ export interface DbScheduledPost {
   x_account_id: string;
   text: string;
   media_ids: string | null;
+  quote_tweet_id: string | null;
   scheduled_at: string;
   status: string;
   posted_tweet_id: string | null;
@@ -12,12 +13,12 @@ export interface DbScheduledPost {
   updated_at: string;
 }
 
-export async function createScheduledPost(db: D1Database, xAccountId: string, text: string, scheduledAt: string, mediaIds?: string[]): Promise<DbScheduledPost> {
+export async function createScheduledPost(db: D1Database, xAccountId: string, text: string, scheduledAt: string, mediaIds?: string[], quoteTweetId?: string): Promise<DbScheduledPost> {
   const id = crypto.randomUUID();
   const now = jstNow();
   const result = await db
-    .prepare('INSERT INTO scheduled_posts (id, x_account_id, text, media_ids, scheduled_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *')
-    .bind(id, xAccountId, text, mediaIds ? JSON.stringify(mediaIds) : null, scheduledAt, 'scheduled', now, now)
+    .prepare('INSERT INTO scheduled_posts (id, x_account_id, text, media_ids, quote_tweet_id, scheduled_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *')
+    .bind(id, xAccountId, text, mediaIds ? JSON.stringify(mediaIds) : null, quoteTweetId ?? null, scheduledAt, 'scheduled', now, now)
     .first<DbScheduledPost>();
   return result!;
 }

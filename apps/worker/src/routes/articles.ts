@@ -1,10 +1,20 @@
 import { Hono } from 'hono';
-import { XClient } from '@x-harness/x-sdk';
+import { XClient, XApiRateLimitError } from '@x-harness/x-sdk';
 import type { ArticleContentState, ArticleContentBlock } from '@x-harness/x-sdk';
 import { getXAccountById, incrementApiUsage } from '@x-harness/db';
 import type { Env } from '../index.js';
 
 const articles = new Hono<Env>();
+
+// Rate-limit errors carry the window reset time — surface it so callers
+// know when to retry instead of guessing.
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof XApiRateLimitError && err.resetAtEpoch) {
+    const resetJst = new Date(err.resetAtEpoch * 1000).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+    return `Rate limited by X API（リセット: ${resetJst} JST）`;
+  }
+  return err instanceof Error ? err.message : fallback;
+}
 
 function buildXClient(account: { consumer_key: string | null; consumer_secret: string | null; access_token: string; access_token_secret: string | null }): XClient {
   return account.consumer_key && account.consumer_secret && account.access_token_secret
@@ -95,7 +105,7 @@ articles.post('/api/articles/draft', async (c) => {
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'article_draft'));
     return c.json({ success: true, data: draft }, 201);
   } catch (err: any) {
-    return c.json({ success: false, error: err.message ?? 'Failed to create article draft' }, 500);
+    return c.json({ success: false, error: errorMessage(err, 'Failed to create article draft') }, 500);
   }
 });
 
@@ -114,7 +124,7 @@ articles.post('/api/articles/:id/publish', async (c) => {
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'article_publish'));
     return c.json({ success: true, data: result });
   } catch (err: any) {
-    return c.json({ success: false, error: err.message ?? 'Failed to publish article' }, 500);
+    return c.json({ success: false, error: errorMessage(err, 'Failed to publish article') }, 500);
   }
 });
 
@@ -136,7 +146,7 @@ articles.get('/api/news/search', async (c) => {
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'news_search'));
     return c.json({ success: true, data: result.data ?? [] });
   } catch (err: any) {
-    return c.json({ success: false, error: err.message ?? 'Failed to search news' }, 500);
+    return c.json({ success: false, error: errorMessage(err, 'Failed to search news') }, 500);
   }
 });
 
@@ -156,7 +166,7 @@ articles.get('/api/news/:id', async (c) => {
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'news_get'));
     return c.json({ success: true, data: story });
   } catch (err: any) {
-    return c.json({ success: false, error: err.message ?? 'Failed to fetch news story' }, 500);
+    return c.json({ success: false, error: errorMessage(err, 'Failed to fetch news story') }, 500);
   }
 });
 

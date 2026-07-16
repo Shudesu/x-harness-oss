@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0] - 2026-07-16
+
+### Added
+- **無料スクレイピング収集(scrape_* MCP ツール)** — twitter-cli(Cookie 認証)ラップで X API 読み取り課金ゼロ
+  - `scrape_user_posts` / `scrape_search` / `scrape_post`(fxtwitter, /video/1 embedUrl)/ `scrape_user`
+- **growth 系 MCP ツール** — `add_growth_source` / `list_growth_sources` / `save_growth_article` / `list_growth_articles` / `add_growth_draft`
+- **同梱スキル(Claude Code / Codex 両対応)** — `x-growth-discover`(ネタ発見)/ `x-growth-article`(長文記事)/ `x-growth-video`(動画引用投稿、承認/フルオート)
+- **create-x-harness** — 無料収集セットアップ(auth_token/ct0)、スキル自動インストール、Codex config スニペット表示
+
+### Changed
+- 有料の X API 読み取りツールの description に課金注意と scrape_* への誘導を追加
+
 ## [0.3.0] - 2026-04-05
 
 ### Added

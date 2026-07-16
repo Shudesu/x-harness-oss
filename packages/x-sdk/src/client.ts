@@ -106,13 +106,14 @@ export class XClient {
     return this.get<XApiResponse<XUser[]>>(`/tweets/${tweetId}/retweeted_by?${params}`);
   }
 
-  async searchRecentTweets(query: string, sinceId?: string, paginationToken?: string): Promise<XApiResponse<XTweetSearchResult[]>> {
+  async searchRecentTweets(query: string, sinceId?: string, paginationToken?: string, maxResults = 100): Promise<XApiResponse<XTweetSearchResult[]>> {
+    // Pay-per-use bills $0.005 per post RETURNED — cap max_results to what the caller actually needs
     const params = new URLSearchParams({
       query,
-      'tweet.fields': 'author_id,created_at,in_reply_to_user_id,referenced_tweets',
+      'tweet.fields': 'author_id,created_at,in_reply_to_user_id,referenced_tweets,public_metrics',
       'user.fields': 'profile_image_url,public_metrics',
       expansions: 'author_id,referenced_tweets.id',
-      max_results: '100',
+      max_results: String(Math.min(Math.max(maxResults, 10), 100)),
     });
     if (sinceId) params.set('since_id', sinceId);
     if (paginationToken) params.set('next_token', paginationToken);

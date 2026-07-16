@@ -28,6 +28,7 @@ const menuSections = [
     items: [
       { href: '/articles', label: '記事作成', icon: 'M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l6 6v8a2 2 0 01-2 2zM9 9h3m-3 4h6m-6 4h6' },
       { href: '/news', label: 'ニュース', icon: 'M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v12a2 2 0 01-2 2zM7 8h10M7 12h10M7 16h6' },
+      { href: '/growth', label: 'Growth 承認', icon: 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' },
     ],
   },
   {

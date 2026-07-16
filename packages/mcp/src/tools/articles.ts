@@ -27,7 +27,7 @@ export const articleToolDefs = [
   },
   {
     name: 'search_news',
-    description: 'X上のブレイキングニュースを検索する（要約・関連ポストクラスタ付き）。記事ネタ収集に使える',
+    description: '【X API 課金あり】無料の scrape_search で代替できないか先に検討すること。X上のブレイキングニュースを検索する（要約・関連ポストクラスタ付き）。記事ネタ収集に使える',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -40,7 +40,7 @@ export const articleToolDefs = [
   },
   {
     name: 'get_news',
-    description: 'ニュースストーリーの詳細（要約・コンテキスト・関連ポストID一覧）を取得する',
+    description: '【X API 課金あり】ニュースストーリーの詳細（要約・コンテキスト・関連ポストID一覧）を取得する',
     inputSchema: {
       type: 'object' as const,
       properties: {

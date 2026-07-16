@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -14,6 +15,9 @@ import { staffToolDefs } from './tools/staff.js';
 import { campaignToolDefs } from './tools/campaign.js';
 import { usageToolDefs } from './tools/usage.js';
 import { articleToolDefs } from './tools/articles.js';
+import { scrapeToolDefs } from './tools/scrape.js';
+import { growthToolDefs } from './tools/growth.js';
+import { scrapeUserPosts, scrapeSearch, scrapeUser, scrapePost } from './scraper.js';
 
 const API_URL = process.env.X_HARNESS_API_URL ?? 'http://localhost:8787';
 const API_KEY = process.env.X_HARNESS_API_KEY ?? '';
@@ -32,9 +36,13 @@ const allTools = [
   ...campaignToolDefs,
   ...usageToolDefs,
   ...articleToolDefs,
+  ...scrapeToolDefs,
+  ...growthToolDefs,
 ];
 
-const server = new Server({ name: 'x-harness', version: '0.1.0' }, { capabilities: { tools: {} } });
+const pkgVersion: string = createRequire(import.meta.url)('../package.json').version;
+
+const server = new Server({ name: 'x-harness', version: pkgVersion }, { capabilities: { tools: {} } });
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: allTools }));
 
@@ -248,6 +256,58 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         result = await client.get(`/api/usage/by-gate${qs.toString() ? `?${qs}` : ''}`);
         break;
       }
+      case 'scrape_user_posts':
+        result = await scrapeUserPosts({ handle: a.handle, limit: a.limit });
+        break;
+      case 'scrape_search':
+        result = await scrapeSearch({ query: a.query, type: a.type, lang: a.lang, minLikes: a.minLikes, limit: a.limit });
+        break;
+      case 'scrape_post':
+        result = await scrapePost(a.urlOrId);
+        break;
+      case 'scrape_user':
+        result = await scrapeUser({ handle: a.handle });
+        break;
+      case 'add_growth_source':
+        result = await client.post('/api/growth/sources', {
+          sourceTweetId: a.sourceTweetId,
+          author: a.author,
+          textEn: a.textEn,
+          textJa: a.textJa,
+          ...(a.summaryJa ? { summaryJa: a.summaryJa } : {}),
+          ...(a.suggestedQuoteText ? { suggestedQuoteText: a.suggestedQuoteText } : {}),
+          ...(a.videoUrl ? { videoUrl: a.videoUrl } : {}),
+          ...(a.views != null ? { views: a.views } : {}),
+          ...(a.likes != null ? { likes: a.likes } : {}),
+          ...(a.theme ? { theme: a.theme } : {}),
+          ...(a.transcript ? { transcript: a.transcript } : {}),
+        });
+        break;
+      case 'list_growth_sources':
+        result = await client.get(`/api/growth/sources${a.status ? `?status=${encodeURIComponent(a.status)}` : ''}`);
+        break;
+      case 'save_growth_article':
+        result = await client.post('/api/growth/articles', {
+          xAccountId: a.xAccountId,
+          title: a.title,
+          bodyMd: a.bodyMd,
+          ...(a.imageUrl ? { imageUrl: a.imageUrl } : {}),
+          ...(a.theme ? { theme: a.theme } : {}),
+          ...(a.sourceTweetIds ? { sourceTweetIds: a.sourceTweetIds } : {}),
+        });
+        break;
+      case 'list_growth_articles':
+        result = await client.get(`/api/growth/articles${a.status ? `?status=${encodeURIComponent(a.status)}` : ''}`);
+        break;
+      case 'add_growth_draft':
+        result = await client.post('/api/growth/drafts', {
+          xAccountId: a.xAccountId,
+          type: a.type,
+          text: a.text,
+          scheduledAt: a.scheduledAt,
+          ...(a.quoteTweetId ? { quoteTweetId: a.quoteTweetId } : {}),
+        });
+        break;
       default:
         return { content: [{ type: 'text' as const, text: `Unknown tool: ${name}` }], isError: true };
     }

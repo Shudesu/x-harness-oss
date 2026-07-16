@@ -17,3 +17,7 @@ database_id = "YOUR_D1_DATABASE_ID"
 
 [triggers]
 crons = ["*/5 * * * *"]
+
+[[r2_buckets]]
+binding = "GROWTH_IMAGES"
+bucket_name = "x-harness-growth-images"

@@ -10,6 +10,7 @@ export async function processScheduledPosts(db: D1Database, xClient: XClient, xA
       const tweet = await xClient.createTweet({
         text: post.text,
         media: post.media_ids ? { media_ids: JSON.parse(post.media_ids) } : undefined,
+        quote_tweet_id: post.quote_tweet_id ?? undefined,
       });
       await updateScheduledPostStatus(db, post.id, 'posted', tweet.id);
     } catch (err) {

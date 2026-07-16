@@ -10,6 +10,7 @@ import { deployWorker } from "../steps/deploy-worker.js";
 import { deployAdmin } from "../steps/deploy-admin.js";
 import { setSecrets } from "../steps/secrets.js";
 import { generateMcpConfig } from "../steps/mcp-config.js";
+import { promptScraperSetup, installSkills, printCodexSnippet } from "../steps/scraper-setup.js";
 import { generateApiKey } from "../lib/crypto.js";
 import { wrangler, setAccountId } from "../lib/wrangler.js";
 import type { SetupState } from "../lib/config.js";
@@ -274,8 +275,15 @@ export async function runSetup(repoDir: string): Promise<void> {
     defaultValue: "done",
   });
 
+  // Step 11.5: Optional free-scraping setup (twitter-cli cookie auth).
+  // Tokens are intentionally NOT persisted to the setup state file — cookies
+  // must never land in plain JSON on disk beyond .mcp.json itself.
+  const scraperTokens = await promptScraperSetup();
+  installSkills(repoDir);
+
   // Step 12: Generate MCP config (always)
-  generateMcpConfig({ workerUrl: state.workerUrl!, apiKey: state.apiKey! });
+  generateMcpConfig({ workerUrl: state.workerUrl!, apiKey: state.apiKey!, scraperTokens });
+  printCodexSnippet({ workerUrl: state.workerUrl!, apiKey: state.apiKey!, scraperTokens });
 
   // Step 13: Show completion screen
   p.note(
