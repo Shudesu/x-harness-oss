@@ -302,9 +302,8 @@ describe('checkConditions', () => {
 
   it('checks follow condition when require_follow is set', async () => {
     const xClient = createMockXClient({
-      getFollowers: async () => ({
-        data: [{ id: 'user-1', name: 'Me', username: 'me' }],
-      }),
+      getRelationshipById: async () => ({ id: 'user-1', name: 'Me', username: 'me',
+        connection_status: ['followed_by'] }),
     });
     const cache = new EngagementCache();
     const gate = createMockGate({ require_follow: 1 });
@@ -317,7 +316,8 @@ describe('checkConditions', () => {
     const xClient = createMockXClient({
       getLikingUsers: async () => ({ data: [] }),
       getRetweetedBy: async () => ({ data: [] }),
-      getFollowers: async () => ({ data: [] }),
+      getRelationshipById: async () => ({ id: 'other', name: 'O', username: 'o',
+        connection_status: [] }),
     });
     const cache = new EngagementCache();
     const gate = createMockGate({
@@ -334,3 +334,47 @@ describe('checkConditions', () => {
     expect(result.reply).toBe(true);
   });
 });
+
+  describe('isFollower (connection_status)', () => {
+    it('resolves via single relationship lookup, no follower crawl', async () => {
+      let crawls = 0;
+      const xClient = createMockXClient({
+        getRelationshipById: async () => ({ id: 'u9', name: 'U', username: 'u9',
+          connection_status: ['followed_by'] }),
+        getFollowers: async () => { crawls++; return { data: [] }; },
+      });
+      const cache = new EngagementCache();
+      expect(await cache.isFollower(xClient, 'acc1', 'u9')).toBe(true);
+      expect(crawls).toBe(0);
+    });
+
+    it('definitive negative without crawl when relationship known', async () => {
+      const xClient = createMockXClient({
+        getRelationshipById: async () => ({ id: 'u9', name: 'U', username: 'u9',
+          connection_status: ['following'] }),
+      });
+      const cache = new EngagementCache();
+      expect(await cache.isFollower(xClient, 'acc1', 'u9')).toBe(false);
+    });
+
+    it('falls back to newest-page follower cache without connection_status', async () => {
+      const xClient = createMockXClient({
+        getRelationshipById: async () => ({ id: 'u9', name: 'U', username: 'u9' }),
+        getFollowers: async () => ({ data: [{ id: 'u9', name: 'U', username: 'u9' }] }),
+      });
+      const cache = new EngagementCache();
+      expect(await cache.isFollower(xClient, 'acc1', 'u9')).toBe(true);
+    });
+
+    it('memoizes per account:user pair', async () => {
+      let lookups = 0;
+      const xClient = createMockXClient({
+        getRelationshipById: async () => { lookups++; return { id: 'u9', name: 'U',
+          username: 'u9', connection_status: [] }; },
+      });
+      const cache = new EngagementCache();
+      await cache.isFollower(xClient, 'acc1', 'u9');
+      await cache.isFollower(xClient, 'acc1', 'u9');
+      expect(lookups).toBe(1);
+    });
+  });

@@ -219,6 +219,13 @@ export class XClient {
     return res.data;
   }
 
+  /** getRelationship by user id (same single-item cost). */
+  async getRelationshipById(userId: string): Promise<XUser & { connection_status?: string[] }> {
+    const res = await this.get<{ data: XUser & { connection_status?: string[] } }>(
+      `/users/${userId}?user.fields=profile_image_url,public_metrics,connection_status`);
+    return res.data;
+  }
+
   async getFollowers(userId: string, paginationToken?: string): Promise<XApiResponse<XUser[]>> {
     const params = new URLSearchParams({ max_results: '1000', 'user.fields': 'profile_image_url,public_metrics' });
     if (paginationToken) params.set('pagination_token', paginationToken);
