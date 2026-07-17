@@ -210,6 +210,15 @@ export class XClient {
     return res.data;
   }
 
+  /** Single-item relationship lookup (~$0.005) — replaces follower-list crawls.
+   * connection_status is relative to the authenticated user:
+   * "followed_by" = the looked-up user follows us. Requires OAuth1 user context. */
+  async getRelationship(username: string): Promise<XUser & { connection_status?: string[] }> {
+    const res = await this.get<{ data: XUser & { connection_status?: string[] } }>(
+      `/users/by/username/${username}?user.fields=profile_image_url,public_metrics,connection_status`);
+    return res.data;
+  }
+
   async getFollowers(userId: string, paginationToken?: string): Promise<XApiResponse<XUser[]>> {
     const params = new URLSearchParams({ max_results: '1000', 'user.fields': 'profile_image_url,public_metrics' });
     if (paginationToken) params.set('pagination_token', paginationToken);

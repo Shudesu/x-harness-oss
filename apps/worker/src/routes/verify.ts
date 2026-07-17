@@ -498,9 +498,11 @@ verify.get('/api/engagement-gates/:id/verify', async (c) => {
 
     let xUser;
     try {
-      // Track before the call — a user-not-found response is still a billed request
+      // Track before the call — a user-not-found response is still a billed request.
+      // getRelationship = the same single-item lookup, but with connection_status:
+      // "followed_by" answers the follow check directly, no follower crawl needed.
       c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, gate.x_account_id, 'verify_get_user'));
-      xUser = await clientResult.xClient.getUserByUsername(username);
+      xUser = await clientResult.xClient.getRelationship(username);
     } catch (err) {
       // 404 = username doesn't exist; 400 = malformed username (e.g. >15
       // chars) — both mean "no such account". Everything else (rate limit,
@@ -526,18 +528,34 @@ verify.get('/api/engagement-gates/:id/verify', async (c) => {
       });
     }
 
-    // 3. Check D1 follower_id_cache
-    const cachedFollower = await c.env.DB.prepare(
-      'SELECT 1 FROM follower_id_cache WHERE x_account_id = ? AND follower_x_user_id = ?',
-    ).bind(clientResult.account.x_user_id, xUser.id).first();
+    // 3. connection_status from the lookup answers the follow check directly
+    // (OAuth1 user context). ["followed_by"] = this user follows the gate
+    // account. Undefined = the token has no user context (bearer) — fall
+    // back to the legacy cache/crawl path below.
+    let isFollower: boolean;
+    let relationshipKnown = Array.isArray(xUser.connection_status);
+    if (relationshipKnown) {
+      isFollower = xUser.connection_status!.includes('followed_by');
+      // Keep the single verified follower in D1 for the /repliers history UI
+      if (isFollower) {
+        c.executionCtx.waitUntil(
+          c.env.DB.prepare('INSERT INTO follower_id_cache (x_account_id, follower_x_user_id, cached_at) VALUES (?, ?, ?) ON CONFLICT (x_account_id, follower_x_user_id) DO UPDATE SET cached_at = excluded.cached_at')
+            .bind(clientResult.account.x_user_id, xUser.id, new Date().toISOString()).run(),
+        );
+      }
+    } else {
+      // Legacy path: check D1 follower_id_cache
+      const cachedFollower = await c.env.DB.prepare(
+        'SELECT 1 FROM follower_id_cache WHERE x_account_id = ? AND follower_x_user_id = ?',
+      ).bind(clientResult.account.x_user_id, xUser.id).first();
+      isFollower = !!cachedFollower;
+    }
 
-    let isFollower = !!cachedFollower;
-
-    // 4. Cache miss — fetch from X API and cache ALL follower IDs.
+    // 4. Legacy cache miss — fetch from X API and cache ALL follower IDs.
     // Rate limit full crawls: only positive IDs are cached, so without this
     // guard every repeat submit by a non-follower would re-crawl up to 10
     // pages of getFollowers.
-    if (!isFollower) {
+    if (!isFollower && !relationshipKnown) {
       // NOTE: verify checks followers of the gate's own account — the actual
       // campaign pattern ("follow @account"). The cron poller instead treats
       // gate.post_id as the target user id (services/engagement-gate.ts);
