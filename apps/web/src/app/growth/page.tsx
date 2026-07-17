@@ -491,6 +491,7 @@ function ArticleCard({
   const [saving, setSaving] = useState(false)
   const [discarding, setDiscarding] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const [expanded, setExpanded] = useState(false)
 
   const isDirty = title !== article.title || bodyMd !== article.body_md
 
@@ -519,6 +520,31 @@ function ArticleCard({
   const handleDiscard = async () => {
     setDiscarding(true)
     try { await onDiscard(article.id) } finally { setDiscarding(false) }
+  }
+
+  // Collapsed row — the drafts list gets long, so cards fold to one line
+  if (!expanded) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        className="w-full text-left bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
+      >
+        {article.image_url ? (
+          <img src={article.image_url} alt="" className="w-20 h-8 object-cover rounded border border-gray-100 shrink-0" />
+        ) : (
+          <div className="w-20 h-8 rounded border border-dashed border-gray-200 bg-gray-50 shrink-0" />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-gray-900 truncate">{title || article.title}</p>
+          <p className="text-[11px] text-gray-400 truncate">
+            {article.theme ? `${article.theme} ・ ` : ''}
+            {new Date(article.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
+          </p>
+        </div>
+        {isDirty && <span className="text-[11px] font-semibold text-amber-600 shrink-0">未保存</span>}
+        <span className="text-gray-400 shrink-0">▸</span>
+      </button>
+    )
   }
 
   return (
@@ -550,9 +576,17 @@ function ArticleCard({
             </span>
           )}
         </div>
-        <span className="text-xs text-gray-400 shrink-0">
-          {new Date(article.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
-        </span>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className="text-xs text-gray-400">
+            {new Date(article.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
+          </span>
+          <button
+            onClick={() => setExpanded(false)}
+            className="text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors"
+          >
+            ▾ たたむ
+          </button>
+        </div>
       </div>
 
       {/* Title editor */}
@@ -579,7 +613,7 @@ function ArticleCard({
       </div>
 
       {/* Body preview (renders inline images) */}
-      <details open className="border border-gray-100 rounded-lg p-3 bg-gray-50/50">
+      <details className="border border-gray-100 rounded-lg p-3 bg-gray-50/50">
         <summary className="cursor-pointer select-none text-xs font-semibold text-gray-500 mb-2">プレビュー(画像込み)</summary>
         <div className="mt-2"><MarkdownPreview md={bodyMd} /></div>
       </details>
