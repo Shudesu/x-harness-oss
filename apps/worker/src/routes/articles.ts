@@ -31,24 +31,75 @@ function buildXClient(account: { consumer_key: string | null; consumer_secret: s
 // Convert markdown-lite body text into DraftJS-style content blocks.
 // Supported per line-group: "# " → header-one, "## " → header-two,
 // "> " → blockquote, "- "/"* " → unordered-list-item (one block per line),
-// "1. " → ordered-list-item, everything else → unstyled paragraph.
-// Links/images need DraftJS entities, which the Articles API docs don't
-// fully specify yet — plain text only for now.
-// The Articles API validates content_state strictly: blocks accept ONLY
-// {text, type} — standard DraftJS raw fields (key/depth/inlineStyleRanges/
-// entityRanges/data) are rejected with "additionalProperties" errors
-// (verified against the live API, 2026-07-07).
-function block(text: string, type: string): ArticleContentBlock {
-  return { text, type };
+// "1. " → ordered-list-item, ``` fences → plain paragraph (the article
+// editor has no code-block type), everything else → unstyled paragraph.
+// Inline: **bold** → inline_style_ranges style "Bold" (the style name the
+// article editor stores — verified via a live article's entityMap),
+// `code` → backticks stripped (no code style exists).
+// The Articles API validates content_state strictly and wants snake_case
+// range fields: entity_ranges is accepted (verified live 2026-07-17);
+// camelCase DraftJS names are rejected as additionalProperties.
+
+// Strip inline markdown markers and emit Bold ranges. Offsets/lengths are
+// UTF-16 code units (JS string indexing), which is how the editor counts.
+export function parseInlineStyles(raw: string): {
+  text: string;
+  ranges: { offset: number; length: number; style: string }[];
+} {
+  const ranges: { offset: number; length: number; style: string }[] = [];
+  let text = '';
+  let i = 0;
+  while (i < raw.length) {
+    if (raw.startsWith('**', i)) {
+      const end = raw.indexOf('**', i + 2);
+      if (end > i + 2) {
+        const inner = raw.slice(i + 2, end).replace(/`/g, '');
+        ranges.push({ offset: text.length, length: inner.length, style: 'Bold' });
+        text += inner;
+        i = end + 2;
+        continue;
+      }
+    }
+    if (raw[i] === '`') {
+      const end = raw.indexOf('`', i + 1);
+      if (end !== -1) {
+        text += raw.slice(i + 1, end);
+        i = end + 1;
+        continue;
+      }
+    }
+    text += raw[i];
+    i++;
+  }
+  return { text, ranges };
+}
+
+function block(raw: string, type: string): ArticleContentBlock {
+  const { text, ranges } = parseInlineStyles(raw);
+  return { text, type, ...(ranges.length ? { inline_style_ranges: ranges } : {}) };
 }
 
 export function markdownToContentState(body: string): ArticleContentState {
   const blocks: ArticleContentBlock[] = [];
-  const paragraphs = body.replace(/\r\n/g, '\n').split(/\n{2,}/);
+  // Pull ``` fences out first — fence content must not be paragraph-split or
+  // inline-parsed. Each fence becomes one plain paragraph (newlines kept).
+  const fences: string[] = [];
+  const normalized = body.replace(/\r\n/g, '\n').replace(
+    /```[^\n]*\n?([\s\S]*?)```/g,
+    (_m, code: string) => `\n\n\u0000FENCE${fences.push(code.replace(/\n+$/, '')) - 1}\u0000\n\n`,
+  );
+  const paragraphs = normalized.split(/\n{2,}/);
 
   for (const para of paragraphs) {
     const trimmed = para.trim();
     if (!trimmed) continue;
+
+    const fenceMatch = trimmed.match(/^\u0000FENCE(\d+)\u0000$/);
+    if (fenceMatch) {
+      const code = fences[Number(fenceMatch[1])];
+      if (code.trim()) blocks.push({ text: code, type: 'unstyled' });
+      continue;
+    }
 
     const lines = trimmed.split('\n');
     const isList = lines.every((l) => /^(-|\*|\d+\.)\s+/.test(l.trim()));

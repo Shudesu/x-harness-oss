@@ -50,12 +50,11 @@ export interface CreateTweetParams {
 // standard DraftJS raw shape (safe superset).
 export interface ArticleContentBlock {
   text: string;
-  type: string; // 'unstyled' | 'header-one' | 'header-two' | 'unordered-list-item' | 'ordered-list-item' | 'blockquote' | ...
-  key?: string;
-  depth?: number;
-  inlineStyleRanges?: unknown[];
-  entityRanges?: unknown[];
-  data?: Record<string, unknown>;
+  type: string; // 'unstyled' | 'header-one' | 'header-two' | 'unordered-list-item' | 'ordered-list-item' | 'blockquote' | 'atomic' | ...
+  // The live API validates strictly and expects snake_case range fields
+  // (camelCase DraftJS names are rejected as additionalProperties).
+  entity_ranges?: { offset: number; length: number; key: number }[];
+  inline_style_ranges?: { offset: number; length: number; style: string }[];
 }
 
 export interface ArticleContentState {
