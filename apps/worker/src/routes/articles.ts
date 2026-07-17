@@ -100,7 +100,9 @@ articles.post('/api/articles/draft', async (c) => {
     const draft = await xClient.createArticleDraft({
       title,
       content_state: contentState ?? markdownToContentState(body!),
-      ...(coverMediaId ? { cover_media: { media_id: coverMediaId } } : {}),
+      // media_category is required by the Articles API and must match the
+      // category the media was uploaded with (upload route defaults to tweet_image)
+      ...(coverMediaId ? { cover_media: { media_id: coverMediaId, media_category: 'tweet_image' } } : {}),
     });
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'article_draft'));
     return c.json({ success: true, data: draft }, 201);
