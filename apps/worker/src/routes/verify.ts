@@ -10,6 +10,11 @@ const verify = new Hono<Env>();
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+// Owned Reads bill per returned follower ($0.001/item), so follower crawls are
+// the most expensive thing this worker can do. Verification only needs the
+// newest page — the verifying user followed moments ago.
+const FOLLOW_CRAWL_MAX_PAGES = 1;
+
 interface CachedEngager {
   username: string;
   xUserId: string;
@@ -240,7 +245,10 @@ async function fetchAndCacheMetered(
       });
     }
   } else if (gate.trigger_type === 'follow') {
-    // ─── Follow trigger: getFollowers (paginated, up to 10,000) ───
+    // ─── Follow trigger: getFollowers (newest page only) ───
+    // Owned Reads are billed PER RETURNED FOLLOWER, so a full crawl of a 10k
+    // account costs ~$10 every cache miss. The verifying user just followed,
+    // so they are always near the head of page 1 — one page is enough.
     // No checkConditions needed — follow itself is the trigger.
     // Cheapest option: just getFollowers, no per-user condition checks.
     // This path is reachable from the public /repliers endpoint, so claim
@@ -286,7 +294,7 @@ async function fetchAndCacheMetered(
         }
         paginationToken = (result as any).meta?.next_token;
         page++;
-      } while (paginationToken && page < 10);
+      } while (paginationToken && page < FOLLOW_CRAWL_MAX_PAGES);
     } catch (err) {
       // Release the claim so the next request can retry immediately
       await clearMarker(db, `follower_sync:${accountXUserId}`);

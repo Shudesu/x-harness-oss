@@ -27,7 +27,9 @@ export class EngagementCache {
 
   async getFollowerIds(xClient: XClient, userId: string): Promise<Set<string>> {
     if (this.followerIds.has(userId)) return this.followerIds.get(userId)!;
-    const users = await this.fetchAllPages((token) => xClient.getFollowers(userId, token), 10, 'verify_get_followers');
+    // Newest page only: follower reads bill per returned item, and the user
+    // being checked (just-followed verifier) is always near the list head.
+    const users = await this.fetchAllPages((token) => xClient.getFollowers(userId, token), 1, 'verify_get_followers');
     const ids = new Set(users.map((u) => u.id));
     this.followerIds.set(userId, ids);
     return ids;

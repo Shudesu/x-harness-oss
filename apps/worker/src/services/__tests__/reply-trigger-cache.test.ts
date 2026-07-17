@@ -134,7 +134,9 @@ describe('EngagementCache', () => {
     const cache = new EngagementCache((ep) => calls.push(ep));
     await cache.getFollowerIds(xClient, 'user-1');
 
-    expect(calls).toEqual(['verify_get_followers', 'verify_get_followers', 'verify_get_followers']);
+    // Follower crawls are capped to the newest page (billed per returned item)
+    expect(calls).toEqual(['verify_get_followers']);
+    expect(page).toBe(1);
   });
 
   it('onApiCall does not fire on cache hits', async () => {
