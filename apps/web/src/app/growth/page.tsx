@@ -752,7 +752,137 @@ function DigestCard({ digest }: { digest: Digest }) {
 
 // ─── Page ───
 
-type Tab = 'pending' | 'discovery' | 'processed' | 'articles'
+// Published articles stay listed as compact rows — losing them from the UI
+// makes it impossible to tell what is already live on X.
+function PublishedArticleRow({ article }: { article: ArticleDraft }) {
+  return (
+    <div className="flex items-center gap-3 py-2.5">
+      {article.image_url ? (
+        <img src={article.image_url} alt="" className="w-20 h-8 object-cover rounded border border-gray-100 shrink-0" />
+      ) : (
+        <div className="w-20 h-8 rounded border border-dashed border-gray-200 bg-gray-50 shrink-0" />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-gray-900 truncate">{article.title}</p>
+        <p className="text-[11px] text-gray-400 truncate">
+          {article.theme ? `${article.theme} ・ ` : ''}
+          {new Date(article.updated_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
+        </p>
+      </div>
+      <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-green-50 text-green-700 border border-green-200 shrink-0">
+        公開済み
+      </span>
+      {article.published_article_id && (
+        <a
+          href={`https://x.com/i/status/${article.published_article_id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-blue-600 hover:underline shrink-0"
+        >
+          Xで見る ↗
+        </a>
+      )}
+    </div>
+  )
+}
+
+// 枝葉タブ: ピラー記事(公開済み)ごとに、それを引用する動画付きドラフトを
+// まとめて見る。生成は自動 — discovery(毎朝05:30)が海外動画を発見・文字起こし
+// し、planner(07:30)の LLM がピラーとの紐付け・文面を判断してここに溜まる。
+function EdahaView({
+  pillars,
+  drafts,
+  onApprove,
+  onReject,
+  onSaved,
+}: {
+  pillars: ArticleDraft[]
+  drafts: GrowthDraft[]
+  onApprove: (id: string) => Promise<void>
+  onReject: (id: string) => Promise<void>
+  onSaved: (id: string, text: string, scheduledAt: string) => Promise<void>
+}) {
+  const byPillar = new Map<string, GrowthDraft[]>()
+  for (const d of drafts) {
+    if (!d.quote_tweet_id) continue
+    const list = byPillar.get(d.quote_tweet_id) ?? []
+    list.push(d)
+    byPillar.set(d.quote_tweet_id, list)
+  }
+  const knownPillarIds = new Set(pillars.map((p) => p.published_article_id).filter(Boolean) as string[])
+  const orphanIds = [...byPillar.keys()].filter((id) => !knownPillarIds.has(id))
+
+  if (drafts.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 py-14 px-6 text-center space-y-2">
+        <p className="text-sm text-gray-500 font-medium">枝葉ドラフトはまだありません</p>
+        <p className="text-xs text-gray-400 leading-relaxed">
+          毎朝 05:30 に discovery が海外の動画バズを発見・文字起こしし、07:30 に planner の LLM が
+          「どのピラー記事に紐付けるか・どんな文面にするか」を自動判断してここに溜まります。
+          承認するとピラー記事の引用RT(動画URL付き)として予約されます。
+        </p>
+      </div>
+    )
+  }
+
+  const renderDraft = (d: GrowthDraft) =>
+    d.status === 'pending' ? (
+      <DraftCard key={d.id} draft={d} onApprove={onApprove} onReject={onReject} onSaved={onSaved} />
+    ) : (
+      <div key={d.id} className="bg-white rounded-xl border border-gray-200 px-4 py-2.5 flex items-center gap-3">
+        <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+          予約済み
+        </span>
+        <p className="text-sm text-gray-700 truncate flex-1">{d.text}</p>
+        {d.scheduled_at && (
+          <span className="text-[11px] text-gray-400 shrink-0">
+            {new Date(d.scheduled_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
+          </span>
+        )}
+      </div>
+    )
+
+  return (
+    <div className="space-y-6">
+      {pillars.filter((p) => p.published_article_id).map((pillar) => {
+        const list = byPillar.get(pillar.published_article_id as string) ?? []
+        return (
+          <div key={pillar.id} className="space-y-3">
+            <div className="flex items-center gap-3">
+              {pillar.image_url && (
+                <img src={pillar.image_url} alt="" className="w-16 h-7 object-cover rounded border border-gray-100 shrink-0" />
+              )}
+              <a
+                href={`https://x.com/i/status/${pillar.published_article_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-semibold text-gray-900 hover:text-blue-600 truncate"
+              >
+                {pillar.title}
+              </a>
+              <span className="text-[11px] text-gray-400 shrink-0">
+                枝葉 {list.length} 本(承認待ち {list.filter((d) => d.status === 'pending').length})
+              </span>
+            </div>
+            {list.length === 0 ? (
+              <p className="text-xs text-gray-400 pl-1">このピラーへの枝葉はまだありません</p>
+            ) : (
+              <div className="space-y-3">{list.map(renderDraft)}</div>
+            )}
+          </div>
+        )
+      })}
+      {orphanIds.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold text-gray-500">その他の引用先</p>
+          {orphanIds.flatMap((id) => (byPillar.get(id) ?? []).map(renderDraft))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+type Tab = 'pending' | 'discovery' | 'processed' | 'articles' | 'edaha'
 
 // Derive xAccountId from pending drafts (first one wins) or fall back to env.
 function deriveXAccountId(pending: GrowthDraft[]): string {
@@ -765,6 +895,9 @@ export default function GrowthPage() {
   const [processed, setProcessed] = useState<GrowthDraft[]>([])
   const [sources, setSources] = useState<SourceCandidate[]>([])
   const [articles, setArticles] = useState<ArticleDraft[]>([])
+  const [publishedArticles, setPublishedArticles] = useState<ArticleDraft[]>([])
+  const [edahaDrafts, setEdahaDrafts] = useState<GrowthDraft[]>([])
+  const [edahaLoading, setEdahaLoading] = useState(false)
   const [digest, setDigest] = useState<Digest | null>(null)
   const [loading, setLoading] = useState(true)
   const [sourcesLoading, setSourcesLoading] = useState(false)
@@ -810,12 +943,36 @@ export default function GrowthPage() {
   const loadArticles = useCallback(async () => {
     setArticlesLoading(true)
     try {
-      const res = await fetchApi<ApiResponse<ArticleDraft[]>>('/api/growth/articles?status=draft')
-      setArticles(res.data ?? [])
+      // Published articles must stay visible — they carry the X link and are
+      // the pillars the 枝葉 tab groups by.
+      const [draftRes, publishedRes] = await Promise.all([
+        fetchApi<ApiResponse<ArticleDraft[]>>('/api/growth/articles?status=draft'),
+        fetchApi<ApiResponse<ArticleDraft[]>>('/api/growth/articles?status=published'),
+      ])
+      setArticles(draftRes.data ?? [])
+      setPublishedArticles(publishedRes.data ?? [])
     } catch (err) {
       setError(err instanceof Error ? err.message : '記事の取得に失敗しました')
     } finally {
       setArticlesLoading(false)
+    }
+  }, [])
+
+  // 枝葉 = ピラー記事への引用RT(動画付き)ドラフト。pending + scheduled を
+  // まとめて取り、quote_tweet_id でピラーごとにグルーピングして表示する。
+  const loadEdaha = useCallback(async () => {
+    setEdahaLoading(true)
+    try {
+      const [pendingRes, scheduledRes] = await Promise.all([
+        fetchApi<ApiResponse<GrowthDraft[]>>('/api/growth/drafts?status=pending'),
+        fetchApi<ApiResponse<GrowthDraft[]>>('/api/growth/drafts?status=scheduled'),
+      ])
+      const all = [...(pendingRes.data ?? []), ...(scheduledRes.data ?? [])]
+      setEdahaDrafts(all.filter((d) => d.quote_tweet_id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '枝葉の取得に失敗しました')
+    } finally {
+      setEdahaLoading(false)
     }
   }, [])
 
@@ -845,6 +1002,14 @@ export default function GrowthPage() {
       loadArticles()
     }
   }, [tab, articles.length, articlesLoading, loadArticles])
+
+  // Lazy-load 枝葉 (and the pillar articles it groups by) when switching in
+  useEffect(() => {
+    if (tab === 'edaha' && edahaDrafts.length === 0 && !edahaLoading) {
+      loadEdaha()
+      if (publishedArticles.length === 0 && !articlesLoading) loadArticles()
+    }
+  }, [tab, edahaDrafts.length, edahaLoading, loadEdaha, publishedArticles.length, articlesLoading, loadArticles])
 
   const handleSave = async (id: string, text: string, scheduledAt: string) => {
     await fetchApi<ApiResponse<GrowthDraft>>(`/api/growth/drafts/${id}`, {
@@ -905,7 +1070,7 @@ export default function GrowthPage() {
   }
 
   const handleArticlePublish = () => {
-    showToast('X Articles 公開は手動(Premium+必要)')
+    showToast('公開は create_article → publish_article(MCP/API・X Premiumで可)')
   }
 
   // Health line
@@ -922,6 +1087,7 @@ export default function GrowthPage() {
     { id: 'discovery', label: '海外ネタ', count: sources.length || undefined },
     { id: 'processed', label: '処理済み' },
     { id: 'articles', label: '記事', count: articles.length || undefined },
+    { id: 'edaha', label: '枝葉', count: edahaDrafts.filter((d) => d.status === 'pending').length || undefined },
   ]
 
   return (
@@ -1068,12 +1234,19 @@ export default function GrowthPage() {
                   <div key={i} className="h-96 bg-white rounded-xl border border-gray-200 animate-pulse" />
                 ))}
               </div>
-            ) : articles.length === 0 ? (
+            ) : articles.length === 0 && publishedArticles.length === 0 ? (
               <div className="bg-white rounded-xl border border-gray-200 py-16 text-center">
                 <p className="text-sm text-gray-400">記事ドラフトなし</p>
               </div>
             ) : (
               <div className="space-y-4">
+                {publishedArticles.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 px-4 py-2 divide-y divide-gray-100">
+                    {publishedArticles.map((article) => (
+                      <PublishedArticleRow key={article.id} article={article} />
+                    ))}
+                  </div>
+                )}
                 {articles.map((article) => (
                   <ArticleCard
                     key={article.id}
@@ -1084,6 +1257,25 @@ export default function GrowthPage() {
                   />
                 ))}
               </div>
+            )
+          )}
+
+          {/* ── Tab: 枝葉 ── */}
+          {tab === 'edaha' && (
+            edahaLoading || articlesLoading ? (
+              <div className="space-y-4">
+                {[...Array(2)].map((_, i) => (
+                  <div key={i} className="h-48 bg-white rounded-xl border border-gray-200 animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <EdahaView
+                pillars={publishedArticles}
+                drafts={edahaDrafts}
+                onApprove={async (id) => { await handleApprove(id); await loadEdaha() }}
+                onReject={async (id) => { await handleReject(id); await loadEdaha() }}
+                onSaved={handleSave}
+              />
             )
           )}
         </div>
