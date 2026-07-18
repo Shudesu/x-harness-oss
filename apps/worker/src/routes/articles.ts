@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { XClient, XApiRateLimitError } from '@x-harness/x-sdk';
-import type { ArticleContentState, ArticleContentBlock } from '@x-harness/x-sdk';
+import type { ArticleContentState, ArticleContentBlock, ArticleEntity } from '@x-harness/x-sdk';
 import { getXAccountById, incrementApiUsage } from '@x-harness/db';
 import type { Env } from '../index.js';
 
@@ -31,24 +31,149 @@ function buildXClient(account: { consumer_key: string | null; consumer_secret: s
 // Convert markdown-lite body text into DraftJS-style content blocks.
 // Supported per line-group: "# " → header-one, "## " → header-two,
 // "> " → blockquote, "- "/"* " → unordered-list-item (one block per line),
-// "1. " → ordered-list-item, everything else → unstyled paragraph.
-// Links/images need DraftJS entities, which the Articles API docs don't
-// fully specify yet — plain text only for now.
-// The Articles API validates content_state strictly: blocks accept ONLY
-// {text, type} — standard DraftJS raw fields (key/depth/inlineStyleRanges/
-// entityRanges/data) are rejected with "additionalProperties" errors
-// (verified against the live API, 2026-07-07).
-function block(text: string, type: string): ArticleContentBlock {
-  return { text, type };
+// "1. " → ordered-list-item, ``` fences → plain paragraph (the article
+// editor has no code-block type), "![alt](url)" on its own paragraph →
+// atomic block + image entity (url must resolve via mediaMap),
+// everything else → unstyled paragraph.
+// Inline: **bold** → inline_style_ranges style "bold" (write-side enum is
+// lowercase [bold, italic, strikethrough] — the editor's read side shows
+// "Bold" but the API rejects it; verified live 2026-07-18), `code` →
+// backticks stripped (no code style exists).
+// The Articles API validates content_state strictly and wants snake_case
+// range fields: entity_ranges is accepted (verified live 2026-07-17);
+// camelCase DraftJS names are rejected as additionalProperties. The same
+// applies inside entity data: media_items/media_id/media_category — the
+// read-side camelCase (mediaItems/mediaId) is rejected on write.
+
+// Strip inline markdown markers and emit Bold ranges. Offsets/lengths are
+// UTF-16 code units (JS string indexing), which is how the editor counts.
+export function parseInlineStyles(raw: string): {
+  text: string;
+  ranges: { offset: number; length: number; style: string }[];
+} {
+  const ranges: { offset: number; length: number; style: string }[] = [];
+  let text = '';
+  let i = 0;
+  while (i < raw.length) {
+    if (raw.startsWith('**', i)) {
+      const end = raw.indexOf('**', i + 2);
+      if (end > i + 2) {
+        const inner = raw.slice(i + 2, end).replace(/`/g, '');
+        ranges.push({ offset: text.length, length: inner.length, style: 'bold' });
+        text += inner;
+        i = end + 2;
+        continue;
+      }
+    }
+    if (raw[i] === '`') {
+      const end = raw.indexOf('`', i + 1);
+      if (end !== -1) {
+        text += raw.slice(i + 1, end);
+        i = end + 1;
+        continue;
+      }
+    }
+    text += raw[i];
+    i++;
+  }
+  return { text, ranges };
 }
 
-export function markdownToContentState(body: string): ArticleContentState {
-  const blocks: ArticleContentBlock[] = [];
-  const paragraphs = body.replace(/\r\n/g, '\n').split(/\n{2,}/);
+function block(raw: string, type: string): ArticleContentBlock {
+  const { text, ranges } = parseInlineStyles(raw);
+  return { text, type, ...(ranges.length ? { inline_style_ranges: ranges } : {}) };
+}
 
-  for (const para of paragraphs) {
-    const trimmed = para.trim();
-    if (!trimmed) continue;
+// Standalone-image paragraph: ![alt](url) alone in its own paragraph.
+// The URL is captured greedily to the final ')' so URLs containing parens
+// (e.g. .../img_(1).png) still match; \S+ keeps it a single token.
+export const IMAGE_PARAGRAPH_RE = /^!\[([^\]]*)\]\((\S+)\)$/;
+
+// Inline images are uploaded and referenced with the same category — the
+// draft validator rejects mismatches, so both sides share this constant.
+const INLINE_IMAGE_CATEGORY = 'tweet_image';
+
+// A caller-input problem with an inline image (unfetchable URL, bad scheme).
+// The route maps this to 400 — it is not a server fault.
+export class InlineImageError extends Error {}
+
+// Shared tokenization for the converter and the image collector: ``` fences
+// are pulled out first (their content must not be paragraph-split, inline-
+// parsed, or image-scanned), then the rest splits on blank lines. Both
+// consumers seeing the same paragraphs guarantees the uploaded image set
+// and the converted image set always agree.
+function segmentBody(body: string): { fences: string[]; paragraphs: string[] } {
+  const fences: string[] = [];
+  const normalized = body.replace(/\r\n/g, '\n').replace(
+    /```[^\n]*\n?([\s\S]*?)```/g,
+    (_m, code: string) => `\n\n\u0000FENCE${fences.push(code.replace(/\n+$/, '')) - 1}\u0000\n\n`,
+  );
+  const paragraphs = normalized
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return { fences, paragraphs };
+}
+
+// Every image URL the converter will turn into an entity — same segmentation.
+export function collectInlineImageUrls(body: string): string[] {
+  const urls = new Set<string>();
+  for (const para of segmentBody(body).paragraphs) {
+    const m = para.match(IMAGE_PARAGRAPH_RE);
+    if (m) urls.add(m[2]);
+  }
+  return [...urls];
+}
+
+// mediaMap: image URL (as written in the markdown) → uploaded X media_id.
+// title: when given, a leading "# <title>" heading is dropped — the Articles
+// API renders the draft title separately, so keeping it duplicates the H1.
+export function markdownToContentState(
+  body: string,
+  mediaMap: Record<string, string> = {},
+  title?: string,
+): ArticleContentState {
+  const blocks: ArticleContentBlock[] = [];
+  const entities: ArticleEntity[] = [];
+  const { fences, paragraphs } = segmentBody(body);
+
+  for (const [index, trimmed] of paragraphs.entries()) {
+    const fenceMatch = trimmed.match(/^\u0000FENCE(\d+)\u0000$/);
+    if (fenceMatch) {
+      const code = fences[Number(fenceMatch[1])];
+      if (code.trim()) blocks.push({ text: code, type: 'unstyled' });
+      continue;
+    }
+
+    const imageMatch = trimmed.match(IMAGE_PARAGRAPH_RE);
+    if (imageMatch) {
+      const [, alt, url] = imageMatch;
+      const mediaId = mediaMap[url];
+      if (!mediaId) {
+        throw new InlineImageError(`No uploaded media for inline image: ${url}`);
+      }
+      const key = entities.length;
+      entities.push({
+        key: String(key),
+        value: {
+          type: 'image',
+          mutability: 'immutable',
+          data: {
+            ...(alt ? { caption: alt } : {}),
+            media_items: [{ media_id: mediaId, media_category: INLINE_IMAGE_CATEGORY }],
+          },
+        },
+      });
+      blocks.push({ text: ' ', type: 'atomic', entity_ranges: [{ offset: 0, length: 1, key }] });
+      continue;
+    }
+
+    // Only the very first paragraph of the source can be the duplicated
+    // title (index-based — an image/fence opening the body must not hide a
+    // later duplicate H1 from this check by bumping blocks.length).
+    if (title && index === 0 && trimmed.startsWith('# ') && trimmed.slice(2).trim() === title.trim()) {
+      continue;
+    }
 
     const lines = trimmed.split('\n');
     const isList = lines.every((l) => /^(-|\*|\d+\.)\s+/.test(l.trim()));
@@ -72,7 +197,32 @@ export function markdownToContentState(body: string): ArticleContentState {
     }
   }
 
-  return { blocks, entities: [] };
+  return { blocks, entities };
+}
+
+// Fetch every inline image referenced in the markdown body (same paragraph
+// segmentation as markdownToContentState, via collectInlineImageUrls) and
+// upload it to X media, returning url → media_id. Uploads run concurrently
+// (media upload allows 500/15min). Throws InlineImageError on any failed
+// fetch/upload so a broken image is caught BEFORE the draft call spends
+// 24h-window quota (draft creation is capped at 10/24h and even 400s
+// consume it).
+export async function uploadInlineImages(
+  body: string,
+  xClient: XClient,
+): Promise<Record<string, string>> {
+  const entries = await Promise.all(
+    collectInlineImageUrls(body).map(async (url): Promise<[string, string]> => {
+      if (!/^https:\/\//.test(url)) {
+        throw new InlineImageError(`Inline image URL must be https: ${url}`);
+      }
+      const res = await fetch(url);
+      if (!res.ok) throw new InlineImageError(`Failed to fetch inline image (${res.status}): ${url}`);
+      const contentType = res.headers.get('content-type') ?? 'image/png';
+      return [url, await xClient.uploadMedia(await res.arrayBuffer(), contentType, INLINE_IMAGE_CATEGORY)];
+    }),
+  );
+  return Object.fromEntries(entries);
 }
 
 // POST /api/articles/draft — create a long-form Article draft
@@ -97,14 +247,28 @@ articles.post('/api/articles/draft', async (c) => {
   const xClient = buildXClient(account);
 
   try {
+    // Inline images are uploaded first — explicitly, not inline in the call —
+    // so any failure aborts before the draft call and the 10/24h draft
+    // window is never spent on a doomed request.
+    let content_state = contentState;
+    if (!content_state) {
+      const mediaMap = await uploadInlineImages(body!, xClient);
+      content_state = markdownToContentState(body!, mediaMap, title);
+    }
     const draft = await xClient.createArticleDraft({
       title,
-      content_state: contentState ?? markdownToContentState(body!),
-      ...(coverMediaId ? { cover_media: { media_id: coverMediaId } } : {}),
+      content_state,
+      // media_category is required by the Articles API and must match the
+      // category the media was uploaded with (upload route defaults to tweet_image)
+      ...(coverMediaId ? { cover_media: { media_id: coverMediaId, media_category: 'tweet_image' } } : {}),
     });
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'article_draft'));
     return c.json({ success: true, data: draft }, 201);
   } catch (err: any) {
+    // A bad inline image is caller input, not a server fault.
+    if (err instanceof InlineImageError) {
+      return c.json({ success: false, error: err.message }, 400);
+    }
     return c.json({ success: false, error: errorMessage(err, 'Failed to create article draft') }, 500);
   }
 });

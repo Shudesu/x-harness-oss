@@ -1,7 +1,8 @@
 export const articleToolDefs = [
   {
     name: 'create_article',
-    description: 'X Article（長文記事）の下書きを作成する。bodyはMarkdown風テキスト（# 見出し / ## 小見出し / - リスト / > 引用 / 空行で段落分け）。公開にはアカウントのPremium+が必要',
+    description:
+      'X Article（長文記事）の下書きを作成する。bodyはMarkdown風テキスト（# 見出し / ## 小見出し / - リスト / > 引用 / **太字** / 空行で段落分け）。本文中に段落として単独で書いた ![キャプション](https://...) は実際に画像をfetch→Xへアップロードしてインライン画像になる（URLはhttps必須・到達不能なら下書き作成ごと400で失敗する。装飾でないMarkdown画像記法を不用意に含めないこと）。下書き作成は10件/24hの上限があり、バリデーションエラーでも1消費する。公開にはアカウントのX Premium(いずれかのプラン)が必要 — 2026年1月に全Premiumへ開放済み',
     inputSchema: {
       type: 'object' as const,
       properties: {

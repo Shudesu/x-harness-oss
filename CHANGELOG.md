@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0] - 2026-07-18
+
+### Added
+- **記事のインライン画像自動アップロード** — `create_article` の body に段落として書いた `![キャプション](https://...)` を Worker が fetch → X メディアアップロード → 画像 entity に自動変換。markdown を渡すだけで画像込みの長文記事 draft が作れる(実記事の公開まで検証済み)
+- **X Articles API 実測ガイド** — undocumented な `content_state` 書き側スキーマのフィールドノート(`docs/manual/07-articles-api.md`): entity data スキーマ(image/post/link/markdown/emoji/divider)、snake_case 必須、レート制限実測(draft 10件/24h・**400エラーでも消費**、publish 5件/24h)、スキーマ解読テクニック
+- SDK に `ArticleEntity` 型を追加、`cover_media.media_category` 対応
+
+### Changed
+- **記事公開の要件記載を修正: Premium+ → X Premium** — Articles の公開は 2026-01-07 に Premium+ 限定から全 Premium プランへ開放済み(実測: Premium アカウントで publish 成功)。ドキュメント・ツール説明を実態に合わせた
+
+### Fixed
+- **記事の太字が反映されないバグ** — inline style の書き側 enum は小文字 `bold`(`Bold` はバリデータに拒否される)。`**太字**` が正しく反映されるようになった
+- 記事タイトルと同一の冒頭 `# 見出し` を自動除去(タイトル二重表示の防止)
+- 画像 URL が到達不能な場合は draft 作成前に 400 で fail-fast(貴重な 10件/24h の draft 枠を守る)。括弧を含む画像 URL に対応
+
 ## [0.4.0] - 2026-07-16
 
 ### Added

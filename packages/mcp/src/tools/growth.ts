@@ -34,7 +34,7 @@ export const growthToolDefs = [
   {
     name: 'save_growth_article',
     description:
-      '長文記事の下書きを保存する(ダッシュボードの「記事」タブでレビューできる)。自動公開はされない — レビュー後に create_article / publish_article(Premium+ 必要)で公開する。',
+      '長文記事の下書きを保存する(ダッシュボードの「記事」タブでレビューできる)。自動公開はされない — レビュー後に create_article / publish_article(X Premium 必要)で公開する。',
     inputSchema: {
       type: 'object' as const,
       properties: {

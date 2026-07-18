@@ -15,6 +15,7 @@ export type {
   XList,
   ArticleContentBlock,
   ArticleContentState,
+  ArticleEntity,
   CreateArticleDraftParams,
   XNewsStory,
 } from './types.js';

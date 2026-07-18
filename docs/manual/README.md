@@ -27,6 +27,7 @@ X Harness は「verify_only」設計思想に基づく X 運用自動化 OSS で
 | [第4章](./04-campaign-design.md) | キャンペーン設計 | 🔒 有料 | 「参加」キーワード / ref_code first-touch / 獲得導線 |
 | [第5章](./05-line-integration.md) | LINE連携 | 🔒 有料 | Xポスト→LIFF→OAuth→push の E2E 設計 |
 | [第6章](./06-operations-cost.md) | 運用＆コスト管理 | 🔒 有料 | 事故事例 / 残高監視 / verify_only 運用ベストプラクティス |
+| [第7章](./07-articles-api.md) | Articles API 実測ガイド | 無料 | 画像込み長文記事の全自動投稿 / undocumented スキーマのフィールドノート |
 
 ---
 

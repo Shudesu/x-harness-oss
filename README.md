@@ -24,6 +24,7 @@ Xステップ・SocialDog の代替として、無料（または低コスト）
 - **無料スクレイピング収集** — twitter-cli(Cookie 認証)で検索・投稿収集・メトリクス取得が X API 課金ゼロ(`scrape_*` MCP ツール)
 - **動画コンテンツ自動化** — 海外動画バズ発見 → `/video/1` URL 引用投稿の生成・予約(x-growth-video スキル)
 - **記事自動生成** — ネタ収集 → 長文記事下書き → ダッシュボードレビュー(x-growth-discover / x-growth-article スキル)
+- **画像込み記事の全自動投稿** — body の markdown に `![](url)` を書くだけでインライン画像を自動アップロードして X Article を draft 作成→公開(undocumented スキーマの実測ガイドは [docs/manual/07-articles-api.md](docs/manual/07-articles-api.md))
 - **MCP Server** — Claude Code / AI エージェントから自然言語でX操作
 - **Codex CLI 対応** — MCP・スキルとも Claude Code / Codex CLI の両方で動作
 - **SDK** — TypeScript SDK でプログラマティックに全機能を操作

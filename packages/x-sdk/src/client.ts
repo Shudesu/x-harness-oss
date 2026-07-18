@@ -18,7 +18,7 @@ export class XClient {
 
   // ─── Articles API (long-form posts, X API 2026-06-11) ───
   // Requires user-context auth (OAuth1/OAuth2) with tweet.read/tweet.write/users.read.
-  // Publishing requires the account to be eligible for Articles (Premium+).
+  // Publishing requires a Premium subscription (any tier since 2026-01; was Premium+ only before).
 
   async createArticleDraft(params: CreateArticleDraftParams): Promise<{ id: string; title: string }> {
     const res = await this.post<{ data: { id: string; title: string } }>('/articles/draft', params);
@@ -207,6 +207,22 @@ export class XClient {
 
   async getUserByUsername(username: string): Promise<XUser> {
     const res = await this.get<{ data: XUser }>(`/users/by/username/${username}?user.fields=profile_image_url,public_metrics`);
+    return res.data;
+  }
+
+  /** Single-item relationship lookup (~$0.005) — replaces follower-list crawls.
+   * connection_status is relative to the authenticated user:
+   * "followed_by" = the looked-up user follows us. Requires OAuth1 user context. */
+  async getRelationship(username: string): Promise<XUser & { connection_status?: string[] }> {
+    const res = await this.get<{ data: XUser & { connection_status?: string[] } }>(
+      `/users/by/username/${username}?user.fields=profile_image_url,public_metrics,connection_status`);
+    return res.data;
+  }
+
+  /** getRelationship by user id (same single-item cost). */
+  async getRelationshipById(userId: string): Promise<XUser & { connection_status?: string[] }> {
+    const res = await this.get<{ data: XUser & { connection_status?: string[] } }>(
+      `/users/${userId}?user.fields=profile_image_url,public_metrics,connection_status`);
     return res.data;
   }
 
