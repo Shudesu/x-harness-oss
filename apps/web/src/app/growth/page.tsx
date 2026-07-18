@@ -120,7 +120,7 @@ function TypeBadge({ type }: { type: GrowthDraft['type'] }) {
 // A /video/1 URL in the draft text is the embedded-video contract: X expands
 // the referenced post's video inline when the tweet is published. Extract the
 // post id so the card can badge it and render a playable preview.
-export function extractVideoTweetId(text: string): string | null {
+function extractVideoTweetId(text: string): string | null {
   const m = text.match(/https:\/\/(?:x|twitter)\.com\/[A-Za-z0-9_]+\/status\/(\d+)\/video\/1/)
   return m ? m[1] : null
 }
