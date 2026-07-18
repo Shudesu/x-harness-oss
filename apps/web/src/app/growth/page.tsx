@@ -117,6 +117,14 @@ function TypeBadge({ type }: { type: GrowthDraft['type'] }) {
 
 // ─── Pending Draft Card ───
 
+// A /video/1 URL in the draft text is the embedded-video contract: X expands
+// the referenced post's video inline when the tweet is published. Extract the
+// post id so the card can badge it and render a playable preview.
+export function extractVideoTweetId(text: string): string | null {
+  const m = text.match(/https:\/\/(?:x|twitter)\.com\/[A-Za-z0-9_]+\/status\/(\d+)\/video\/1/)
+  return m ? m[1] : null
+}
+
 function DraftCard({
   draft,
   onApprove,
@@ -134,7 +142,9 @@ function DraftCard({
   const [approving, setApproving] = useState(false)
   const [rejecting, setRejecting] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const [showVideo, setShowVideo] = useState(false)
 
+  const videoTweetId = extractVideoTweetId(text)
   const isDirty = text !== draft.text || scheduledAt !== isoToDatetimeLocal(draft.scheduled_at)
 
   const handleSave = async () => {
@@ -165,6 +175,17 @@ function DraftCard({
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap">
           <TypeBadge type={draft.type} />
+          {draft.type === 'quote_rt' && (
+            videoTweetId ? (
+              <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+                🎬 動画あり
+              </span>
+            ) : (
+              <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-red-50 text-red-600 border border-red-200">
+                動画なし
+              </span>
+            )
+          )}
           <span className="text-xs text-gray-400">{draft.x_account_id}</span>
           {draft.quote_tweet_id && (
             <a
@@ -192,6 +213,25 @@ function DraftCard({
         />
         <p className="mt-1 text-xs text-gray-400 text-right">{text.length} 文字</p>
       </div>
+
+      {/* Embedded video preview — the official X embed iframe is the only
+          reliable player (direct twimg mp4 URLs 403). Lazy: load on click. */}
+      {videoTweetId && (
+        showVideo ? (
+          <iframe
+            src={`https://platform.twitter.com/embed/Tweet.html?id=${videoTweetId}&theme=light&hideCard=false&hideThread=true`}
+            className="w-full h-96 rounded-lg border border-gray-200"
+            allow="autoplay; encrypted-media"
+          />
+        ) : (
+          <button
+            onClick={() => setShowVideo(true)}
+            className="w-full py-2.5 rounded-lg border border-purple-200 bg-purple-50 text-sm font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+          >
+            🎬 埋め込み動画をプレビュー(目視確認)
+          </button>
+        )
+      )}
 
       {/* Scheduled at */}
       <div className="flex items-center gap-3">
@@ -833,6 +873,11 @@ function EdahaView({
         <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
           予約済み
         </span>
+        {extractVideoTweetId(d.text) && (
+          <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+            🎬
+          </span>
+        )}
         <p className="text-sm text-gray-700 truncate flex-1">{d.text}</p>
         {d.scheduled_at && (
           <span className="text-[11px] text-gray-400 shrink-0">
