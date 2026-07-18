@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { markdownToContentState, collectInlineImageUrls } from '../articles.js';
+import { markdownToContentState, collectInlineImageUrls, growthImageKey } from '../articles.js';
 
 // Blocks carry the standard DraftJS raw fields (key/depth/...) — assertions
 // simplify keeps assertions stable if the shape ever grows again.
@@ -221,5 +221,57 @@ describe('collectInlineImageUrls', () => {
 
   it('dedupes repeated URLs', () => {
     expect(collectInlineImageUrls(`![](${URL})\n\n![](${URL})`)).toEqual([URL]);
+  });
+});
+
+describe('inline video and post embeds', () => {
+  const VURL = 'https://example.com/clip.mp4';
+
+  it('uses the media_category from an InlineMedia mediaMap entry (video)', () => {
+    const cs = markdownToContentState(`![デモ](${VURL})`, {
+      [VURL]: { media_id: '777', media_category: 'amplify_video' },
+    });
+    expect(cs.blocks[0].type).toBe('atomic');
+    expect(cs.entities[0].value.type).toBe('image');
+    expect(cs.entities[0].value.data).toEqual({
+      caption: 'デモ',
+      media_items: [{ media_id: '777', media_category: 'amplify_video' }],
+    });
+  });
+
+  it('converts a standalone X status URL into a post entity', () => {
+    const url = 'https://x.com/ai_shunoda/status/2078366204960596165';
+    const cs = markdownToContentState(`前段\n\n${url}\n\n後段`);
+    expect(cs.blocks.map((b) => b.type)).toEqual(['unstyled', 'atomic', 'unstyled']);
+    expect(cs.entities[0].value).toEqual({
+      type: 'post',
+      mutability: 'immutable',
+      data: { post_id: '2078366204960596165', url },
+    });
+  });
+
+  it('accepts twitter.com and query strings, rejects URLs inside prose', () => {
+    const cs = markdownToContentState('https://twitter.com/a_b/status/123?s=20');
+    expect(cs.entities[0].value.data.post_id).toBe('123');
+    const prose = markdownToContentState('参考: https://x.com/a/status/123 を見て');
+    expect(prose.entities).toEqual([]);
+    expect(prose.blocks[0].type).toBe('unstyled');
+  });
+});
+
+describe('growthImageKey', () => {
+  const WORKER = 'https://my-worker.example.workers.dev';
+
+  it('maps own-host growth image URLs to their R2 key', () => {
+    expect(growthImageKey(`${WORKER}/api/growth/img/abc.png`, WORKER)).toBe('growth/abc.png');
+  });
+
+  it('tolerates a trailing slash on workerUrl', () => {
+    expect(growthImageKey(`${WORKER}/api/growth/img/abc.png`, `${WORKER}/`)).toBe('growth/abc.png');
+  });
+
+  it('returns null for foreign URLs and when workerUrl is unset', () => {
+    expect(growthImageKey('https://example.com/a.png', WORKER)).toBeNull();
+    expect(growthImageKey(`${WORKER}/api/growth/img/abc.png`, undefined)).toBeNull();
   });
 });

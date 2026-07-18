@@ -33,7 +33,10 @@ function buildXClient(account: { consumer_key: string | null; consumer_secret: s
 // "> " → blockquote, "- "/"* " → unordered-list-item (one block per line),
 // "1. " → ordered-list-item, ``` fences → plain paragraph (the article
 // editor has no code-block type), "![alt](url)" on its own paragraph →
-// atomic block + image entity (url must resolve via mediaMap),
+// atomic block + media entity (url must resolve via mediaMap; images and
+// videos both use entity type "image" — videos differ only in
+// media_category amplify_video, mirroring the read-side AmplifyVideo),
+// a bare X status URL on its own paragraph → embedded-post entity,
 // everything else → unstyled paragraph.
 // Inline: **bold** → inline_style_ranges style "bold" (write-side enum is
 // lowercase [bold, italic, strikethrough] — the editor's read side shows
@@ -89,9 +92,23 @@ function block(raw: string, type: string): ArticleContentBlock {
 // (e.g. .../img_(1).png) still match; \S+ keeps it a single token.
 export const IMAGE_PARAGRAPH_RE = /^!\[([^\]]*)\]\((\S+)\)$/;
 
-// Inline images are uploaded and referenced with the same category — the
-// draft validator rejects mismatches, so both sides share this constant.
+// Inline media is uploaded and referenced with the same category — the
+// draft validator rejects mismatches, so both sides share these constants.
+// Categories per MIME type (read-side shows TweetImage / AmplifyVideo in
+// published articles; write-side takes the snake_case form):
 const INLINE_IMAGE_CATEGORY = 'tweet_image';
+const INLINE_GIF_CATEGORY = 'tweet_gif';
+const INLINE_VIDEO_CATEGORY = 'amplify_video';
+
+export interface InlineMedia {
+  media_id: string;
+  media_category: string;
+}
+
+// A standalone paragraph that is exactly one X status URL becomes an
+// embedded-post entity. Deliberately strict (whole paragraph, nothing else)
+// so prose containing links keeps rendering as text.
+export const POST_PARAGRAPH_RE = /^https:\/\/(?:x|twitter)\.com\/[A-Za-z0-9_]+\/status\/(\d+)(?:\?\S*)?$/;
 
 // A caller-input problem with an inline image (unfetchable URL, bad scheme).
 // The route maps this to 400 — it is not a server fault.
@@ -125,12 +142,13 @@ export function collectInlineImageUrls(body: string): string[] {
   return [...urls];
 }
 
-// mediaMap: image URL (as written in the markdown) → uploaded X media_id.
+// mediaMap: media URL (as written in the markdown) → uploaded X media. A
+// bare string value is shorthand for an image media_id (tweet_image).
 // title: when given, a leading "# <title>" heading is dropped — the Articles
 // API renders the draft title separately, so keeping it duplicates the H1.
 export function markdownToContentState(
   body: string,
-  mediaMap: Record<string, string> = {},
+  mediaMap: Record<string, string | InlineMedia> = {},
   title?: string,
 ): ArticleContentState {
   const blocks: ArticleContentBlock[] = [];
@@ -148,10 +166,12 @@ export function markdownToContentState(
     const imageMatch = trimmed.match(IMAGE_PARAGRAPH_RE);
     if (imageMatch) {
       const [, alt, url] = imageMatch;
-      const mediaId = mediaMap[url];
-      if (!mediaId) {
+      const entry = mediaMap[url];
+      if (!entry) {
         throw new InlineImageError(`No uploaded media for inline image: ${url}`);
       }
+      const media: InlineMedia =
+        typeof entry === 'string' ? { media_id: entry, media_category: INLINE_IMAGE_CATEGORY } : entry;
       const key = entities.length;
       entities.push({
         key: String(key),
@@ -160,8 +180,23 @@ export function markdownToContentState(
           mutability: 'immutable',
           data: {
             ...(alt ? { caption: alt } : {}),
-            media_items: [{ media_id: mediaId, media_category: INLINE_IMAGE_CATEGORY }],
+            media_items: [{ ...media }],
           },
+        },
+      });
+      blocks.push({ text: ' ', type: 'atomic', entity_ranges: [{ offset: 0, length: 1, key }] });
+      continue;
+    }
+
+    const postMatch = trimmed.match(POST_PARAGRAPH_RE);
+    if (postMatch) {
+      const key = entities.length;
+      entities.push({
+        key: String(key),
+        value: {
+          type: 'post',
+          mutability: 'immutable',
+          data: { post_id: postMatch[1], url: trimmed },
         },
       });
       blocks.push({ text: ' ', type: 'atomic', entity_ranges: [{ offset: 0, length: 1, key }] });
@@ -200,26 +235,62 @@ export function markdownToContentState(
   return { blocks, entities };
 }
 
-// Fetch every inline image referenced in the markdown body (same paragraph
-// segmentation as markdownToContentState, via collectInlineImageUrls) and
-// upload it to X media, returning url → media_id. Uploads run concurrently
-// (media upload allows 500/15min). Throws InlineImageError on any failed
-// fetch/upload so a broken image is caught BEFORE the draft call spends
-// 24h-window quota (draft creation is capped at 10/24h and even 400s
-// consume it).
+// Where uploadInlineImages reads image bytes from besides plain HTTP:
+// growth images served by THIS worker must come from the R2 binding, because
+// a Worker cannot fetch its own workers.dev hostname (self-fetch subrequests
+// fail even though the URL is publicly reachable).
+export interface InlineImageSource {
+  workerUrl?: string;
+  growthImages?: R2Bucket;
+}
+
+// Own-host growth image URL → R2 object key, or null for foreign URLs.
+export function growthImageKey(url: string, workerUrl?: string): string | null {
+  if (!workerUrl) return null;
+  const prefix = `${workerUrl.replace(/\/$/, '')}/api/growth/img/`;
+  return url.startsWith(prefix) ? `growth/${url.slice(prefix.length)}` : null;
+}
+
+// Fetch every inline media URL referenced in the markdown body (same
+// paragraph segmentation as markdownToContentState, via
+// collectInlineImageUrls) and upload it to X media, returning
+// url → {media_id, media_category}. The category is picked from the actual
+// content type: video/* → amplify_video (chunked upload + processing wait),
+// image/gif → tweet_gif, anything else → tweet_image. Uploads run
+// concurrently (media upload allows 500/15min). Throws InlineImageError on
+// any failed fetch/upload so a broken reference is caught BEFORE the draft
+// call spends 24h-window quota (draft creation is capped at 10/24h and even
+// 400s consume it).
 export async function uploadInlineImages(
   body: string,
   xClient: XClient,
-): Promise<Record<string, string>> {
+  source: InlineImageSource = {},
+): Promise<Record<string, InlineMedia>> {
   const entries = await Promise.all(
-    collectInlineImageUrls(body).map(async (url): Promise<[string, string]> => {
-      if (!/^https:\/\//.test(url)) {
-        throw new InlineImageError(`Inline image URL must be https: ${url}`);
+    collectInlineImageUrls(body).map(async (url): Promise<[string, InlineMedia]> => {
+      let data: ArrayBuffer;
+      let contentType: string;
+      const r2Key = growthImageKey(url, source.workerUrl);
+      if (r2Key && source.growthImages) {
+        const obj = await source.growthImages.get(r2Key);
+        if (!obj) throw new InlineImageError(`Inline image not found in R2: ${url}`);
+        data = await obj.arrayBuffer();
+        contentType = obj.httpMetadata?.contentType ?? 'image/png';
+      } else {
+        if (!/^https:\/\//.test(url)) {
+          throw new InlineImageError(`Inline image URL must be https: ${url}`);
+        }
+        const res = await fetch(url);
+        if (!res.ok) throw new InlineImageError(`Failed to fetch inline image (${res.status}): ${url}`);
+        data = await res.arrayBuffer();
+        contentType = res.headers.get('content-type') ?? 'image/png';
       }
-      const res = await fetch(url);
-      if (!res.ok) throw new InlineImageError(`Failed to fetch inline image (${res.status}): ${url}`);
-      const contentType = res.headers.get('content-type') ?? 'image/png';
-      return [url, await xClient.uploadMedia(await res.arrayBuffer(), contentType, INLINE_IMAGE_CATEGORY)];
+      if (contentType.startsWith('video/')) {
+        const mediaId = await xClient.uploadVideo(data, contentType, INLINE_VIDEO_CATEGORY);
+        return [url, { media_id: mediaId, media_category: INLINE_VIDEO_CATEGORY }];
+      }
+      const category = contentType === 'image/gif' ? INLINE_GIF_CATEGORY : INLINE_IMAGE_CATEGORY;
+      return [url, { media_id: await xClient.uploadMedia(data, contentType, category), media_category: category }];
     }),
   );
   return Object.fromEntries(entries);
@@ -252,7 +323,10 @@ articles.post('/api/articles/draft', async (c) => {
     // window is never spent on a doomed request.
     let content_state = contentState;
     if (!content_state) {
-      const mediaMap = await uploadInlineImages(body!, xClient);
+      const mediaMap = await uploadInlineImages(body!, xClient, {
+        workerUrl: c.env.WORKER_URL,
+        growthImages: c.env.GROWTH_IMAGES,
+      });
       content_state = markdownToContentState(body!, mediaMap, title);
     }
     const draft = await xClient.createArticleDraft({

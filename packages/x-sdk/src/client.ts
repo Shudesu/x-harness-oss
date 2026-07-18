@@ -194,6 +194,71 @@ export class XClient {
     return mediaId;
   }
 
+  /**
+   * Upload a video via the chunked flow: INIT → APPEND (4MB chunks) →
+   * FINALIZE → poll STATUS until processing succeeds. Required for video —
+   * the one-shot uploadMedia path is images/GIFs only.
+   * (docs.x.com/x-api/media/quickstart/media-upload-chunked)
+   * @param mediaCategory  amplify_video (articles) | tweet_video (posts)
+   */
+  async uploadVideo(mediaData: ArrayBuffer, mediaType: string, mediaCategory: string = 'amplify_video'): Promise<string> {
+    const url = 'https://api.x.com/2/media/upload';
+    const post = async (form: FormData, step: string): Promise<Record<string, unknown>> => {
+      const res = await this.fetchRaw(url, { method: 'POST', body: form });
+      if (res.status === 429) {
+        const resetAt = res.headers.get('x-rate-limit-reset');
+        throw new XApiRateLimitError(resetAt ? Number(resetAt) : undefined);
+      }
+      const text = await res.text();
+      if (!res.ok) throw new XApiError(`Video ${step} failed: ${res.status} ${text}`, res.status);
+      try { return text ? JSON.parse(text) : {}; } catch {
+        throw new XApiError(`Video ${step}: invalid JSON: ${text.slice(0, 200)}`, res.status);
+      }
+    };
+
+    const initForm = new FormData();
+    initForm.append('command', 'INIT');
+    initForm.append('media_type', mediaType);
+    initForm.append('total_bytes', String(mediaData.byteLength));
+    initForm.append('media_category', mediaCategory);
+    const init = await post(initForm, 'INIT');
+    const inner = (init.data as Record<string, unknown> | undefined) ?? init;
+    const mediaId = (inner.id ?? inner.media_id_string) as string | undefined;
+    if (!mediaId) throw new XApiError(`Video INIT: no id in response`, 500);
+
+    const CHUNK = 4 * 1024 * 1024;
+    for (let i = 0; i * CHUNK < mediaData.byteLength; i++) {
+      const form = new FormData();
+      form.append('command', 'APPEND');
+      form.append('media_id', mediaId);
+      form.append('segment_index', String(i));
+      form.append('media', new Blob([mediaData.slice(i * CHUNK, (i + 1) * CHUNK)]));
+      await post(form, `APPEND[${i}]`);
+    }
+
+    const finForm = new FormData();
+    finForm.append('command', 'FINALIZE');
+    finForm.append('media_id', mediaId);
+    const fin = await post(finForm, 'FINALIZE');
+    let info = ((fin.data as Record<string, unknown> | undefined) ?? fin).processing_info as
+      | { state: string; check_after_secs?: number }
+      | undefined;
+
+    const deadline = Date.now() + 180_000;
+    while (info && info.state !== 'succeeded') {
+      if (info.state === 'failed') throw new XApiError('Video processing failed', 500);
+      if (Date.now() > deadline) throw new XApiError('Video processing timed out (180s)', 500);
+      const waitSecs = Math.min(info.check_after_secs ?? 2, 10);
+      await new Promise((r) => setTimeout(r, waitSecs * 1000));
+      const sr = await this.fetchRaw(`${url}?command=STATUS&media_id=${mediaId}`, { method: 'GET' });
+      const stext = await sr.text();
+      if (!sr.ok) throw new XApiError(`Video STATUS failed: ${sr.status} ${stext}`, sr.status);
+      const sdata = JSON.parse(stext) as { data?: { processing_info?: { state: string; check_after_secs?: number } } };
+      info = sdata.data?.processing_info;
+    }
+    return mediaId;
+  }
+
   async getUserById(userId: string): Promise<XUser> {
     const res = await this.get<{ data: XUser }>(`/users/${userId}?user.fields=profile_image_url,public_metrics`);
     return res.data;
