@@ -21,6 +21,9 @@ export default function AccountsPage() {
   // Toggle active state
   const [togglingId, setTogglingId] = useState<string | null>(null)
 
+  // Profile refresh state
+  const [refreshingId, setRefreshingId] = useState<string | null>(null)
+
   const loadAccounts = useCallback(async () => {
     setLoading(true)
     setError('')
@@ -80,23 +83,24 @@ export default function AccountsPage() {
       setTogglingId(null)
     }
   }
-// 0618追加開始
-const handleRefreshProfile = async (account: XAccount) => {
-  try {
-    const res = await api.accounts.refreshProfile(account.id);
-
-    if (res.success) {
-      await loadAccounts();
-      window.dispatchEvent(new CustomEvent('xh_accounts_refresh'));
-      alert('プロフィールを更新しました');
-    } else {
-      alert(res.error ?? 'プロフィール更新に失敗しました');
+  const handleRefreshProfile = async (account: XAccount) => {
+    setRefreshingId(account.id)
+    setError('')
+    try {
+      const res = await api.accounts.refreshProfile(account.id)
+      if (res.success) {
+        await loadAccounts()
+        window.dispatchEvent(new CustomEvent('xh_accounts_refresh'))
+      } else {
+        setError(res.error ?? 'プロフィールの更新に失敗しました')
+      }
+    } catch {
+      setError('プロフィールの更新に失敗しました')
+    } finally {
+      setRefreshingId(null)
     }
-  } catch {
-    alert('プロフィール更新に失敗しました');
   }
-};
-// 0618追加終了
+
   return (
     <div>
       <Header
@@ -214,7 +218,6 @@ const handleRefreshProfile = async (account: XAccount) => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {accounts.map((account) => (
             <div key={account.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
-              {/* 202606修正開始 */}
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
                   {account.profileImageUrl ? (
@@ -237,7 +240,6 @@ const handleRefreshProfile = async (account: XAccount) => {
                     </p>
                   </div>
                 </div>
-              {/* 202606修正終了 */}
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                     account.isActive
@@ -255,29 +257,28 @@ const handleRefreshProfile = async (account: XAccount) => {
                 <p className="text-xs text-gray-400">
                   {new Date(account.createdAt).toLocaleDateString('ja-JP')}
                 </p>
-                {/* 0618追加開始 */}
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleRefreshProfile(account)}
-                    className="text-xs px-3 py-1.5 rounded-md border border-blue-200 text-blue-600 hover:bg-blue-50"
+                    disabled={refreshingId === account.id}
+                    className="text-xs px-3 py-1.5 rounded-md border border-blue-200 text-blue-600 font-medium hover:bg-blue-50 disabled:opacity-50 transition-colors"
                   >
-                    更新
+                    {refreshingId === account.id ? '更新中...' : 'プロフィール更新'}
                   </button>
-                {/* 0618追加終了 */}
-                <button
-                  onClick={() => handleToggleActive(account)}
-                  disabled={togglingId === account.id}
-                  className={`text-xs px-3 py-1.5 rounded-md border font-medium disabled:opacity-50 transition-colors ${
-                    account.isActive
-                      ? 'text-gray-600 border-gray-200 hover:bg-gray-50'
-                      : 'text-blue-500 border-blue-100 hover:bg-blue-50'
-                  }`}
-                >
-                  {togglingId === account.id
-                    ? '更新中...'
-                    : account.isActive
-                    ? '無効化'
-                    : '有効化'}
+                  <button
+                    onClick={() => handleToggleActive(account)}
+                    disabled={togglingId === account.id}
+                    className={`text-xs px-3 py-1.5 rounded-md border font-medium disabled:opacity-50 transition-colors ${
+                      account.isActive
+                        ? 'text-gray-600 border-gray-200 hover:bg-gray-50'
+                        : 'text-blue-500 border-blue-100 hover:bg-blue-50'
+                    }`}
+                  >
+                    {togglingId === account.id
+                      ? '更新中...'
+                      : account.isActive
+                      ? '無効化'
+                      : '有効化'}
                   </button>
                 </div>
               </div>

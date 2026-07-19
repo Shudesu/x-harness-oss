@@ -7,9 +7,7 @@ CREATE TABLE IF NOT EXISTS x_accounts (
   x_user_id TEXT UNIQUE NOT NULL,
   username TEXT NOT NULL,
   display_name TEXT,
-  -- 0618追加開始
   profile_image_url TEXT,
-  -- 0618追加終了
   access_token TEXT NOT NULL,
   refresh_token TEXT,
   consumer_key TEXT,
@@ -246,12 +244,6 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
--- 202606新規追加開始
-INSERT OR IGNORE INTO settings (key, value, updated_at)
-VALUES
-  ('posting_enabled', 'true', datetime('now')),
-  ('auto_features_enabled', 'true', datetime('now'));
--- 202606新規追加終了
 
 -- LINE Connections (L Harness 連携先)
 CREATE TABLE IF NOT EXISTS line_connections (

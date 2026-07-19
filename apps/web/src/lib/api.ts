@@ -109,9 +109,7 @@ export interface XAccount {
   xUserId: string;
   username: string;
   displayName: string | null;
-  // 0618追加開始
   profileImageUrl: string | null;
-  // 0618追加終了
   isActive: boolean;
   createdAt: string;
 }
@@ -310,13 +308,8 @@ export const api = {
       fetchApi<ApiResponse<XAccount>>('/api/x-accounts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: { accessToken?: string; isActive?: boolean }) =>
       fetchApi<ApiResponse<void>>(`/api/x-accounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    // 0618追加開始
-  refreshProfile: (id: string) =>
-    fetchApi<ApiResponse<XAccount>>(
-      `/api/x-accounts/${id}/refresh-profile`,
-      { method: 'POST' },
-    ),
-  // 0618追加終了
+    refreshProfile: (id: string) =>
+      fetchApi<ApiResponse<XAccount>>(`/api/x-accounts/${id}/refresh-profile`, { method: 'POST' }),
     subscription: (id: string) =>
       fetchApi<ApiResponse<AccountSubscription>>(`/api/x-accounts/${id}/subscription`),
     stats: (id: string) =>
