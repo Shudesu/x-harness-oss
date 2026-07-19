@@ -1,7 +1,5 @@
 import { Hono } from 'hono';
-//0618修正開始
 import { createXAccount, getXAccounts, getXAccountById, updateXAccount, updateXAccountProfile, getEngagementGates, getSnapshots, hasSnapshotForToday, recordSnapshot } from '@x-harness/db';
-//0618修正終了
 import { XClient } from '@x-harness/x-sdk';
 import type { Env } from '../index.js';
 
@@ -13,12 +11,28 @@ function serialize(a: any) {
     xUserId: a.x_user_id,
     username: a.username,
     displayName: a.display_name,
-    // 0618追加開始
     profileImageUrl: a.profile_image_url,
-    // 0618追加終了
     isActive: !!a.is_active,
     createdAt: a.created_at,
   };
+}
+
+function buildXClient(auth: {
+  accessToken: string;
+  consumerKey?: string | null;
+  consumerSecret?: string | null;
+  accessTokenSecret?: string | null;
+}): XClient {
+  if (auth.consumerKey && auth.consumerSecret && auth.accessTokenSecret) {
+    return new XClient({
+      type: 'oauth1',
+      consumerKey: auth.consumerKey,
+      consumerSecret: auth.consumerSecret,
+      accessToken: auth.accessToken,
+      accessTokenSecret: auth.accessTokenSecret,
+    });
+  }
+  return new XClient(auth.accessToken);
 }
 
 xAccounts.post('/api/x-accounts', async (c) => {
@@ -28,9 +42,7 @@ xAccounts.post('/api/x-accounts', async (c) => {
     accessToken: string;
     refreshToken?: string;
     displayName?: string;
-    // 0618追加開始
     profileImageUrl?: string;
-    // 0618追加終了
     consumerKey?: string;
     consumerSecret?: string;
     accessTokenSecret?: string;
@@ -38,36 +50,24 @@ xAccounts.post('/api/x-accounts', async (c) => {
   if (!body.xUserId || !body.username || !body.accessToken) {
     return c.json({ success: false, error: 'Missing required fields' }, 400);
   }
-  //202606修正開始
-  /*
-  const account = await createXAccount(c.env.DB, body);
-  return c.json({ success: true, data: serialize(account) }, 201);
-  */
+
+  // X API からプロフィールを取得して補完する。失敗しても登録自体は入力値のまま続行する。
   let accountInput = body;
+  try {
+    const me = await buildXClient(body).getMe();
+    accountInput = {
+      ...body,
+      xUserId: me.id,
+      username: me.username,
+      displayName: me.name,
+      profileImageUrl: me.profile_image_url,
+    };
+  } catch {
+    // トークン不正・API障害時は入力値で登録する
+  }
 
-if (body.consumerKey && body.consumerSecret && body.accessTokenSecret) {
-  const xClient = new XClient({
-    type: 'oauth1',
-    consumerKey: body.consumerKey,
-    consumerSecret: body.consumerSecret,
-    accessToken: body.accessToken,
-    accessTokenSecret: body.accessTokenSecret,
-  });
-
-  const me = await xClient.getMe();
-
-  accountInput = {
-    ...body,
-    xUserId: me.id,
-    username: me.username,
-    displayName: me.name,
-    profileImageUrl: me.profile_image_url,
-  };
-}
-
-const account = await createXAccount(c.env.DB, accountInput);
-return c.json({ success: true, data: serialize(account) }, 201);
-  //202606修正終了
+  const account = await createXAccount(c.env.DB, accountInput);
+  return c.json({ success: true, data: serialize(account) }, 201);
 });
 
 xAccounts.get('/api/x-accounts', async (c) => {
@@ -104,13 +104,13 @@ xAccounts.put('/api/x-accounts/:id', async (c) => {
     accessTokenSecret?: string;
     isActive?: boolean;
   }>();
-  
   const existing = await getXAccountById(c.env.DB, c.req.param('id'));
   if (!existing) return c.json({ success: false, error: 'Not found' }, 404);
   await updateXAccount(c.env.DB, c.req.param('id'), body);
   return c.json({ success: true });
 });
-// 0618追加開始
+
+// POST /api/x-accounts/:id/refresh-profile — X API からプロフィールを再取得して保存
 xAccounts.post('/api/x-accounts/:id/refresh-profile', async (c) => {
   const id = c.req.param('id');
 
@@ -119,40 +119,34 @@ xAccounts.post('/api/x-accounts/:id/refresh-profile', async (c) => {
     return c.json({ success: false, error: 'Not found' }, 404);
   }
 
-  if (!account.consumer_key || !account.consumer_secret || !account.access_token_secret) {
+  let me;
+  try {
+    me = await buildXClient({
+      accessToken: account.access_token,
+      consumerKey: account.consumer_key,
+      consumerSecret: account.consumer_secret,
+      accessTokenSecret: account.access_token_secret,
+    }).getMe();
+  } catch {
     return c.json(
-      {
-        success: false,
-        error: 'プロフィール更新には OAuth1 情報が必要です',
-      },
-      400,
+      { success: false, error: 'X API からプロフィールを取得できませんでした。トークンを確認してください。' },
+      502,
     );
   }
-
-  const xClient = new XClient({
-    type: 'oauth1',
-    consumerKey: account.consumer_key,
-    consumerSecret: account.consumer_secret,
-    accessToken: account.access_token,
-    accessTokenSecret: account.access_token_secret,
-  });
-
-  const me = await xClient.getMe();
 
   await updateXAccountProfile(c.env.DB, id, {
     username: me.username,
     displayName: me.name,
-    profileImageUrl: me.profile_image_url,
+    profileImageUrl: me.profile_image_url ?? null,
   });
 
   const updated = await getXAccountById(c.env.DB, id);
-
   return c.json({
     success: true,
     data: updated ? serialize(updated) : null,
   });
 });
-// 0618追加終了
+
 xAccounts.get('/api/x-accounts/:id/stats', async (c) => {
   const id = c.req.param('id');
   const existing = await getXAccountById(c.env.DB, id);
