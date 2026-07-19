@@ -195,8 +195,6 @@ export default function PostsPage() {
   
   const currentXAccountId = useCurrentAccountId();
 
-  const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL;
-
   const [scheduleList, setScheduleList] = useState<SchedulePreview[]>([]);
   const [menuOpenIndex, setMenuOpenIndex] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -225,6 +223,38 @@ export default function PostsPage() {
   scheduleTime !== '' &&
   schText.trim() !== '';
 
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+
+  // 保存の共通処理。保存中の多重実行を防ぎ、成否にかかわらず最後にサーバの
+  // 状態を再取得して UI と DB の乖離を防ぐ。
+  const saveScheduleList = async (updatedList: SchedulePreview[]): Promise<boolean> => {
+    if (!currentXAccountId || savingSchedule) return false;
+
+    setSavingSchedule(true);
+    setScheduleError(null);
+    setScheduleList(updatedList);
+
+    try {
+      await fetchApi('/api/weeks/bulk', {
+        method: 'POST',
+        body: JSON.stringify({
+          xAccountId: currentXAccountId,
+          items: updatedList,
+        }),
+      });
+      return true;
+    } catch (e) {
+      setScheduleError(
+        e instanceof Error ? e.message : 'スケジュールの保存に失敗しました'
+      );
+      return false;
+    } finally {
+      setSavingSchedule(false);
+      await loadScheduleList();
+    }
+  };
+
   //削除ボタン
   const handleDelete = async (index: number) => {
   const updatedList = scheduleList
@@ -234,18 +264,9 @@ export default function PostsPage() {
       sortOrder: idx + 1,
     }));
 
-  setScheduleList(updatedList);
-
-  await fetchApi('/api/weeks/bulk', {
-    method: 'POST',
-    body: JSON.stringify({
-      xAccountId: currentXAccountId,
-      items: updatedList,
-    }),
-  });
-    await loadScheduleList();
+  await saveScheduleList(updatedList);
   };
-  
+
   //編集ボタン
  const handleEdit = (index: number) => {
   const item = scheduleList[index];
@@ -284,15 +305,7 @@ const moveUp = async (index: number) => {
     sortOrder: idx + 1,
   }));
 
-  setScheduleList(updatedList);
-
-  await fetchApi('/api/weeks/bulk', {
-    method: 'POST',
-    body: JSON.stringify({
-      xAccountId: currentXAccountId,
-      items: updatedList,
-    }),
-  });
+  await saveScheduleList(updatedList);
 };
 
 //↓ボタン
@@ -311,15 +324,7 @@ const moveDown = async (index: number) => {
     sortOrder: idx + 1,
   }));
 
-  setScheduleList(updatedList);
-
-  await fetchApi('/api/weeks/bulk', {
-    method: 'POST',
-    body: JSON.stringify({
-      xAccountId: currentXAccountId,
-      items: updatedList,
-    }),
-  });
+  await saveScheduleList(updatedList);
 };
   //チェックボックス
   const toggleEnabled = async (index: number) => {
@@ -330,15 +335,7 @@ const moveDown = async (index: number) => {
     enabled: !updatedList[index].enabled,
   };
 
-  setScheduleList(updatedList);
-
-  await fetchApi('/api/weeks/bulk', {
-    method: 'POST',
-    body: JSON.stringify({
-      xAccountId: currentXAccountId,
-      items: updatedList,
-    }),
-  });
+  await saveScheduleList(updatedList);
   };
 
 const handleSchedulePost = async () => {
@@ -373,17 +370,9 @@ const handleSchedulePost = async () => {
     sortOrder: index + 1,
   }));
 
-  //DB保存
-  
-  await fetchApi('/api/weeks/bulk', {
-  method: 'POST',
-  body: JSON.stringify({
-    xAccountId: currentXAccountId,
-    items: updatedList,
-  }),
-  });
-  
-  await loadScheduleList();
+  //DB保存(失敗時はフォームを保持したままにする)
+  const saved = await saveScheduleList(updatedList);
+  if (!saved) return;
 
   //フォームリセット
   setEditingId(null);
@@ -556,12 +545,6 @@ const loadScheduleList = useCallback(async () => {
       mediaFiles.forEach((m) => URL.revokeObjectURL(m.previewUrl))
     }
   }, [mediaFiles])
-
-  //202606新規追加開始
-  useEffect(() => {
-  console.log("WORKER_URL =", process.env.NEXT_PUBLIC_WORKER_URL);
-}, []);
-  //202606新規追加終了
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -885,13 +868,13 @@ const loadScheduleList = useCallback(async () => {
       <div className="flex items-start pt-6">
         <button
         type="button"
-        disabled={!isValid || (!editingId && scheduleList.length >= 50)}
-        onClick={handleSchedulePost}       
+        disabled={!isValid || savingSchedule || (!editingId && scheduleList.length >= 50)}
+        onClick={handleSchedulePost}
         className={`px-4 py-2 rounded-lg text-white
-          ${isValid ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed'}
+          ${isValid && !savingSchedule ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed'}
         `}
       >
-        キューに追加
+        {savingSchedule ? '保存中…' : 'キューに追加'}
         </button>
         {scheduleList.length >= 50 && !editingId && (
           <p className="mt-2 text-sm font-medium text-red-600">
@@ -900,6 +883,11 @@ const loadScheduleList = useCallback(async () => {
           </p>
         )}
       </div>
+      {scheduleError && (
+        <p className="px-4 text-sm font-medium text-red-600">
+          {scheduleError}
+        </p>
+      )}
 </div>
     {/* ===== 登録済みスケジュール ===== */}
     {scheduleList.length > 0 && (
@@ -929,13 +917,14 @@ const loadScheduleList = useCallback(async () => {
                       type="checkbox"
                       className="h-4 w-4"
                       checked={item.enabled}
+                      disabled={savingSchedule}
                       onChange={() => toggleEnabled(index)}
                     />
 
                     <button
                       type="button"
                       onClick={() => moveUp(index)}
-                      disabled={index === 0}
+                      disabled={index === 0 || savingSchedule}
                       className="px-1 text-gray-600 disabled:text-gray-300"
                     >
                       ↑
@@ -948,7 +937,7 @@ const loadScheduleList = useCallback(async () => {
                     <button
                       type="button"
                       onClick={() => moveDown(index)}
-                      disabled={index === scheduleList.length - 1}
+                      disabled={index === scheduleList.length - 1 || savingSchedule}
                       className="px-1 text-gray-600 disabled:text-gray-300"
                     >
                       ↓
@@ -1013,7 +1002,8 @@ const loadScheduleList = useCallback(async () => {
                       <button
                         type="button"
                         onClick={() => handleDelete(index)}
-                        className="block w-full text-left px-3 py-2 text-red-500 hover:bg-gray-100"
+                        disabled={savingSchedule}
+                        className="block w-full text-left px-3 py-2 text-red-500 hover:bg-gray-100 disabled:text-gray-300"
                       >
                         削除
                       </button>
