@@ -37,11 +37,11 @@ const setGrowthArticleStatusMock = vi.fn(async () => {});
 
 vi.mock('@x-harness/db', async (importOriginal) => ({
   ...(await importOriginal<any>()),
-  createGrowthArticle: (...a: any[]) => createGrowthArticleMock(...a),
-  getGrowthArticles: (...a: any[]) => getGrowthArticlesMock(...a),
-  getGrowthArticle: (...a: any[]) => getGrowthArticleMock(...a),
-  updateGrowthArticle: (...a: any[]) => updateGrowthArticleMock(...a),
-  setGrowthArticleStatus: (...a: any[]) => setGrowthArticleStatusMock(...a),
+  createGrowthArticle: (...a: any[]) => (createGrowthArticleMock as any)(...a),
+  getGrowthArticles: (...a: any[]) => (getGrowthArticlesMock as any)(...a),
+  getGrowthArticle: (...a: any[]) => (getGrowthArticleMock as any)(...a),
+  updateGrowthArticle: (...a: any[]) => (updateGrowthArticleMock as any)(...a),
+  setGrowthArticleStatus: (...a: any[]) => (setGrowthArticleStatusMock as any)(...a),
 }));
 
 import { growthArticles } from '../growth-articles.js';
