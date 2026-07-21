@@ -14,7 +14,7 @@ The example identifiers and names are test-only and must not be promoted as prod
 
 ## Deployment identifiers
 
-- Staging and production Worker/Web HTTPS origins.
+- Staging Worker/Web HTTPS origins. The approved production UI origin is `https://ops.cubelic-fan.com`; `https://cubelic-fan.com` remains the public fan site.
 - Cloudflare account/project identifiers and separate staging/production D1 ids.
 - The selected X Harness `x_accounts.id` row, obtained from the deployment database after account setup.
 - The read-only metrics entitlement/source and the contract that maps a manually published X post id back to a CUBΣLIC draft.
@@ -23,7 +23,7 @@ The example identifiers and names are test-only and must not be promoted as prod
 
 - `API_KEY`, `HERMES_ACCESS_TOKEN` and `HUMAN_APPROVAL_KEY`: distinct random values of at least 32 characters.
 - `CLOUDFLARE_API_TOKEN` with only the resources needed for the selected environment.
-- `CORS_ALLOWED_ORIGINS` as exact HTTPS origins; no wildcard.
+- `CORS_ALLOWED_ORIGINS=https://ops.cubelic-fan.com`; no wildcard and no public fan-site origin.
 
 After provisioning, run `pnpm preflight:production` and the staging steps in `docs/deployment-checklist.md`.
 

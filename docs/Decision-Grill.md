@@ -92,13 +92,13 @@
 
 ## DG-010 — Phase 1 deployment topology
 
-- Status: NON_BLOCKING
+- Status: RESOLVED
 - Evidence: `SPEC.md` §7.1, §8, ADR-005 requirement; no Cloudflare account topology or environment list was supplied.
 - Conflict/gap: Worker/D1/UI may be one deployment or separate trust zones.
 - Impact: CORS, secret placement, rollback and production runbook details.
 - Safest current behavior: Keep Planner routes in the existing Worker and approval UI in the existing Next app, with one D1 and no public unauthenticated mutation.
 - Needed answer: Confirm staging/production domains and whether the approval UI must be private-network-only.
-- Resolution: Pending.
+- Resolution: Keep the existing public fan site at `https://cubelic-fan.com` unchanged. Deploy the operator UI to the separate `https://ops.cubelic-fan.com` origin and protect it with Cloudflare Access. Production Worker CORS permits only that operator origin. Public event/setlist output may be integrated into the fan site later through an explicitly reviewed read-only surface; the X Harness operator application must never replace the fan-site root deployment.
 
 ## DG-011 — Runtime projection of strategy YAML
 

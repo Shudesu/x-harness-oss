@@ -23,12 +23,21 @@ if (corsOrigins.length === 0) errors.push('CORS_ALLOWED_ORIGINS must contain at 
 if (corsOrigins.some((origin) => origin === '*' || !origin.startsWith('https://') || /localhost|127\.0\.0\.1/.test(origin))) {
   errors.push('production CORS origins must be exact HTTPS origins without wildcard or localhost');
 }
+if (!corsOrigins.includes('https://ops.cubelic-fan.com')) {
+  errors.push('CORS_ALLOWED_ORIGINS must include the approved production operator UI origin: https://ops.cubelic-fan.com');
+}
+if (corsOrigins.includes('https://cubelic-fan.com')) {
+  errors.push('the public fan-site origin must not be authorized as the production operator UI');
+}
 
 const wrangler = await readFile(join(root, 'apps/worker/wrangler.toml'), 'utf8');
 if (/YOUR_D1_DATABASE_ID/.test(wrangler)) errors.push('wrangler.toml still contains the D1 database-id placeholder');
 if (/your-subdomain\.workers\.dev/.test(wrangler)) errors.push('wrangler.toml still contains the Worker URL placeholder');
 if (/X_HARNESS_ACCOUNT_ID\s*=\s*"SET_AFTER_ACCOUNT_SETUP"/.test(wrangler)) errors.push('wrangler.toml still contains the X account placeholder');
 if (/CORS_ALLOWED_ORIGINS\s*=\s*"http:\/\/localhost/.test(wrangler)) errors.push('wrangler.toml still contains the local CORS origin');
+if (!/CORS_ALLOWED_ORIGINS\s*=\s*"https:\/\/ops\.cubelic-fan\.com"/.test(wrangler)) {
+  errors.push('wrangler.toml does not bind production CORS to the approved operator UI origin');
+}
 if (!/^CUBELIC_SAFE_MODE\s*=\s*"true"$/m.test(wrangler)) errors.push('wrangler.toml does not default CUBELIC_SAFE_MODE to true');
 
 if (errors.length) {
