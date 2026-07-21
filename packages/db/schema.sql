@@ -270,3 +270,58 @@ CREATE TABLE IF NOT EXISTS growth_articles (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_growth_articles_status ON growth_articles(status);
+
+-- Staff Members (role-based API keys)
+CREATE TABLE IF NOT EXISTS staff_members (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'editor', 'viewer')),
+  api_key TEXT NOT NULL UNIQUE,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_staff_api_key ON staff_members(api_key);
+
+-- API Usage Logs
+CREATE TABLE IF NOT EXISTS api_usage_logs (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  request_count INTEGER NOT NULL DEFAULT 0,
+  date TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(x_account_id, endpoint, date)
+);
+CREATE INDEX IF NOT EXISTS idx_usage_account_date ON api_usage_logs(x_account_id, date);
+
+-- Settings (key-value store)
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- LINE Harness connections
+CREATE TABLE IF NOT EXISTS line_connections (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  worker_url TEXT NOT NULL,
+  api_key TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Cache for engagement gate replier eligibility
+CREATE TABLE IF NOT EXISTS replier_cache (
+  gate_id TEXT NOT NULL,
+  x_user_id TEXT NOT NULL,
+  username TEXT NOT NULL,
+  display_name TEXT DEFAULT '',
+  profile_image_url TEXT,
+  eligible INTEGER NOT NULL DEFAULT 0,
+  conditions_json TEXT,
+  cached_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (gate_id, x_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_replier_cache_gate_eligible ON replier_cache(gate_id, eligible);

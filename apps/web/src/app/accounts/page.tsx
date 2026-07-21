@@ -15,6 +15,9 @@ export default function AccountsPage() {
   const [formXUserId, setFormXUserId] = useState('')
   const [formUsername, setFormUsername] = useState('')
   const [formAccessToken, setFormAccessToken] = useState('')
+  const [formConsumerKey, setFormConsumerKey] = useState('')
+  const [formConsumerSecret, setFormConsumerSecret] = useState('')
+  const [formAccessTokenSecret, setFormAccessTokenSecret] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
 
@@ -52,11 +55,17 @@ export default function AccountsPage() {
         xUserId: formXUserId.trim(),
         username: formUsername.trim(),
         accessToken: formAccessToken.trim(),
+        consumerKey: formConsumerKey.trim() || undefined,
+        consumerSecret: formConsumerSecret.trim() || undefined,
+        accessTokenSecret: formAccessTokenSecret.trim() || undefined,
       })
       if (res.success) {
         setFormXUserId('')
         setFormUsername('')
         setFormAccessToken('')
+        setFormConsumerKey('')
+        setFormConsumerSecret('')
+        setFormAccessTokenSecret('')
         setShowCreateForm(false)
         loadAccounts()
       } else {
@@ -146,6 +155,44 @@ export default function AccountsPage() {
                   onChange={(e) => setFormAccessToken(e.target.value)}
                   placeholder="••••••••"
                   required
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Consumer Key
+                </label>
+                <input
+                  type="password"
+                  value={formConsumerKey}
+                  onChange={(e) => setFormConsumerKey(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Consumer Secret
+                </label>
+                <input
+                  type="password"
+                  value={formConsumerSecret}
+                  onChange={(e) => setFormConsumerSecret(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Access Token Secret
+                </label>
+                <input
+                  type="password"
+                  value={formAccessTokenSecret}
+                  onChange={(e) => setFormAccessTokenSecret(e.target.value)}
+                  placeholder="••••••••"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>

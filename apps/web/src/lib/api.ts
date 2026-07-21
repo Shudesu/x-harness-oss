@@ -315,9 +315,24 @@ export const api = {
 
   accounts: {
     list: () => fetchApi<ApiResponse<XAccount[]>>('/api/x-accounts'),
-    create: (data: { xUserId: string; username: string; accessToken: string; refreshToken?: string }) =>
+    create: (data: {
+      xUserId: string;
+      username: string;
+      accessToken: string;
+      refreshToken?: string;
+      consumerKey?: string;
+      consumerSecret?: string;
+      accessTokenSecret?: string;
+    }) =>
       fetchApi<ApiResponse<XAccount>>('/api/x-accounts', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: { accessToken?: string; isActive?: boolean }) =>
+    update: (id: string, data: {
+      accessToken?: string;
+      refreshToken?: string;
+      consumerKey?: string;
+      consumerSecret?: string;
+      accessTokenSecret?: string;
+      isActive?: boolean;
+    }) =>
       fetchApi<ApiResponse<void>>(`/api/x-accounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     subscription: (id: string) =>
       fetchApi<ApiResponse<AccountSubscription>>(`/api/x-accounts/${id}/subscription`),

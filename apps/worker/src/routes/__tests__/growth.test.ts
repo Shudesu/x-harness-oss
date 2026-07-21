@@ -15,7 +15,7 @@ const createGrowthDraftMock = vi.fn(async (db: any, d: any) => ({
 
 const getGrowthDraftsMock = vi.fn(async () => []);
 
-const getGrowthDraftMock = vi.fn(async (_db: any, id: string) => ({
+const getGrowthDraftMock = vi.fn(async (_db: any, id: string): Promise<any> => ({
   id,
   x_account_id: 'acc1',
   type: 'pillar',
@@ -32,11 +32,11 @@ const updateGrowthDraftMock = vi.fn(async () => {});
 
 const setGrowthDraftStatusMock = vi.fn(async () => {});
 
-const upsertGrowthDigestMock = vi.fn(async () => {});
+const upsertGrowthDigestMock = vi.fn(async (..._args: any[]) => {});
 
-const getLatestGrowthDigestMock = vi.fn(async () => null);
+const getLatestGrowthDigestMock = vi.fn(async (): Promise<any> => null);
 
-const getGrowthDigestByDateMock = vi.fn(async () => null);
+const getGrowthDigestByDateMock = vi.fn(async (): Promise<any> => null);
 
 const createScheduledPostMock = vi.fn(async (...args: any[]) => ({
   id: 'sp1',
@@ -53,14 +53,14 @@ const createScheduledPostMock = vi.fn(async (...args: any[]) => ({
 
 vi.mock('@x-harness/db', async (importOriginal) => ({
   ...(await importOriginal<any>()),
-  createGrowthDraft: (...a: any[]) => createGrowthDraftMock(...a),
-  getGrowthDrafts: (...a: any[]) => getGrowthDraftsMock(...a),
-  getGrowthDraft: (...a: any[]) => getGrowthDraftMock(...a),
-  updateGrowthDraft: (...a: any[]) => updateGrowthDraftMock(...a),
-  setGrowthDraftStatus: (...a: any[]) => setGrowthDraftStatusMock(...a),
-  upsertGrowthDigest: (...a: any[]) => upsertGrowthDigestMock(...a),
-  getLatestGrowthDigest: (...a: any[]) => getLatestGrowthDigestMock(...a),
-  getGrowthDigestByDate: (...a: any[]) => getGrowthDigestByDateMock(...a),
+  createGrowthDraft: (...a: any[]) => (createGrowthDraftMock as any)(...a),
+  getGrowthDrafts: (...a: any[]) => (getGrowthDraftsMock as any)(...a),
+  getGrowthDraft: (...a: any[]) => (getGrowthDraftMock as any)(...a),
+  updateGrowthDraft: (...a: any[]) => (updateGrowthDraftMock as any)(...a),
+  setGrowthDraftStatus: (...a: any[]) => (setGrowthDraftStatusMock as any)(...a),
+  upsertGrowthDigest: (...a: any[]) => (upsertGrowthDigestMock as any)(...a),
+  getLatestGrowthDigest: (...a: any[]) => (getLatestGrowthDigestMock as any)(...a),
+  getGrowthDigestByDate: (...a: any[]) => (getGrowthDigestByDateMock as any)(...a),
   createScheduledPost: (...a: any[]) => createScheduledPostMock(...a),
 }));
 
