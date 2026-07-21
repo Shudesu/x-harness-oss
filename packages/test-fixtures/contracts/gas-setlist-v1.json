@@ -1,0 +1,15 @@
+{
+  "schema_version": "cubelic.gas-setlist.v1",
+  "event_id": "evt_20260721_example",
+  "event_title": "CUBΣLIC LIVE",
+  "venue": "SHIBUYA DESEO",
+  "starts_at": "2026-07-21T19:00:00+09:00",
+  "ends_at": "2026-07-21T20:30:00+09:00",
+  "lp_url": "https://cubelic-fan.com/setlists/evt_20260721_example",
+  "confirmed_at": "2026-07-21T20:40:00+09:00",
+  "confirmed_by": "operator",
+  "songs": [
+    { "position": 1, "song_id": "song_1", "title": "微レ存ガール" },
+    { "position": 2, "song_id": "song_2", "title": "いえないっしょん" }
+  ]
+}

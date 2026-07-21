@@ -1,0 +1,35 @@
+{
+  "schema_version": "cubelic.hermes-output.v1",
+  "recommended_draft_id": "drf_contract_1",
+  "drafts": [
+    {
+      "draft_id": "drf_contract_1",
+      "content_id": "cnt_contract_1",
+      "account_id": "tubelic_cube",
+      "text": "今日のセトリをまとめました。 https://cubelic-fan.com/setlists/example #CUBΣLIC",
+      "media_asset_ids": [],
+      "category": "setlist_flash",
+      "template_id": "setlist_flash_v1",
+      "template_version": "1.0.0",
+      "variant": "a",
+      "target_stage": "interested",
+      "emotion_tags": ["informative"],
+      "hashtags": ["CUBΣLIC"],
+      "destination_url": "https://cubelic-fan.com/setlists/example?utm_source=x",
+      "utm": { "source": "x", "medium": "social", "campaign": "evt_contract", "content": "setlist_flash_v1_a" },
+      "quality_score": 85,
+      "quality_breakdown": { "accuracy": 20 },
+      "freshness_score": 100,
+      "rights_gate": "not_applicable",
+      "approval_status": "pending_review",
+      "risks": [],
+      "human_review_required": ["本文確認"],
+      "idempotency_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "scheduled_at": null,
+      "published_post_id": null,
+      "created_at": "2026-07-21T20:45:00+09:00",
+      "updated_at": "2026-07-21T20:45:00+09:00"
+    }
+  ],
+  "review_summary": ["本文と曲順を確認してください"]
+}

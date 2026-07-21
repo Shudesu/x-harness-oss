@@ -2,6 +2,7 @@
   "name": "x-harness-oss",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Open-source X (Twitter) CRM/marketing automation — Xステップ代替",
   "scripts": {
     "dev:worker": "pnpm --filter worker dev",
@@ -14,16 +15,33 @@
     "db:migrate:005": "wrangler d1 execute x-harness --file=packages/db/migrations/005-reply-trigger.sql",
     "db:migrate:005:local": "wrangler d1 execute x-harness --file=packages/db/migrations/005-reply-trigger.sql --local",
     "test": "vitest run",
+    "test:cubelic": "vitest run packages/content-os/src apps/worker/src/cubelic",
+    "test:d1": "vitest run --config vitest.integration.config.ts",
+    "test:contracts": "vitest run packages/schemas/src/contracts.test.ts",
     "test:watch": "vitest",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "check:boundaries": "node scripts/check-phase1-boundaries.mjs",
+    "check:config": "node scripts/check-config-sync.mjs",
+    "security:scan": "node scripts/check-no-secrets.mjs",
+    "preflight:production": "node scripts/preflight-production.mjs",
+    "smoke:staging": "node scripts/smoke-staging.mjs",
+    "validate:production-inputs": "pnpm --filter @x-harness/schemas validate:inputs",
+    "check": "pnpm check:boundaries && pnpm check:config && pnpm security:scan && pnpm typecheck && pnpm test && pnpm test:d1 && pnpm build"
   },
   "packageManager": "pnpm@9.15.4",
   "engines": {
     "node": ">=20"
   },
+  "pnpm": {
+    "overrides": {
+      "@hono/node-server": "2.0.11",
+      "postcss": "8.5.10"
+    }
+  },
   "devDependencies": {
+    "miniflare": "3.20250718.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.2"
+    "vitest": "4.1.2"
   },
   "license": "MIT"
 }

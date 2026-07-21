@@ -428,3 +428,63 @@ export const api = {
     },
   },
 };
+
+export interface CubelicDraft {
+  draft_id: string;
+  content_id: string;
+  account_id: 'tubelic_cube';
+  text: string;
+  media_asset_ids: string[];
+  category: string;
+  template_id: string;
+  template_version: string;
+  variant: 'a' | 'b' | 'c';
+  target_stage: string;
+  hashtags: string[];
+  destination_url: string;
+  quality_score: number;
+  freshness_score: number;
+  rights_gate: 'passed' | 'not_applicable';
+  approval_status: 'pending_review' | 'needs_revision' | 'rejected' | 'approved' | 'handed_off';
+  risks: string[];
+  human_review_required: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CubelicSystemStatus {
+  safeMode: boolean;
+  environmentStop: boolean;
+  emergencyStop: boolean;
+  publishingEnabled: false;
+  schedulingEnabled: false;
+}
+
+export const cubelicApi = {
+  drafts: {
+    list: (status?: string) => fetchApi<ApiResponse<CubelicDraft[]>>(`/api/cubelic/drafts${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+    update: (id: string, text: string) => fetchApi<ApiResponse<CubelicDraft>>(`/api/cubelic/drafts/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ text }),
+    }),
+    approve: (id: string, humanApprovalKey: string) => fetchApi<ApiResponse<{ draft: CubelicDraft }>>(`/api/cubelic/drafts/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': humanApprovalKey },
+      body: '{}',
+    }),
+    reject: (id: string, humanApprovalKey: string, reason = 'manual_rejection') => fetchApi<ApiResponse<CubelicDraft>>(`/api/cubelic/drafts/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': humanApprovalKey },
+      body: JSON.stringify({ reason }),
+    }),
+  },
+  system: {
+    status: () => fetchApi<ApiResponse<CubelicSystemStatus>>('/api/cubelic/admin/status'),
+    stop: (humanApprovalKey: string) => fetchApi<ApiResponse<{ stopped: true }>>('/api/cubelic/admin/emergency-stop', {
+      method: 'POST', headers: { 'X-Human-Approval-Key': humanApprovalKey }, body: '{}',
+    }),
+    resume: (humanApprovalKey: string) => fetchApi<ApiResponse<{ stopped: false }>>('/api/cubelic/admin/emergency-resume', {
+      method: 'POST', headers: { 'X-Human-Approval-Key': humanApprovalKey }, body: '{}',
+    }),
+  },
+};

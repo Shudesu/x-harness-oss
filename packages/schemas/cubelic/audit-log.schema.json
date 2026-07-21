@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/content-os/audit-log.v1.json",
+  "title": "CUBΣLIC Audit Log v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["audit_id", "actor", "action", "entity_type", "entity_id", "before", "after", "timestamp", "correlation_id"],
+  "properties": {
+    "audit_id": { "type": "string" },
+    "actor": { "enum": ["human", "hermes", "system", "codex"] },
+    "action": { "type": "string", "minLength": 1 },
+    "entity_type": { "type": "string", "minLength": 1 },
+    "entity_id": { "type": "string", "minLength": 1 },
+    "before": { "type": "object" },
+    "after": { "type": "object" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "correlation_id": { "type": "string", "minLength": 1 }
+  }
+}

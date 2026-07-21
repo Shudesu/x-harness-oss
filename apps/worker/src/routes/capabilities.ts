@@ -22,6 +22,8 @@ export const FEATURES = [
 export const capabilities = new Hono<Env>();
 
 capabilities.get('/api/capabilities', (c) => {
+  const safeMode = true;
+  const publishingDisabled = true;
   return c.json({
     success: true,
     data: {
@@ -33,7 +35,18 @@ capabilities.get('/api/capabilities', (c) => {
         primaryKey: 'x_user_id',
         supportedLinks: ['line_friend_id'],
       },
-      features: FEATURES,
+      features: publishingDisabled
+        ? ['cubelic-inert-drafts', 'cubelic-human-approval', 'cubelic-rights-gate', 'cubelic-metrics', 'multi-account']
+        : FEATURES,
+      safety: {
+        cubelicSafeMode: safeMode,
+        globalPublishingDisabled: c.env.GLOBAL_PUBLISHING_DISABLED === 'true',
+        immediatePublishing: !publishingDisabled,
+        scheduling: !publishingDisabled,
+        dm: !publishingDisabled,
+        automatedEngagement: !publishingDisabled,
+        cookieScraping: !publishingDisabled,
+      },
       endpoints: {
         health: '/api/health',
         staffMe: '/api/staff/me',
@@ -45,6 +58,8 @@ capabilities.get('/api/capabilities', (c) => {
         dmConversations: '/api/dm/conversations',
         campaigns: '/api/campaigns',
         setupStatus: '/setup',
+        cubelicDrafts: '/api/cubelic/drafts',
+        cubelicInertDraft: '/api/cubelic/x-harness-inbox/:draftId',
       },
     },
   });

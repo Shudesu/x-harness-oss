@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/content-os/x-harness-inert-draft.v1.json",
+  "title": "CUBΣLIC X Harness Inert Draft v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "inbox_id", "draft_id", "x_account_id", "text", "media_asset_ids", "idempotency_key", "status", "approved_by", "approved_at", "created_at"],
+  "properties": {
+    "schema_version": { "const": "cubelic.x-harness-inert-draft.v1" },
+    "inbox_id": { "type": "string", "pattern": "^xin_" },
+    "draft_id": { "type": "string", "pattern": "^drf_" },
+    "x_account_id": { "type": "string", "minLength": 1 },
+    "text": { "type": "string", "minLength": 1 },
+    "media_asset_ids": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "idempotency_key": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "status": { "const": "inert_draft" },
+    "approved_by": { "type": "string", "minLength": 1 },
+    "approved_at": { "type": "string", "format": "date-time" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

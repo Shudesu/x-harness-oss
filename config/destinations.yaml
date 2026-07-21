@@ -1,0 +1,12 @@
+base_domain: https://cubelic-fan.com
+utm:
+  source: x
+  medium: social
+link_strategy:
+  live_digest: reply
+  member_focus: none
+  setlist_flash: body
+  event_notice: body
+  beginner_guide: body
+  youtube_notice: body
+  community_question: none

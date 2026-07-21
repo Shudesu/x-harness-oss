@@ -1,0 +1,13 @@
+{
+  "schema_version": "cubelic.x-harness-inert-draft.v1",
+  "inbox_id": "xin_fixture_001",
+  "draft_id": "drf_fixture_001",
+  "x_account_id": "x_account_row_fixture",
+  "text": "人間が承認した不活性下書きです。",
+  "media_asset_ids": [],
+  "idempotency_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": "inert_draft",
+  "approved_by": "Fixture Operator",
+  "approved_at": "2026-07-21T21:00:00+09:00",
+  "created_at": "2026-07-21T21:00:01+09:00"
+}

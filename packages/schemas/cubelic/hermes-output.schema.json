@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/contracts/hermes-output.v1.json",
+  "title": "Hermes Draft Output Contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "recommended_draft_id", "drafts", "review_summary"],
+  "properties": {
+    "schema_version": { "const": "cubelic.hermes-output.v1" },
+    "recommended_draft_id": { "type": "string" },
+    "drafts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": { "$ref": "https://cubelic-fan.com/schemas/content-os/draft-post.v1.json" }
+    },
+    "review_summary": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/content-os/content-item.v1.json",
+  "title": "CUBΣLIC Content Item v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["content_id", "event_id", "category", "target_stage", "content_lifecycle", "status", "source_type", "source_refs", "member_ids", "song_ids", "emotion_tags", "destination", "created_at", "updated_at"],
+  "properties": {
+    "content_id": { "type": "string" },
+    "event_id": { "type": ["string", "null"] },
+    "category": { "enum": ["live_digest", "member_focus", "song_focus", "setlist_flash", "setlist_archive", "beginner_guide", "event_notice", "event_reminder", "member_profile", "youtube_notice", "playlist_notice", "community_question", "weekly_summary", "evergreen", "correction"] },
+    "target_stage": { "enum": ["unaware", "aware", "interested", "first_visit_intent", "first_visitor", "repeat_fan", "advocate"] },
+    "content_lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "expires_at"],
+      "properties": {
+        "type": { "enum": ["news", "evergreen", "hybrid"] },
+        "expires_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "status": { "enum": ["ingested", "validated", "draft_generated", "blocked", "archived"] },
+    "source_type": { "enum": ["setlist_json", "media_asset", "event", "manual"] },
+    "source_refs": { "type": "array", "items": { "type": "string" } },
+    "member_ids": { "type": "array", "items": { "type": "string" } },
+    "song_ids": { "type": "array", "items": { "type": "string" } },
+    "emotion_tags": { "type": "array", "items": { "type": "string" } },
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "base_url", "tracked_url"],
+      "properties": {
+        "type": { "type": "string" },
+        "base_url": { "type": "string", "format": "uri" },
+        "tracked_url": { "type": "string" }
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}

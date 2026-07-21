@@ -1,4 +1,27 @@
-# X Harness
+# CUBΣLIC Content OS — Phase 1
+
+このリポジトリは、CUBΣLICのコンテンツ企画・権利確認・投稿案生成・人手承認・計測を安全に扱う基盤です。Phase 1 は **Xへの自動投稿を行いません**。承認済みの投稿案も inert な投稿待ちキューに保存され、運用者が別途確認して手動で投稿します。
+
+- 仕様: [SPEC.md](SPEC.md)
+- 未確定事項: [docs/Decision-Grill.md](docs/Decision-Grill.md)
+- 運用手順: [docs/operations.md](docs/operations.md)
+- インシデント対応: [docs/incident-response.md](docs/incident-response.md)
+- デプロイチェックリスト: [docs/deployment-checklist.md](docs/deployment-checklist.md)
+- 本番入力一覧: [docs/required-production-inputs.md](docs/required-production-inputs.md)
+- 承認UI: `/cubelic`
+
+## ローカル確認
+
+```bash
+corepack pnpm install
+corepack pnpm check
+```
+
+Phase 1の安全境界はビルド内で解除不能です。`CUBELIC_SAFE_MODE=false` を与えても、旧投稿・予約・DM・反応APIの書き込みとCron自動処理は再開しません。Hermesには専用の最小権限トークンを与え、緊急停止中は計測系を除く変更操作を拒否します。本番デプロイ前に `.env.example` を参照し、秘密値はリポジトリ外で設定してください。
+
+# Upstream X Harness
+
+> **参考資料:** 以下は上流版の説明を履歴として残したものです。CUBΣLIC Phase 1では、投稿・予約・DM・自動反応・Cookieスクレイピング・旧Growthスキルを使用しないでください。既定のWorker/MCP安全境界はこれらを拒否します。
 
 <p align="center">
   <a href="https://x.com/ai_shunoda/status/2042184859003818077">

@@ -15,9 +15,26 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
 
   const token = authHeader.slice('Bearer '.length);
 
+  if (path.startsWith('/api/cubelic/') && c.env.HERMES_ACCESS_TOKEN && token === c.env.HERMES_ACCESS_TOKEN) {
+    const hermesAllowed = c.req.method === 'GET'
+      || (c.req.method === 'POST' && [
+        '/api/cubelic/events',
+        '/api/cubelic/content',
+        '/api/cubelic/media/validate',
+        '/api/cubelic/rights/validate',
+        '/api/cubelic/setlists/ingest',
+        '/api/cubelic/drafts/generate',
+        '/api/cubelic/metrics/collect',
+      ].includes(path));
+    if (!hermesAllowed) return c.json({ success: false, error: 'Forbidden for Hermes credential' }, 403);
+    c.set('requestActor', 'hermes');
+    return next();
+  }
+
   // Check env API_KEY first — always grants admin role
-  if (token === c.env.API_KEY) {
+  if (c.env.API_KEY && token === c.env.API_KEY) {
     c.set('staffRole', 'admin');
+    c.set('requestActor', 'human');
     return next();
   }
 
@@ -30,6 +47,7 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   c.set('staffRole', staff.role);
   c.set('staffId', staff.id);
   c.set('staffName', staff.name);
+  c.set('requestActor', 'human');
 
   // Block viewer role from mutating routes outside /api/staff
   if (staff.role === 'viewer') {

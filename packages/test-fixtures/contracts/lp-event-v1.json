@@ -1,0 +1,20 @@
+{
+  "event_id": "evt_20260721_example",
+  "title": "CUBΣLIC LIVE",
+  "venue": "SHIBUYA DESEO",
+  "starts_at": "2026-07-21T19:00:00+09:00",
+  "ends_at": "2026-07-21T20:30:00+09:00",
+  "state": "setlist_confirmed",
+  "official_url": "https://x.com/CUBELIC_hvt",
+  "ticket_url": null,
+  "event_tags": [],
+  "filming_policy": {
+    "confirmed": true,
+    "scope": "full_event",
+    "evidence_type": "official_x",
+    "evidence_url": "https://x.com/CUBELIC_hvt/status/123",
+    "confirmed_at": "2026-07-21T18:00:00+09:00",
+    "confirmed_by": "human_operator",
+    "notes": null
+  }
+}

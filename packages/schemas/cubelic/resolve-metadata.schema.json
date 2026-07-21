@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/contracts/resolve-metadata.v1.json",
+  "title": "Resolve Metadata Contract v1",
+  "$ref": "https://cubelic-fan.com/schemas/content-os/media-asset.v1.json",
+  "properties": {
+    "asset_id": true,
+    "event_id": true,
+    "path": true,
+    "sha256": true,
+    "duration_seconds": true,
+    "orientation": true,
+    "resolution": true,
+    "audio_present": true,
+    "rights": true,
+    "privacy": true,
+    "quality": true,
+    "status": true
+  },
+  "additionalProperties": false
+}

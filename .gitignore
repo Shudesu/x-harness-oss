@@ -2,6 +2,11 @@ node_modules/
 dist/
 .wrangler/
 .dev.vars
+.env
+.env.*
+!.env.example
+*.pem
+*.key
 *.log
 .next/
 out/

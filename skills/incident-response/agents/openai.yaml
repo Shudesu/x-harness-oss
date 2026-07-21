@@ -1,0 +1,4 @@
+interface:
+  display_name: "CUBΣLIC Incident Response"
+  short_description: "Contain content incidents with human-led actions"
+  default_prompt: "Use -response to contain and document a CUBΣLIC content incident without deleting or posting automatically."

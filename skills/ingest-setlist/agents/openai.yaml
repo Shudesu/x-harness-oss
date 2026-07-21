@@ -1,0 +1,4 @@
+interface:
+  display_name: "CUBΣLIC Ingest Setlist"
+  short_description: "Validate GAS setlists and create review drafts"
+  default_prompt: "Use -setlist to validate a GAS setlist and create review-ready flash drafts."

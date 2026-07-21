@@ -1,0 +1,7 @@
+{
+  "schema_version": "cubelic.member-master.v1",
+  "generated_at": "2026-07-21T18:00:00+09:00",
+  "members": [
+    { "member_id": "member_example", "display_name": "サンプル（テスト専用）", "aliases": [], "active": true }
+  ]
+}

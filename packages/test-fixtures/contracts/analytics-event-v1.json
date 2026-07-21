@@ -1,0 +1,27 @@
+{
+  "schema_version": "cubelic.analytics-event.v1",
+  "event_name": "x_post_metrics_collected",
+  "occurred_at": "2026-07-21T22:45:00+09:00",
+  "metrics": {
+    "metric_id": "met_contract_1",
+    "post_id": "post_1",
+    "collected_at": "2026-07-21T22:45:00+09:00",
+    "window": "2h",
+    "values": {
+      "impressions": null,
+      "video_views": null,
+      "video_completion_rate": null,
+      "likes": null,
+      "reposts": null,
+      "quotes": null,
+      "replies": null,
+      "profile_visits": null,
+      "follows_attributed": null,
+      "link_clicks": null,
+      "qualified_visits": null,
+      "youtube_clicks": null,
+      "spotify_clicks": null,
+      "ticket_clicks": null
+    }
+  }
+}

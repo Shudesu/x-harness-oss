@@ -1,0 +1,4 @@
+interface:
+  display_name: "CUBΣLIC Generate Post"
+  short_description: "Create safe CUBΣLIC drafts for human review"
+  default_prompt: "Use -post to generate up to three review-ready CUBΣLIC draft variants."
