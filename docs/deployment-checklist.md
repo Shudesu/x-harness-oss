@@ -7,13 +7,13 @@
 - Keep `cubelic-fan.com` on its existing fan-site Pages project. Deploy the operator UI as a separate Pages project at `ops.cubelic-fan.com`; never deploy `apps/web/out` to the fan-site project.
 - Protect `ops.cubelic-fan.com` with Cloudflare Access before granting operator access.
 - Replace the Worker URL, D1 database id and X Harness account-row placeholder.
-- Provision `API_KEY`, `HERMES_ACCESS_TOKEN` and `HUMAN_APPROVAL_KEY` as distinct secrets.
+- Provision distinct `API_KEY` and `HUMAN_APPROVAL_KEY` secrets. Keep `HERMES_RUNTIME_ENABLED=false` and do not provision `HERMES_ACCESS_TOKEN` in Phase 1; if a later release enables the Hermes runtime, its token becomes required and must be distinct.
 - Keep `CUBELIC_SAFE_MODE=true`; give Hermes neither the API admin key nor the human approval key.
 - Configure an allowlisted production CORS origin before exposing the approval UI.
 - Production CORS must be exactly `https://ops.cubelic-fan.com`; the public fan-site origin is not an operator origin.
-- Import the human-approved `cubelic.song-master.v1` and `cubelic.member-master.v1` contracts before any production setlist.
+- Keep `PRODUCTION_CONTENT_INGEST_ENABLED=false` for the base Phase 1 infrastructure release. Import the human-approved `cubelic.song-master.v1` and `cubelic.member-master.v1` contracts before any production setlist.
 - Run `pnpm preflight:production`; it reports names only and never prints secret values.
-- Set `PRODUCTION_INPUTS_VALIDATED=true` only in the release shell after contract validation succeeds, and `STAGING_SMOKE_VERIFIED=true` only after the staging smoke succeeds.
+- Set `PRODUCTION_INPUTS_VALIDATED=true` only after contract validation succeeds and before enabling `PRODUCTION_CONTENT_INGEST_ENABLED=true`. Set `STAGING_SMOKE_VERIFIED=true` only after the staging smoke succeeds.
 
 ## Staging validation
 
@@ -28,6 +28,7 @@
 
 ## Production release
 
+- Build the operator UI with `NEXT_PUBLIC_MAINTENANCE_MODE=true` until the production Worker and secrets pass smoke verification; only then rebuild with the flag set to `false`.
 - Back up D1, apply the additive migration, deploy Worker, then deploy Web.
 - Verify the operator Pages project and custom-domain target are distinct from the existing `cubelic-fan` project before deploying Web.
 - Verify Cloudflare Access denies an unauthenticated request to `ops.cubelic-fan.com` before sharing the URL.

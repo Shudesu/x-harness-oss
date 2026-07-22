@@ -160,3 +160,13 @@
 - Safest current behavior: Keep the production Worker undeployed and the operator UI fail-closed; do not invent an account row or promote staging/redacted credentials as production truth. Independent code, staging validation, DNS, Pages, and Access work may continue.
 - Needed answer: Authorize either (a) a separately named, publishing-disabled bootstrap Worker bound to production D1 solely for account setup, followed by deletion after the production row id is captured, or (b) an approved manual import of an existing production `x_accounts` row through a secret-bearing operator channel.
 - Resolution: The user approved option (a). On 2026-07-22, the fail-closed bootstrap registered production account `tubelic_cube` as internal id `89f9bfc0-428c-480b-9cb3-9ba1698c30da`, with a redacted audit event. That id is now the production `X_HARNESS_ACCOUNT_ID`. The temporary Worker, custom API domain, source entry point, and functional Pages deployment were removed after verification; the undeletable latest Pages branch alias was replaced by an Access-protected, no-store, noindex retirement page.
+
+## DG-017 — Phase 1 release gates versus deferred runtime inputs
+
+- Status: RESOLVED
+- Evidence: `SPEC.md` §26 assigns active Hermes Cron/Bridge to Phase 2; DG-002, DG-003 and DG-013 classify real GAS, Resolve and master exports as non-blocking; `scripts/preflight-production.mjs` previously required all of them plus `HERMES_ACCESS_TOKEN` for every Phase 1 infrastructure release.
+- Conflict/gap: The production preflight promoted deferred capability inputs into unconditional base-runtime blockers.
+- Impact: A publishing-disabled Phase 1 Worker and operator shell could not be released without activating or credentialing deferred integrations.
+- Safest current behavior: Keep Hermes runtime and production content ingestion disabled by default; require their credentials and validated real inputs only when their explicit enable flags are true. Independently require safe mode, global publishing disable, human/API separation, production CORS, account mapping and staging smoke for every release.
+- Needed answer: Whether to separate content ingestion into finer GAS, member and Resolve capability flags when each production integration is activated.
+- Resolution: The user approved separating Phase 1 from Phase 2/deferred inputs. `HERMES_RUNTIME_ENABLED` and `PRODUCTION_CONTENT_INGEST_ENABLED` default to false; preflight conditionally requires `HERMES_ACCESS_TOKEN` or `PRODUCTION_INPUTS_VALIDATED` only when the respective capability is enabled. The operator UI remains in build-time maintenance mode until the production API passes smoke verification.

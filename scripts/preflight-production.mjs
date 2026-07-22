@@ -3,20 +3,36 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const requiredSecrets = ['API_KEY', 'HUMAN_APPROVAL_KEY', 'HERMES_ACCESS_TOKEN', 'CLOUDFLARE_API_TOKEN'];
 const errors = [];
+const hermesRuntimeEnabled = process.env.HERMES_RUNTIME_ENABLED === 'true';
+const productionContentIngestEnabled = process.env.PRODUCTION_CONTENT_INGEST_ENABLED === 'true';
+const requiredSecrets = ['API_KEY', 'HUMAN_APPROVAL_KEY', 'CLOUDFLARE_API_TOKEN'];
+if (hermesRuntimeEnabled) requiredSecrets.push('HERMES_ACCESS_TOKEN');
+
+for (const name of ['HERMES_RUNTIME_ENABLED', 'PRODUCTION_CONTENT_INGEST_ENABLED']) {
+  if (process.env[name] && !['true', 'false'].includes(process.env[name])) {
+    errors.push(`${name} must be true or false when set`);
+  }
+}
 
 for (const name of requiredSecrets) {
   if (!process.env[name]) errors.push(`missing secret environment variable: ${name}`);
   else if (process.env[name].length < 32) errors.push(`${name} is shorter than the 32-character production minimum`);
 }
-const authorizationSecrets = ['API_KEY', 'HUMAN_APPROVAL_KEY', 'HERMES_ACCESS_TOKEN'].map((name) => process.env[name]).filter(Boolean);
-if (new Set(authorizationSecrets).size !== authorizationSecrets.length) errors.push('API, Hermes, and human approval secrets must be distinct');
+const authorizationSecretNames = ['API_KEY', 'HUMAN_APPROVAL_KEY'];
+if (hermesRuntimeEnabled) authorizationSecretNames.push('HERMES_ACCESS_TOKEN');
+const authorizationSecrets = authorizationSecretNames.map((name) => process.env[name]).filter(Boolean);
+if (new Set(authorizationSecrets).size !== authorizationSecrets.length) {
+  errors.push(`${authorizationSecretNames.join(', ')} must be distinct`);
+}
 if (!process.env.X_HARNESS_ACCOUNT_ID || process.env.X_HARNESS_ACCOUNT_ID === 'SET_AFTER_ACCOUNT_SETUP') {
   errors.push('missing production X_HARNESS_ACCOUNT_ID mapping');
 }
 if (process.env.CUBELIC_SAFE_MODE !== 'true') errors.push('CUBELIC_SAFE_MODE must be explicitly true');
-if (process.env.PRODUCTION_INPUTS_VALIDATED !== 'true') errors.push('PRODUCTION_INPUTS_VALIDATED must be true after validate:production-inputs succeeds');
+if (process.env.GLOBAL_PUBLISHING_DISABLED !== 'true') errors.push('GLOBAL_PUBLISHING_DISABLED must be explicitly true');
+if (productionContentIngestEnabled && process.env.PRODUCTION_INPUTS_VALIDATED !== 'true') {
+  errors.push('PRODUCTION_INPUTS_VALIDATED must be true before production content ingestion is enabled');
+}
 if (process.env.STAGING_SMOKE_VERIFIED !== 'true') errors.push('STAGING_SMOKE_VERIFIED must be true after smoke:staging succeeds');
 const corsOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);
 if (corsOrigins.length === 0) errors.push('CORS_ALLOWED_ORIGINS must contain at least one production UI origin');
@@ -39,11 +55,12 @@ if (!/CORS_ALLOWED_ORIGINS\s*=\s*"https:\/\/ops\.cubelic-fan\.com"/.test(wrangle
   errors.push('wrangler.toml does not bind production CORS to the approved operator UI origin');
 }
 if (!/^CUBELIC_SAFE_MODE\s*=\s*"true"$/m.test(wrangler)) errors.push('wrangler.toml does not default CUBELIC_SAFE_MODE to true');
+if (!/^GLOBAL_PUBLISHING_DISABLED\s*=\s*"true"$/m.test(wrangler)) errors.push('wrangler.toml does not default GLOBAL_PUBLISHING_DISABLED to true');
 
 if (errors.length) {
   console.error(`Production preflight is blocked (${errors.length}):\n- ${errors.join('\n- ')}`);
   console.error('No secret values were printed. Resolve the named inputs, then rerun pnpm preflight:production.');
   process.exitCode = 1;
 } else {
-  console.log('Production preflight passed. Run the staging checklist before any production deployment.');
+  console.log('Production preflight passed for the Phase 1 runtime. Run the staging checklist before any production deployment.');
 }
