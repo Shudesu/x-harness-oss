@@ -13,11 +13,19 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "files": ["dist", "README.md"],
   "publishConfig": { "access": "public" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shudesu/x-harness-oss.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/Shudesu/x-harness-oss#readme",
+  "keywords": ["twitter", "x", "api", "sdk", "automation", "marketing", "typescript"],
   "scripts": {
     "build": "tsup",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "license": "MIT",
   "devDependencies": {

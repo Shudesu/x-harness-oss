@@ -8,9 +8,18 @@
   "bin": {
     "x-harness-mcp": "./dist/index.js"
   },
+  "files": ["dist", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shudesu/x-harness-oss.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/Shudesu/x-harness-oss#readme",
+  "keywords": ["mcp", "model-context-protocol", "twitter", "x", "automation", "ai-agent", "claude"],
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

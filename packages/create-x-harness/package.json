@@ -7,11 +7,20 @@
     "create-x-harness": "./dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shudesu/x-harness-oss.git",
+    "directory": "packages/create-x-harness"
+  },
+  "homepage": "https://github.com/Shudesu/x-harness-oss#readme",
+  "keywords": ["twitter", "x", "automation", "marketing", "cli", "scaffolding", "cloudflare-workers"],
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch"
+    "dev": "tsup --watch",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
