@@ -28,14 +28,15 @@
     "validate:production-inputs": "pnpm --filter @x-harness/schemas validate:inputs",
     "check": "pnpm check:boundaries && pnpm check:config && pnpm security:scan && pnpm typecheck && pnpm test && pnpm test:d1 && pnpm build"
   },
-  "packageManager": "pnpm@9.15.4",
+  "packageManager": "pnpm@10.34.5",
   "engines": {
     "node": ">=20"
   },
   "pnpm": {
     "overrides": {
       "@hono/node-server": "2.0.11",
-      "postcss": "8.5.10"
+      "postcss": "8.5.10",
+      "sharp": "0.35.3"
     }
   },
   "devDependencies": {
