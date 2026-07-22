@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS scheduled_posts (
   x_account_id TEXT NOT NULL,
   text TEXT NOT NULL,
   media_ids TEXT,
+  quote_tweet_id TEXT,
   scheduled_at TEXT NOT NULL,
   status TEXT DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'posted', 'failed')),
   posted_tweet_id TEXT,
@@ -209,3 +210,63 @@ CREATE TABLE IF NOT EXISTS engagement_actions (
   UNIQUE(x_account_id, tweet_id, action_type)
 );
 CREATE INDEX IF NOT EXISTS idx_engagement_actions_account ON engagement_actions(x_account_id);
+
+-- Growth Drafts (planner output awaiting dashboard approval)
+CREATE TABLE IF NOT EXISTS growth_drafts (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  text TEXT NOT NULL,
+  quote_tweet_id TEXT,
+  scheduled_at TEXT NOT NULL,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'scheduled', 'rejected')),
+  scheduled_post_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_growth_drafts_status ON growth_drafts(status);
+
+-- Growth Digests (daily news/strategy summary from collector)
+CREATE TABLE IF NOT EXISTS growth_digests (
+  date TEXT PRIMARY KEY,
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+-- Source Candidates (overseas viral tweet candidates for quote-tweet)
+CREATE TABLE IF NOT EXISTS source_candidates (
+  id TEXT PRIMARY KEY,
+  source_tweet_id TEXT NOT NULL UNIQUE,
+  author TEXT NOT NULL,
+  author_url TEXT,
+  text_en TEXT NOT NULL,
+  text_ja TEXT NOT NULL,
+  summary_ja TEXT,
+  suggested_quote_text TEXT,
+  video_url TEXT,
+  views INTEGER DEFAULT 0,
+  likes INTEGER DEFAULT 0,
+  theme TEXT,
+  transcript TEXT,
+  status TEXT DEFAULT 'new' CHECK (status IN ('new', 'drafted', 'dismissed')),
+  discovered_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_source_candidates_status ON source_candidates(status);
+
+-- Growth Articles (AI-generated article drafts awaiting publish)
+CREATE TABLE IF NOT EXISTS growth_articles (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body_md TEXT NOT NULL,
+  image_url TEXT,
+  theme TEXT,
+  source_tweet_ids TEXT,
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft','published','discarded')),
+  published_article_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_growth_articles_status ON growth_articles(status);

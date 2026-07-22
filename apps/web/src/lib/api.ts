@@ -191,6 +191,23 @@ export interface GateUsage {
   apiCallsTotal: number; estimatedCost: number;
 }
 
+
+export interface NewsStory {
+  id?: string;
+  name?: string;
+  category?: string;
+  summary?: string;
+  hook?: string;
+  contexts?: { topics?: string[] } & Record<string, unknown>;
+  cluster_posts_results?: Array<{ post_id: string }>;
+  last_updated_at_ms?: number;
+}
+
+export interface ArticleDraft {
+  id: string;
+  title: string;
+}
+
 export const api = {
   health: () => fetchApi<ApiResponse<{ status: string }>>('/api/health'),
 
@@ -390,5 +407,24 @@ export const api = {
       return fetchApi<ApiResponse<DailyUsage[]>>(`/api/usage/daily?${qs}`);
     },
     byGate: () => fetchApi<ApiResponse<GateUsage[]>>('/api/usage/by-gate'),
+  },
+
+  articles: {
+    createDraft: (data: { xAccountId: string; title: string; body: string; coverMediaId?: string }) =>
+      fetchApi<ApiResponse<ArticleDraft>>('/api/articles/draft', { method: 'POST', body: JSON.stringify(data) }),
+    publish: (articleId: string, xAccountId: string) =>
+      fetchApi<ApiResponse<{ post_id: string }>>(`/api/articles/${encodeURIComponent(articleId)}/publish`, {
+        method: 'POST',
+        body: JSON.stringify({ xAccountId }),
+      }),
+  },
+
+  news: {
+    search: (params: { query: string; maxResults?: number; xAccountId?: string }) => {
+      const qs = new URLSearchParams({ query: params.query });
+      if (params.maxResults) qs.set('maxResults', String(params.maxResults));
+      if (params.xAccountId) qs.set('xAccountId', params.xAccountId);
+      return fetchApi<ApiResponse<NewsStory[]>>(`/api/news/search?${qs}`);
+    },
   },
 };

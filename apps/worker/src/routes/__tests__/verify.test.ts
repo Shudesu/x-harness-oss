@@ -100,3 +100,34 @@ describe('verify route logic', () => {
     });
   });
 });
+
+describe('connection_status follow verification', () => {
+  // Mirrors the decision logic in the follow-trigger verify path:
+  // a single relationship lookup replaces follower-list crawls.
+  function decide(connectionStatus: string[] | undefined) {
+    const relationshipKnown = Array.isArray(connectionStatus);
+    const isFollower = relationshipKnown ? connectionStatus!.includes('followed_by') : false;
+    const needsLegacyCrawl = !isFollower && !relationshipKnown;
+    return { relationshipKnown, isFollower, needsLegacyCrawl };
+  }
+
+  it('followed_by present -> follower, no crawl', () => {
+    expect(decide(['followed_by', 'following'])).toEqual(
+      { relationshipKnown: true, isFollower: true, needsLegacyCrawl: false });
+  });
+
+  it('relationship known but not a follower -> no crawl (definitive negative)', () => {
+    expect(decide(['following'])).toEqual(
+      { relationshipKnown: true, isFollower: false, needsLegacyCrawl: false });
+  });
+
+  it('empty connection_status is still a definitive negative', () => {
+    expect(decide([])).toEqual(
+      { relationshipKnown: true, isFollower: false, needsLegacyCrawl: false });
+  });
+
+  it('no connection_status (bearer token) -> legacy crawl path', () => {
+    expect(decide(undefined)).toEqual(
+      { relationshipKnown: false, isFollower: false, needsLegacyCrawl: true });
+  });
+});

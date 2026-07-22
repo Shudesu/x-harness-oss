@@ -41,6 +41,14 @@ const COST_BY_ENDPOINT: Record<string, number> = {
   get_quote_tweets: 0.005,
   sync_quotes: 0.005,
   dm_events: 0.005,
+  verify_get_user: 0.005,
+  verify_get_followers: 0.005,
+  verify_get_retweeted_by: 0.005,
+  verify_get_liking_users: 0.005,
+  verify_search_replies: 0.005,
+  user_search: 0.005,
+  news_search: 0.005,
+  news_get: 0.005,
   // Write operations — $0.010 per request
   create_tweet: 0.010,
   delete_tweet: 0.010,
@@ -48,6 +56,8 @@ const COST_BY_ENDPOINT: Record<string, number> = {
   retweet: 0.010,
   upload_media: 0.010,
   dm_send: 0.010,
+  article_draft: 0.010,
+  article_publish: 0.010,
 };
 const DEFAULT_COST = 0.005;
 
@@ -56,18 +66,34 @@ function costForEndpoint(endpoint: string): number {
 }
 
 export async function incrementApiUsage(db: D1Database, xAccountId: string, endpoint: string): Promise<void> {
+  return incrementApiUsageBy(db, xAccountId, endpoint, 1);
+}
+
+export async function incrementApiUsageBy(db: D1Database, xAccountId: string, endpoint: string, count: number): Promise<void> {
+  if (count <= 0) return;
   const id = crypto.randomUUID();
   const date = jstNow().slice(0, 10);
   const now = jstNow();
   await db
     .prepare(`
       INSERT INTO api_usage_logs (id, x_account_id, endpoint, request_count, date, created_at)
-      VALUES (?, ?, ?, 1, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT (x_account_id, endpoint, date)
-      DO UPDATE SET request_count = request_count + 1
+      DO UPDATE SET request_count = request_count + excluded.request_count
     `)
-    .bind(id, xAccountId, endpoint, date, now)
+    .bind(id, xAccountId, endpoint, count, date, now)
     .run();
+}
+
+// Total request count for one endpoint on a given JST date (across all accounts).
+// Used to enforce daily caps on public endpoints.
+export async function getEndpointUsageForDate(db: D1Database, endpoint: string, date?: string): Promise<number> {
+  const d = date ?? jstNow().slice(0, 10);
+  const row = await db
+    .prepare('SELECT SUM(request_count) as total FROM api_usage_logs WHERE endpoint = ? AND date = ?')
+    .bind(endpoint, d)
+    .first<{ total: number | null }>();
+  return row?.total ?? 0;
 }
 
 export async function getUsageSummary(
@@ -76,7 +102,8 @@ export async function getUsageSummary(
   startDate?: string,
   endDate?: string,
 ): Promise<UsageSummary> {
-  const conditions: string[] = [];
+  // *_quota rows are internal rate-limit counters, not billable API calls
+  const conditions: string[] = ["endpoint NOT LIKE '%\\_quota' ESCAPE '\\'"];
   const bindings: (string | null)[] = [];
 
   if (xAccountId) {
@@ -115,7 +142,7 @@ export async function getUsageSummary(
 }
 
 export async function getDailyUsage(db: D1Database, xAccountId?: string, days = 30): Promise<DailyUsage[]> {
-  const conditions: string[] = [`date >= date('now', '-${days} days')`];
+  const conditions: string[] = [`date >= date('now', '-${days} days')`, "endpoint NOT LIKE '%\\_quota' ESCAPE '\\'"];
   const bindings: string[] = [];
 
   if (xAccountId) {

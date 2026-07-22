@@ -11,6 +11,33 @@
 - 投稿作成時の X API 4xx エラー（重複投稿・レート制限等）をそのままのステータスで返すように修正（呼び出し側がリトライ判断できるように）
 - `packages/sdk` / `packages/x-sdk` の typecheck が DOM グローバル型（`fetch` 等）の未定義で失敗していた問題を修正（tsconfig に `lib: ["ES2022", "DOM"]` を追加）
 
+## [0.5.0] - 2026-07-18
+
+### Added
+- **記事のインライン画像自動アップロード** — `create_article` の body に段落として書いた `![キャプション](https://...)` を Worker が fetch → X メディアアップロード → 画像 entity に自動変換。markdown を渡すだけで画像込みの長文記事 draft が作れる(実記事の公開まで検証済み)
+- **X Articles API 実測ガイド** — undocumented な `content_state` 書き側スキーマのフィールドノート(`docs/manual/07-articles-api.md`): entity data スキーマ(image/post/link/markdown/emoji/divider)、snake_case 必須、レート制限実測(draft 10件/24h・**400エラーでも消費**、publish 5件/24h)、スキーマ解読テクニック
+- SDK に `ArticleEntity` 型を追加、`cover_media.media_category` 対応
+
+### Changed
+- **記事公開の要件記載を修正: Premium+ → X Premium** — Articles の公開は 2026-01-07 に Premium+ 限定から全 Premium プランへ開放済み(実測: Premium アカウントで publish 成功)。ドキュメント・ツール説明を実態に合わせた
+
+### Fixed
+- **記事の太字が反映されないバグ** — inline style の書き側 enum は小文字 `bold`(`Bold` はバリデータに拒否される)。`**太字**` が正しく反映されるようになった
+- 記事タイトルと同一の冒頭 `# 見出し` を自動除去(タイトル二重表示の防止)
+- 画像 URL が到達不能な場合は draft 作成前に 400 で fail-fast(貴重な 10件/24h の draft 枠を守る)。括弧を含む画像 URL に対応
+
+## [0.4.0] - 2026-07-16
+
+### Added
+- **無料スクレイピング収集(scrape_* MCP ツール)** — twitter-cli(Cookie 認証)ラップで X API 読み取り課金ゼロ
+  - `scrape_user_posts` / `scrape_search` / `scrape_post`(fxtwitter, /video/1 embedUrl)/ `scrape_user`
+- **growth 系 MCP ツール** — `add_growth_source` / `list_growth_sources` / `save_growth_article` / `list_growth_articles` / `add_growth_draft`
+- **同梱スキル(Claude Code / Codex 両対応)** — `x-growth-discover`(ネタ発見)/ `x-growth-article`(長文記事)/ `x-growth-video`(動画引用投稿、承認/フルオート)
+- **create-x-harness** — 無料収集セットアップ(auth_token/ct0)、スキル自動インストール、Codex config スニペット表示
+
+### Changed
+- 有料の X API 読み取りツールの description に課金注意と scrape_* への誘導を追加
+
 ## [0.3.0] - 2026-04-05
 
 ### Added

@@ -16,7 +16,9 @@ Open-source marketing automation for X (Twitter). A free (or very low cost) self
 - **Follower tracking** — daily snapshots, trend graphs, 7/30-day deltas
 - **API usage** — cost visibility per endpoint and per gate
 - **Staff management** — owner / admin / editor / viewer RBAC with per-key permissions
-- **MCP server** — operate X from Claude Code / AI agents in natural language (47 tools)
+- **MCP server** — operate X from Claude Code / AI agents in natural language (61 tools, Codex CLI compatible)
+- **Free scraping** — cookie-based search/post/metrics collection with zero X API read costs (`scrape_*` tools via twitter-cli)
+- **Article automation** — long-form X Articles with automatic inline image upload from markdown, plus a growth content pipeline (discover → draft → review)
 - **SDK** — fully-typed TypeScript SDK covering the whole API
 - **Dashboard** — Next.js admin UI
 - **Multi-account** — sidebar account switcher, all pages follow the selection
@@ -115,7 +117,7 @@ npx wrangler pages deploy out --project-name=x-harness-admin
 }
 ```
 
-47 tools across posts, engagement, gates, campaigns, DMs, step sequences, followers, staff, and usage analytics. See [packages/mcp](./packages/mcp/README.md) for the full list.
+61 tools across posts, engagement, gates, campaigns, DMs, step sequences, followers, staff, usage analytics, X Articles, free scraping, and the growth pipeline. See [packages/mcp](./packages/mcp/README.md) for the full list.
 
 ## Packages
 

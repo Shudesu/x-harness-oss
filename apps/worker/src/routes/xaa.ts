@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getXAccounts, getXAccountById } from '@x-harness/db';
+import { getXAccounts, getXAccountById, insertXaaEvent, getXaaEvents } from '@x-harness/db';
 import type { Env } from '../index.js';
 
 const xaa = new Hono<Env>();
@@ -38,26 +38,81 @@ xaa.get('/webhook/xaa', async (c) => {
   return c.json({ response_token: responseToken });
 });
 
+// Constant-time string comparison — avoids leaking signature prefix length
+// through timing differences.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 // POST /webhook/xaa — receive real-time XAA events from X
 // X posts event payloads here. Must respond with 200 within 10 seconds.
 // This endpoint must NOT require auth — X calls it without any API key.
+// Instead, X signs the payload: x-twitter-webhooks-signature =
+// "sha256=" + base64(HMAC-SHA256(consumer_secret, raw_body)).
 xaa.post('/webhook/xaa', async (c) => {
+  const rawBody = await c.req.text();
   let body: Record<string, unknown>;
   try {
-    body = await c.req.json<Record<string, unknown>>();
+    body = JSON.parse(rawBody) as Record<string, unknown>;
   } catch {
     return c.json({ success: false, error: 'Invalid JSON body' }, 400);
   }
 
-  const eventType = (body.event_type as string | undefined) ?? 'unknown';
-  console.log('[XAA] Received event:', eventType, JSON.stringify(body));
+  const eventType = (body.event_type as string | undefined)
+    ?? ('direct_message_events' in body ? 'dm' : 'unknown');
 
-  // DM events: log for now; DB storage to be added later
-  if (eventType.includes('dm') || 'direct_message_events' in body) {
-    console.log('[XAA] DM event payload:', JSON.stringify(body));
+  // Verify the signature against active accounts' consumer secrets.
+  // This endpoint is public — persisting unsigned payloads would let anyone
+  // pollute the events table / consume D1 storage.
+  const signature = c.req.header('x-twitter-webhooks-signature');
+  let verified = false;
+  if (signature) {
+    const accounts = await getXAccounts(c.env.DB);
+    for (const acct of accounts) {
+      if (!acct.consumer_secret) continue;
+      const expected = await hmacSha256(acct.consumer_secret, rawBody);
+      if (timingSafeEqual(expected, signature)) {
+        verified = true;
+        break;
+      }
+    }
   }
 
+  console.log(`[XAA] Received event: ${eventType} (verified: ${verified})`);
+
+  if (verified) {
+    // Persist every event (post.create / post.delete / dm / ...) so real-time
+    // activity is queryable via GET /api/xaa/events. Fire-and-forget — the
+    // webhook must respond within 10s no matter what.
+    c.executionCtx.waitUntil(
+      insertXaaEvent(c.env.DB, eventType, body).catch((err) => console.error('[XAA] persist failed:', err)),
+    );
+  }
+
+  // Always 200 — a non-2xx would make X disable the webhook, and an error
+  // response would give probing clients a signature oracle.
   return c.json({ success: true }, 200);
+});
+
+// GET /api/xaa/events — list stored XAA events (newest first)
+// Query: ?eventType=post.create&limit=50&offset=0
+xaa.get('/api/xaa/events', async (c) => {
+  const eventType = c.req.query('eventType');
+  const limit = Number(c.req.query('limit') ?? '50') || 50;
+  const offset = Number(c.req.query('offset') ?? '0') || 0;
+  const events = await getXaaEvents(c.env.DB, { eventType, limit, offset });
+  return c.json({
+    success: true,
+    data: events.map((e) => ({
+      id: e.id,
+      eventType: e.event_type,
+      payload: JSON.parse(e.payload),
+      receivedAt: e.received_at,
+    })),
+  });
 });
 
 // POST /api/xaa/webhook — register a webhook URL with X

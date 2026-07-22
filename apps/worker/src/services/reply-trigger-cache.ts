@@ -6,37 +6,65 @@ export class EngagementCache {
   private likingUsers = new Map<string, XUser[]>();
   private retweetedBy = new Map<string, XUser[]>();
   private followerIds = new Map<string, Set<string>>();
+  private relationships = new Map<string, boolean>();
+
+  // Called once per actual X API request (per page). Cache hits never fire it,
+  // so callers can meter billable usage accurately.
+  constructor(private onApiCall?: (endpoint: string) => void) {}
 
   async getLikingUsers(xClient: XClient, postId: string): Promise<XUser[]> {
     if (this.likingUsers.has(postId)) return this.likingUsers.get(postId)!;
-    const users = await this.fetchAllPages((token) => xClient.getLikingUsers(postId, token));
+    const users = await this.fetchAllPages((token) => xClient.getLikingUsers(postId, token), 10, 'verify_get_liking_users');
     this.likingUsers.set(postId, users);
     return users;
   }
 
   async getRetweetedBy(xClient: XClient, postId: string): Promise<XUser[]> {
     if (this.retweetedBy.has(postId)) return this.retweetedBy.get(postId)!;
-    const users = await this.fetchAllPages((token) => xClient.getRetweetedBy(postId, token));
+    const users = await this.fetchAllPages((token) => xClient.getRetweetedBy(postId, token), 10, 'verify_get_retweeted_by');
     this.retweetedBy.set(postId, users);
     return users;
   }
 
   async getFollowerIds(xClient: XClient, userId: string): Promise<Set<string>> {
     if (this.followerIds.has(userId)) return this.followerIds.get(userId)!;
-    const users = await this.fetchAllPages((token) => xClient.getFollowers(userId, token), 10);
+    // Newest page only: follower reads bill per returned item, and the user
+    // being checked (just-followed verifier) is always near the list head.
+    const users = await this.fetchAllPages((token) => xClient.getFollowers(userId, token), 1, 'verify_get_followers');
     const ids = new Set(users.map((u) => u.id));
     this.followerIds.set(userId, ids);
     return ids;
   }
 
+  /** "Does userId follow accountUserId?" — exact for followers of any age via a
+   * single connection_status lookup; falls back to the newest-page follower
+   * cache when the token has no user context (bearer). */
+  async isFollower(xClient: XClient, accountUserId: string, userId: string): Promise<boolean> {
+    const key = `${accountUserId}:${userId}`;
+    if (this.relationships.has(key)) return this.relationships.get(key)!;
+    this.onApiCall?.('verify_get_user');
+    const user = await xClient.getRelationshipById(userId);
+    let result: boolean;
+    if (Array.isArray(user.connection_status)) {
+      result = user.connection_status.includes('followed_by');
+    } else {
+      const ids = await this.getFollowerIds(xClient, accountUserId);
+      result = ids.has(userId);
+    }
+    this.relationships.set(key, result);
+    return result;
+  }
+
   private async fetchAllPages(
     fetcher: (token?: string) => Promise<XApiResponse<XUser[]>>,
     maxPages = 10,
+    endpoint = 'engagement_gate_poll',
   ): Promise<XUser[]> {
     const allUsers: XUser[] = [];
     let paginationToken: string | undefined;
     let page = 0;
     do {
+      this.onApiCall?.(endpoint);
       const result = await fetcher(paginationToken);
       if (result.data) allUsers.push(...result.data);
       paginationToken = (result as any).meta?.next_token;
@@ -122,8 +150,11 @@ export async function checkConditions(
   }
 
   if (gate.require_follow) {
-    const followerIds = await cache.getFollowerIds(xClient, xAccountUserId);
-    conditions.follow = followerIds.has(userId);
+    // Single relationship lookup: exact for followers of ANY age (a newest-page
+    // crawl misses long-time followers), and cheaper than any list read.
+    // connection_status requires OAuth1 user context — fall back to the
+    // newest-page follower cache for bearer-token accounts.
+    conditions.follow = await cache.isFollower(xClient, xAccountUserId, userId);
   }
 
   return conditions;

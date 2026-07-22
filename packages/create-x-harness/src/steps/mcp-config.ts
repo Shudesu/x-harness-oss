@@ -5,6 +5,7 @@ import { join, resolve, dirname } from "node:path";
 interface McpConfigOptions {
   workerUrl: string;
   apiKey: string;
+  scraperTokens?: { authToken: string; ct0: string } | null;
 }
 
 // Walk up from `start` looking for a `.git` directory. Returns the repo root
@@ -51,6 +52,12 @@ export function generateMcpConfig(options: McpConfigOptions): void {
     env: {
       X_HARNESS_API_URL: options.workerUrl,
       X_HARNESS_API_KEY: options.apiKey,
+      ...(options.scraperTokens
+        ? {
+            TWITTER_AUTH_TOKEN: options.scraperTokens.authToken,
+            TWITTER_CT0: options.scraperTokens.ct0,
+          }
+        : {}),
     },
   };
 
@@ -92,6 +99,11 @@ export function generateMcpConfig(options: McpConfigOptions): void {
       `既存の x-harness 設定があるため、${serverName} として追加します`,
     );
   }
+  // Merge env with any existing entry so a rerun that skips the optional
+  // scraper step does NOT wipe previously configured TWITTER_AUTH_TOKEN /
+  // TWITTER_CT0 (or manually added vars like TWITTER_BIN).
+  const previousEnv = mcpConfig.mcpServers[serverName]?.env ?? {};
+  newServerConfig.env = { ...previousEnv, ...newServerConfig.env };
   mcpConfig.mcpServers[serverName] = newServerConfig;
 
   // Wrap the actual write in try/catch so a local FS failure (read-only
@@ -112,9 +124,14 @@ export function generateMcpConfig(options: McpConfigOptions): void {
   // accidentally commit it.
   const gitRoot = findGitRoot(cwd);
   if (gitRoot && !gitignoresMcpJson(gitRoot, cwd)) {
+    const hasCookies = Boolean(
+      newServerConfig.env.TWITTER_AUTH_TOKEN || newServerConfig.env.TWITTER_CT0,
+    );
     p.log.warn(
       [
-        "⚠️  .mcp.json には API Key が平文で含まれています。",
+        hasCookies
+          ? "⚠️  .mcp.json には API Key と X の Cookie(auth_token/ct0 = アカウントへのフルアクセス)が平文で含まれています。"
+          : "⚠️  .mcp.json には API Key が平文で含まれています。",
         "   この cwd は git 管理下ですが .gitignore に .mcp.json がありません。",
         "   コミットしないよう .gitignore に追記してください:",
         "",

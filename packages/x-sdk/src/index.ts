@@ -13,4 +13,9 @@ export type {
   XDmEvent,
   XDmMessage,
   XList,
+  ArticleContentBlock,
+  ArticleContentState,
+  ArticleEntity,
+  CreateArticleDraftParams,
+  XNewsStory,
 } from './types.js';

@@ -2,7 +2,7 @@
 
 MCP (Model Context Protocol) server for [X Harness](https://github.com/Shudesu/x-harness-oss) — operate your X (Twitter) marketing automation from Claude Code or any MCP-capable AI agent, in natural language.
 
-## Tools (47)
+## Tools (61)
 
 - **Posts** — `create_post`, `create_thread`, `reply_to_post`, `schedule_post`, `search_posts`, `get_mentions`, `get_post_metrics`, `delete_post`, …
 - **Engagement** — `like_post`, `retweet`, `bookmark`, `follow`, `unfollow`, …
@@ -13,6 +13,9 @@ MCP (Model Context Protocol) server for [X Harness](https://github.com/Shudesu/x
 - **Users / followers** — `get_followers`, `get_following`, `search_users`, `get_user`
 - **Staff & usage** — `list_staff`, `create_staff`, `get_usage_summary`, `get_usage_daily`, `get_usage_by_gate`
 - **Account** — `account_summary`, `get_account_subscription`
+- **Articles** — `create_article` (inline images via markdown), `publish_article`, `search_news`, `get_news`
+- **Free scraping** — `scrape_user_posts`, `scrape_search`, `scrape_post`, `scrape_user` (cookie-based via twitter-cli, zero X API read costs)
+- **Growth** — `add_growth_source`, `save_growth_article`, `add_growth_draft`, and listing tools for the content pipeline
 
 ## Setup (Claude Code)
 

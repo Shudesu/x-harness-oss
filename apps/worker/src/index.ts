@@ -22,6 +22,10 @@ import { xaa } from './routes/xaa.js';
 import { campaigns } from './routes/campaigns.js';
 import { setup } from './routes/setup.js';
 import { capabilities } from './routes/capabilities.js';
+import { articles } from './routes/articles.js';
+import { growth } from './routes/growth.js';
+import { growthSources } from './routes/growth-sources.js';
+import { growthArticles } from './routes/growth-articles.js';
 import { processStepSequences } from './services/step-processor.js';
 
 export type Env = {
@@ -33,6 +37,9 @@ export type Env = {
     WORKER_URL: string;
     LINE_HARNESS_URL?: string;
     LINE_HARNESS_API_KEY?: string;
+    USER_SEARCH_DAILY_LIMIT?: string;
+    VERIFY_LOOKUP_DAILY_LIMIT?: string;
+    GROWTH_IMAGES?: R2Bucket;
   };
   Variables: {
     staffRole?: 'admin' | 'editor' | 'viewer';
@@ -62,6 +69,10 @@ app.route('/', xaa);
 app.route('/', campaigns);
 app.route('/', setup);
 app.route('/', capabilities);
+app.route('/', articles);
+app.route('/', growth);
+app.route('/', growthSources);
+app.route('/', growthArticles);
 
 // Settings API (key-value store)
 app.get('/api/settings', async (c) => {

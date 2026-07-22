@@ -20,7 +20,7 @@ function buildXClient(account: { consumer_key: string | null; consumer_secret: s
 }
 
 posts.post('/api/posts', async (c) => {
-  const { xAccountId, text, mediaIds, quoteTweetId } = await c.req.json<{ xAccountId: string; text: string; mediaIds?: string[]; quoteTweetId?: string }>();
+  const { xAccountId, text, mediaIds, quoteTweetId, paidPartnership } = await c.req.json<{ xAccountId: string; text: string; mediaIds?: string[]; quoteTweetId?: string; paidPartnership?: boolean }>();
   if (!text || !xAccountId) return c.json({ success: false, error: 'Missing required fields: xAccountId, text' }, 400);
   const account = await getXAccountById(c.env.DB, xAccountId);
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
@@ -30,6 +30,7 @@ posts.post('/api/posts', async (c) => {
       text,
       media: mediaIds ? { media_ids: mediaIds } : undefined,
       quote_tweet_id: quoteTweetId,
+      ...(paidPartnership ? { paid_partnership: true } : {}),
     });
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'create_tweet'));
     return c.json({ success: true, data: tweet }, 201);
@@ -43,15 +44,15 @@ posts.post('/api/posts', async (c) => {
 });
 
 posts.post('/api/posts/schedule', async (c) => {
-  const { xAccountId, text, scheduledAt, mediaIds } = await c.req.json<{
-    xAccountId: string; text: string; scheduledAt: string; mediaIds?: string[];
+  const { xAccountId, text, scheduledAt, mediaIds, quoteTweetId } = await c.req.json<{
+    xAccountId: string; text: string; scheduledAt: string; mediaIds?: string[]; quoteTweetId?: string;
   }>();
   if (!xAccountId || !text || !scheduledAt) {
     return c.json({ success: false, error: 'Missing required fields: xAccountId, text, scheduledAt' }, 400);
   }
   const account = await getXAccountById(c.env.DB, xAccountId);
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
-  const post = await createScheduledPost(c.env.DB, xAccountId, text, scheduledAt, mediaIds);
+  const post = await createScheduledPost(c.env.DB, xAccountId, text, scheduledAt, mediaIds, quoteTweetId);
   return c.json({
     success: true,
     data: {
@@ -59,6 +60,7 @@ posts.post('/api/posts/schedule', async (c) => {
       xAccountId: post.x_account_id,
       text: post.text,
       mediaIds: post.media_ids ? JSON.parse(post.media_ids) : null,
+      quoteTweetId: post.quote_tweet_id ?? undefined,
       scheduledAt: post.scheduled_at,
       status: post.status,
       postedTweetId: post.posted_tweet_id,
@@ -155,6 +157,53 @@ posts.post('/api/posts/thread', async (c) => {
     return c.json({ success: true, data: results }, 201);
   } catch (err: any) {
     return c.json({ success: false, error: err.message ?? 'Failed to create thread' }, 500);
+  }
+});
+
+// GET /api/posts/search — recent tweet search (X API /tweets/search/recent)
+posts.get('/api/posts/search', async (c) => {
+  const query = c.req.query('query');
+  if (!query) return c.json({ success: false, error: 'query is required' }, 400);
+  const xAccountId = c.req.query('xAccountId');
+  let account;
+  if (xAccountId) {
+    account = await getXAccountById(c.env.DB, xAccountId);
+  } else {
+    const accounts = await getXAccounts(c.env.DB);
+    account = accounts[0] || null;
+  }
+  if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
+  const xClient = buildXClient(account);
+  // Default LOW (10): pay-per-use bills per post returned ($0.005/post)
+  const maxResultsParam = c.req.query('maxResults');
+  const maxResults = maxResultsParam ? Math.min(Math.max(Number(maxResultsParam), 10), 100) : 10;
+  try {
+    const res = await xClient.searchRecentTweets(query, undefined, undefined, maxResults);
+    c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'search_recent_tweets'));
+    return c.json({ success: true, data: res.data ?? [] });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message ?? 'Failed to search tweets' }, 500);
+  }
+});
+
+// GET /api/x-users/:username/tweets — arbitrary user's timeline (billed: post reads $0.005/post + user lookup $0.01 unless userId given)
+posts.get('/api/x-users/:username/tweets', async (c) => {
+  const username = c.req.param('username');
+  const limitParam = c.req.query('limit');
+  const cursor = c.req.query('cursor');
+  const knownUserId = c.req.query('userId');
+  const accounts = await getXAccounts(c.env.DB);
+  const account = accounts[0] || null;
+  if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
+  const xClient = buildXClient(account);
+  const limit = limitParam ? Math.min(Number(limitParam), 100) : 100;
+  try {
+    const userId = knownUserId ?? (await xClient.getUserByUsername(username)).id;
+    const res = await xClient.getUserTweets(userId, limit, cursor ?? undefined);
+    c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'get_user_tweets'));
+    return c.json({ success: true, data: { userId, items: res.data ?? [], nextCursor: res.meta?.next_token ?? null } });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message ?? 'Failed to fetch user tweets' }, 500);
   }
 });
 

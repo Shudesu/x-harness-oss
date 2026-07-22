@@ -1,4 +1,4 @@
-import type { XUser, XTweet, XApiResponse, CreateTweetParams, XClientConfig, XTweetSearchResult, XTweetWithMetrics, CreateTweetFullParams, XDmEvent, XDmMessage, XList } from './types.js';
+import type { XUser, XTweet, XApiResponse, CreateTweetParams, XClientConfig, XTweetSearchResult, XTweetWithMetrics, CreateTweetFullParams, XDmEvent, XDmMessage, XList, CreateArticleDraftParams, XNewsStory } from './types.js';
 import { buildOAuth1Header } from './oauth1.js';
 import type { OAuth1Config } from './oauth1.js';
 
@@ -13,6 +13,37 @@ export class XClient {
 
   async createTweet(params: CreateTweetParams): Promise<{ id: string; text: string }> {
     const res = await this.post<{ data: { id: string; text: string } }>('/tweets', params);
+    return res.data;
+  }
+
+  // ─── Articles API (long-form posts, X API 2026-06-11) ───
+  // Requires user-context auth (OAuth1/OAuth2) with tweet.read/tweet.write/users.read.
+  // Publishing requires a Premium subscription (any tier since 2026-01; was Premium+ only before).
+
+  async createArticleDraft(params: CreateArticleDraftParams): Promise<{ id: string; title: string }> {
+    const res = await this.post<{ data: { id: string; title: string } }>('/articles/draft', params);
+    return res.data;
+  }
+
+  async publishArticle(articleId: string): Promise<{ post_id: string }> {
+    const res = await this.post<{ data: { post_id: string } }>(`/articles/${articleId}/publish`, {});
+    return res.data;
+  }
+
+  // ─── News API ───
+
+  async searchNews(query: string, maxResults = 10): Promise<XApiResponse<XNewsStory[]>> {
+    const params = new URLSearchParams({
+      query,
+      max_results: String(maxResults),
+      'news.fields': 'contexts,cluster_posts_results',
+    });
+    return this.get<XApiResponse<XNewsStory[]>>(`/news/search?${params}`);
+  }
+
+  async getNews(newsId: string): Promise<XNewsStory> {
+    const params = new URLSearchParams({ 'news.fields': 'contexts,cluster_posts_results' });
+    const res = await this.get<{ data: XNewsStory }>(`/news/${newsId}?${params}`);
     return res.data;
   }
 
@@ -75,13 +106,14 @@ export class XClient {
     return this.get<XApiResponse<XUser[]>>(`/tweets/${tweetId}/retweeted_by?${params}`);
   }
 
-  async searchRecentTweets(query: string, sinceId?: string, paginationToken?: string): Promise<XApiResponse<XTweetSearchResult[]>> {
+  async searchRecentTweets(query: string, sinceId?: string, paginationToken?: string, maxResults = 100): Promise<XApiResponse<XTweetSearchResult[]>> {
+    // Pay-per-use bills $0.005 per post RETURNED — cap max_results to what the caller actually needs
     const params = new URLSearchParams({
       query,
-      'tweet.fields': 'author_id,created_at,in_reply_to_user_id,referenced_tweets',
+      'tweet.fields': 'author_id,created_at,in_reply_to_user_id,referenced_tweets,public_metrics',
       'user.fields': 'profile_image_url,public_metrics',
       expansions: 'author_id,referenced_tweets.id',
-      max_results: '100',
+      max_results: String(Math.min(Math.max(maxResults, 10), 100)),
     });
     if (sinceId) params.set('since_id', sinceId);
     if (paginationToken) params.set('next_token', paginationToken);
@@ -179,6 +211,71 @@ export class XClient {
     return mediaId;
   }
 
+  /**
+   * Upload a video via the chunked flow: INIT → APPEND (4MB chunks) →
+   * FINALIZE → poll STATUS until processing succeeds. Required for video —
+   * the one-shot uploadMedia path is images/GIFs only.
+   * (docs.x.com/x-api/media/quickstart/media-upload-chunked)
+   * @param mediaCategory  amplify_video (articles) | tweet_video (posts)
+   */
+  async uploadVideo(mediaData: ArrayBuffer, mediaType: string, mediaCategory: string = 'amplify_video'): Promise<string> {
+    const url = 'https://api.x.com/2/media/upload';
+    const post = async (form: FormData, step: string): Promise<Record<string, unknown>> => {
+      const res = await this.fetchRaw(url, { method: 'POST', body: form });
+      if (res.status === 429) {
+        const resetAt = res.headers.get('x-rate-limit-reset');
+        throw new XApiRateLimitError(resetAt ? Number(resetAt) : undefined);
+      }
+      const text = await res.text();
+      if (!res.ok) throw new XApiError(`Video ${step} failed: ${res.status} ${text}`, res.status);
+      try { return text ? JSON.parse(text) : {}; } catch {
+        throw new XApiError(`Video ${step}: invalid JSON: ${text.slice(0, 200)}`, res.status);
+      }
+    };
+
+    const initForm = new FormData();
+    initForm.append('command', 'INIT');
+    initForm.append('media_type', mediaType);
+    initForm.append('total_bytes', String(mediaData.byteLength));
+    initForm.append('media_category', mediaCategory);
+    const init = await post(initForm, 'INIT');
+    const inner = (init.data as Record<string, unknown> | undefined) ?? init;
+    const mediaId = (inner.id ?? inner.media_id_string) as string | undefined;
+    if (!mediaId) throw new XApiError(`Video INIT: no id in response`, 500);
+
+    const CHUNK = 4 * 1024 * 1024;
+    for (let i = 0; i * CHUNK < mediaData.byteLength; i++) {
+      const form = new FormData();
+      form.append('command', 'APPEND');
+      form.append('media_id', mediaId);
+      form.append('segment_index', String(i));
+      form.append('media', new Blob([mediaData.slice(i * CHUNK, (i + 1) * CHUNK)]));
+      await post(form, `APPEND[${i}]`);
+    }
+
+    const finForm = new FormData();
+    finForm.append('command', 'FINALIZE');
+    finForm.append('media_id', mediaId);
+    const fin = await post(finForm, 'FINALIZE');
+    let info = ((fin.data as Record<string, unknown> | undefined) ?? fin).processing_info as
+      | { state: string; check_after_secs?: number }
+      | undefined;
+
+    const deadline = Date.now() + 180_000;
+    while (info && info.state !== 'succeeded') {
+      if (info.state === 'failed') throw new XApiError('Video processing failed', 500);
+      if (Date.now() > deadline) throw new XApiError('Video processing timed out (180s)', 500);
+      const waitSecs = Math.min(info.check_after_secs ?? 2, 10);
+      await new Promise((r) => setTimeout(r, waitSecs * 1000));
+      const sr = await this.fetchRaw(`${url}?command=STATUS&media_id=${mediaId}`, { method: 'GET' });
+      const stext = await sr.text();
+      if (!sr.ok) throw new XApiError(`Video STATUS failed: ${sr.status} ${stext}`, sr.status);
+      const sdata = JSON.parse(stext) as { data?: { processing_info?: { state: string; check_after_secs?: number } } };
+      info = sdata.data?.processing_info;
+    }
+    return mediaId;
+  }
+
   async getUserById(userId: string): Promise<XUser> {
     const res = await this.get<{ data: XUser }>(`/users/${userId}?user.fields=profile_image_url,public_metrics`);
     return res.data;
@@ -192,6 +289,22 @@ export class XClient {
 
   async getUserByUsername(username: string): Promise<XUser> {
     const res = await this.get<{ data: XUser }>(`/users/by/username/${username}?user.fields=profile_image_url,public_metrics`);
+    return res.data;
+  }
+
+  /** Single-item relationship lookup (~$0.005) — replaces follower-list crawls.
+   * connection_status is relative to the authenticated user:
+   * "followed_by" = the looked-up user follows us. Requires OAuth1 user context. */
+  async getRelationship(username: string): Promise<XUser & { connection_status?: string[] }> {
+    const res = await this.get<{ data: XUser & { connection_status?: string[] } }>(
+      `/users/by/username/${username}?user.fields=profile_image_url,public_metrics,connection_status`);
+    return res.data;
+  }
+
+  /** getRelationship by user id (same single-item cost). */
+  async getRelationshipById(userId: string): Promise<XUser & { connection_status?: string[] }> {
+    const res = await this.get<{ data: XUser & { connection_status?: string[] } }>(
+      `/users/${userId}?user.fields=profile_image_url,public_metrics,connection_status`);
     return res.data;
   }
 

@@ -39,6 +39,64 @@ export interface CreateTweetParams {
   media?: { media_ids: string[] };
   reply?: { in_reply_to_tweet_id: string };
   quote_tweet_id?: string;
+  // Paid promotion disclosure (X API 2026-06-03)
+  paid_partnership?: boolean;
+}
+
+// ─── Articles API (X API 2026-06-11) ───
+
+// DraftJS-style content blocks accepted by POST /2/articles/draft.
+// The docs example shows only text/type; the remaining fields are the
+// standard DraftJS raw shape (safe superset).
+export interface ArticleContentBlock {
+  text: string;
+  type: string; // 'unstyled' | 'header-one' | 'header-two' | 'unordered-list-item' | 'ordered-list-item' | 'blockquote' | 'atomic' | ...
+  // The live API validates strictly and expects snake_case range fields
+  // (camelCase DraftJS names are rejected as additionalProperties).
+  entity_ranges?: { offset: number; length: number; key: number }[];
+  inline_style_ranges?: { offset: number; length: number; style: string }[];
+}
+
+// Write-side entity shape (verified live 2026-07-18). value.type enum:
+// [post, link, image, emoji, markdown, divider, latex]; mutability lowercase.
+// data schemas per type (validator rejects additionalProperties):
+//   image → { caption?, url?, media_items: [{ media_id, media_category }] }
+//   post  → { post_id?, url?, entity_key? }   (embedded tweet)
+//   link  → { url }    markdown → { markdown }    emoji → { url }
+//   divider → {}
+export interface ArticleEntity {
+  key: string;
+  value: {
+    type: string;
+    mutability: string;
+    data: Record<string, unknown>;
+  };
+}
+
+export interface ArticleContentState {
+  blocks: ArticleContentBlock[];
+  entities: ArticleEntity[];
+}
+
+export interface CreateArticleDraftParams {
+  title: string;
+  content_state: ArticleContentState;
+  // media_category is required by the live API and must match the category
+  // the media was uploaded with (e.g. tweet_image).
+  cover_media?: { media_id: string; media_category?: string };
+}
+
+// ─── News API ───
+
+export interface XNewsStory {
+  id: string;
+  name?: string;
+  category?: string;
+  summary?: string;
+  hook?: string;
+  contexts?: unknown;
+  cluster_posts_results?: unknown;
+  last_updated_at_ms?: number;
 }
 
 export type XClientConfig =
@@ -77,6 +135,8 @@ export interface CreateTweetFullParams {
   nullcast?: boolean;
   for_super_followers_only?: boolean;
   poll?: { options: string[]; duration_minutes: number };
+  // Paid promotion disclosure (X API 2026-06-03)
+  paid_partnership?: boolean;
 }
 
 export interface XDmEvent {
