@@ -153,10 +153,10 @@
 
 ## DG-016 — Production account bootstrap order
 
-- Status: BLOCKING
+- Status: RESOLVED
 - Evidence: `docs/deployment-checklist.md` “Before staging” requires replacing the production `X_HARNESS_ACCOUNT_ID` placeholder before deployment; `scripts/preflight-production.mjs` rejects that placeholder; the production D1 database currently contains no application tables or `x_accounts` row; the production Worker does not yet exist.
 - Conflict/gap: The required production X Harness row id can only be obtained after account setup, but the documented release gate forbids deploying the Worker needed to perform that setup while the row id is absent.
 - Impact: Production D1 initialization, Worker creation, X account OAuth setup, `X_HARNESS_ACCOUNT_ID`, secret provisioning, and release eligibility.
 - Safest current behavior: Keep the production Worker undeployed and the operator UI fail-closed; do not invent an account row or promote staging/redacted credentials as production truth. Independent code, staging validation, DNS, Pages, and Access work may continue.
 - Needed answer: Authorize either (a) a separately named, publishing-disabled bootstrap Worker bound to production D1 solely for account setup, followed by deletion after the production row id is captured, or (b) an approved manual import of an existing production `x_accounts` row through a secret-bearing operator channel.
-- Resolution: Pending.
+- Resolution: The user approved option (a). On 2026-07-22, `x-harness-worker-production-bootstrap` was deployed at `bootstrap-api.cubelic-fan.com` with only health, dashboard-session, and single-account list/create routes; its UI is the Access-protected `bootstrap.cubelic-ops-production.pages.dev` deployment. It binds production D1, requires a distinct management secret stored in Cloudflare and the operator's macOS Keychain, enforces safe mode plus global publishing disable plus the D1 emergency stop, allows only the bootstrap Pages origin, omits every X SDK and publishing route, and atomically audits account creation without credential contents. Delete both temporary deployments after the captured row id is promoted into the production configuration.
