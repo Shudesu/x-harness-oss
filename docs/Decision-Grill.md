@@ -150,3 +150,13 @@
 - Safest current behavior: In Phase 1, require exactly `digest_ready` for `live_digest`, `member_focus`, and `song_focus`. Revalidate the same rule immediately before handoff. `setlist_flash` remains valid from `setlist_confirmed` onward.
 - Needed answer: Decide whether `member_focus` and `song_focus` should also be generated from `archived` events, with a distinct archival template family.
 - Resolution: Pending; the fail-closed Phase 1 rule above is implemented until the content policy is approved.
+
+## DG-016 — Production account bootstrap order
+
+- Status: BLOCKING
+- Evidence: `docs/deployment-checklist.md` “Before staging” requires replacing the production `X_HARNESS_ACCOUNT_ID` placeholder before deployment; `scripts/preflight-production.mjs` rejects that placeholder; the production D1 database currently contains no application tables or `x_accounts` row; the production Worker does not yet exist.
+- Conflict/gap: The required production X Harness row id can only be obtained after account setup, but the documented release gate forbids deploying the Worker needed to perform that setup while the row id is absent.
+- Impact: Production D1 initialization, Worker creation, X account OAuth setup, `X_HARNESS_ACCOUNT_ID`, secret provisioning, and release eligibility.
+- Safest current behavior: Keep the production Worker undeployed and the operator UI fail-closed; do not invent an account row or promote staging/redacted credentials as production truth. Independent code, staging validation, DNS, Pages, and Access work may continue.
+- Needed answer: Authorize either (a) a separately named, publishing-disabled bootstrap Worker bound to production D1 solely for account setup, followed by deletion after the production row id is captured, or (b) an approved manual import of an existing production `x_accounts` row through a secret-bearing operator channel.
+- Resolution: Pending.

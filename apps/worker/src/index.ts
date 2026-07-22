@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { authMiddleware } from './middleware/auth.js';
 import { health } from './routes/health.js';
+import { session } from './routes/session.js';
 import { engagementGates } from './routes/engagement-gates.js';
 import { followers } from './routes/followers.js';
 import { tags } from './routes/tags.js';
@@ -67,6 +68,7 @@ app.use('*', authMiddleware);
 app.use('*', cubelicLegacyWriteGuard);
 
 app.route('/', health);
+app.route('/', session);
 app.route('/', verify);
 app.route('/', engagementGates);
 app.route('/', followers);
