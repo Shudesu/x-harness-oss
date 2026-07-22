@@ -16,7 +16,7 @@ const growthArticles = new Hono<Env>();
 growthArticles.post('/api/growth/articles/image', async (c) => {
   if (!c.env.GROWTH_IMAGES) return c.json({ success: false, error: 'R2 not configured' }, 500);
   const form = await c.req.formData();
-  const file = form.get('file');
+  const file = form.get('file') as unknown;
   if (!(file instanceof File)) return c.json({ success: false, error: 'file is required' }, 400);
   const base = (c.env.WORKER_URL || '').replace(/\/$/, '');
   if (!base) return c.json({ success: false, error: 'WORKER_URL not configured' }, 500);

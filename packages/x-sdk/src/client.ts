@@ -120,6 +120,23 @@ export class XClient {
     return this.get<XApiResponse<XTweetSearchResult[]>>(`/tweets/search/recent?${params}`);
   }
 
+  /**
+   * バズっている投稿の発見用: public_metrics付きで関連度順に検索する。
+   * X API v2 recent search には「人気順」ソートがないため、relevancy をベースに
+   * 呼び出し側で public_metrics（いいね・RT数）を見て並べ替える想定。
+   */
+  async searchTopTweets(query: string, maxResults = 50): Promise<XApiResponse<XTweetWithMetrics[]>> {
+    const params = new URLSearchParams({
+      query,
+      'tweet.fields': 'author_id,created_at,public_metrics,lang',
+      'user.fields': 'username,name,profile_image_url,public_metrics',
+      expansions: 'author_id',
+      max_results: String(Math.min(Math.max(maxResults, 10), 100)),
+      sort_order: 'relevancy',
+    });
+    return this.get<XApiResponse<XTweetWithMetrics[]>>(`/tweets/search/recent?${params}`);
+  }
+
   async getMe(): Promise<XUser> {
     const res = await this.get<{ data: XUser }>('/users/me?user.fields=profile_image_url,public_metrics');
     return res.data;

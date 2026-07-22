@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.2] - 2026-07-23
+
+### Added
+- **バズ投稿検索 API** — `GET /api/posts/viral-search`。キーワード検索＋public_metrics でエンゲージメントスコア順にソート、`minLikes` で足切り（外部の投稿ボットからバズ分析に使う想定）
+- **`XClient.searchTopTweets()`** — relevancy ソート＋メトリクス付きの recent search ラッパー
+
+### Fixed
+- Staff API キー照合時の DB エラーを 500 ではなく 401 で返すように修正（未プロビジョニング環境での誤診断防止）
+- 投稿作成時の X API 4xx エラー（重複投稿・レート制限等）をそのままのステータスで返すように修正（呼び出し側がリトライ判断できるように）
+- `packages/sdk` / `packages/x-sdk` の typecheck が DOM グローバル型（`fetch` 等）の未定義で失敗していた問題を修正（tsconfig に `lib: ["ES2022", "DOM"]` を追加）
+
 ## [0.5.0] - 2026-07-18
 
 ### Added

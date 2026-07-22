@@ -35,7 +35,11 @@ posts.post('/api/posts', async (c) => {
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'create_tweet'));
     return c.json({ success: true, data: tweet }, 201);
   } catch (err: any) {
-    return c.json({ success: false, error: err.message ?? 'Failed to create tweet' }, 500);
+    // X API client errors (4xx, e.g. duplicate content / rate limit) are caller-fixable —
+    // surface the real status instead of flattening everything to 500, so callers like
+    // x_auto_poster can distinguish "skip, X rejected this" from "our server broke".
+    const status = typeof err.status === 'number' && err.status >= 400 && err.status < 500 ? err.status : 500;
+    return c.json({ success: false, error: err.message ?? 'Failed to create tweet' }, status);
   }
 });
 
@@ -359,6 +363,65 @@ posts.get('/api/posts/mentions', async (c) => {
     return c.json({ success: true, data });
   } catch (err: any) {
     return c.json({ success: false, error: err.message ?? 'Failed to fetch mentions' }, 500);
+  }
+});
+
+// GET /api/posts/viral-search — バズっている投資・経済・金融関連ツイートを検索する
+// (x_auto_poster の3時間おきバズ分析投稿から呼ばれる想定)
+posts.get('/api/posts/viral-search', async (c) => {
+  const xAccountId = c.req.query('xAccountId');
+  const query = c.req.query('query');
+  const minLikes = Number(c.req.query('minLikes') ?? '500');
+  if (!query) return c.json({ success: false, error: 'Missing required query param: query' }, 400);
+  let account;
+  if (xAccountId) {
+    account = await getXAccountById(c.env.DB, xAccountId);
+  } else {
+    const accounts = await getXAccounts(c.env.DB);
+    account = accounts[0] || null;
+  }
+  if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
+  const xClient = buildXClient(account);
+  try {
+    c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'search_viral'));
+    const raw = await xClient.searchTopTweets(query) as {
+      data?: Array<{
+        id: string;
+        text: string;
+        author_id: string;
+        created_at?: string;
+        lang?: string;
+        public_metrics?: { retweet_count: number; reply_count: number; like_count: number; quote_count: number; impression_count?: number };
+      }>;
+      includes?: { users?: Array<{ id: string; username: string; name: string }> };
+    };
+    const usersMap = new Map<string, { username: string; name: string }>();
+    for (const u of raw.includes?.users ?? []) usersMap.set(u.id, { username: u.username, name: u.name });
+
+    const data = (raw.data ?? [])
+      .map((t) => {
+        const author = usersMap.get(t.author_id);
+        const metrics = t.public_metrics ?? { retweet_count: 0, reply_count: 0, like_count: 0, quote_count: 0 };
+        return {
+          id: t.id,
+          text: t.text,
+          createdAt: t.created_at ?? null,
+          authorUsername: author?.username ?? null,
+          authorName: author?.name ?? null,
+          likeCount: metrics.like_count,
+          retweetCount: metrics.retweet_count,
+          replyCount: metrics.reply_count,
+          quoteCount: metrics.quote_count,
+          engagementScore: metrics.like_count + metrics.retweet_count * 2 + metrics.quote_count * 2,
+        };
+      })
+      .filter((t) => t.likeCount >= minLikes)
+      .sort((a, b) => b.engagementScore - a.engagementScore);
+
+    return c.json({ success: true, data });
+  } catch (err: any) {
+    const status = typeof err.status === 'number' && err.status >= 400 && err.status < 500 ? err.status : 500;
+    return c.json({ success: false, error: err.message ?? 'Failed to search viral tweets' }, status);
   }
 });
 
