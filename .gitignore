@@ -8,3 +8,6 @@ out/
 *.tsbuildinfo
 .vercel/
 packages/mcp/dist/
+.env.local
+.env*.local
+.claude/

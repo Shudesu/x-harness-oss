@@ -21,8 +21,16 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     return next();
   }
 
-  // Fall back to per-staff API key lookup
-  const staff = await getStaffMemberByApiKey(c.env.DB, token);
+  // Fall back to per-staff API key lookup. A bad/stale key should fail as a clean
+  // 401, not bubble a DB error (e.g. staff_members not provisioned) as a 500 that
+  // looks like the server is broken when it's really just an auth mismatch.
+  let staff;
+  try {
+    staff = await getStaffMemberByApiKey(c.env.DB, token);
+  } catch (err) {
+    console.error('Staff API key lookup failed:', err);
+    return c.json({ success: false, error: 'Unauthorized' }, 401);
+  }
   if (!staff) {
     return c.json({ success: false, error: 'Unauthorized' }, 401);
   }
