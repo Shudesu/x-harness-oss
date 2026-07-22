@@ -8,7 +8,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const phase1Environment = {
   API_KEY: 'a'.repeat(32),
   HUMAN_APPROVAL_KEY: 'b'.repeat(32),
-  CLOUDFLARE_API_TOKEN: 'c'.repeat(32),
+  CLOUDFLARE_AUTH_VERIFIED: 'true',
   X_HARNESS_ACCOUNT_ID: '89f9bfc0-428c-480b-9cb3-9ba1698c30da',
   CUBELIC_SAFE_MODE: 'true',
   GLOBAL_PUBLISHING_DISABLED: 'true',
@@ -63,5 +63,17 @@ describe('production preflight phase boundaries', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('GLOBAL_PUBLISHING_DISABLED must be explicitly true');
+  });
+
+  it('requires either verified Wrangler auth or a least-privilege API token', () => {
+    const missing = preflight({ CLOUDFLARE_AUTH_VERIFIED: 'false' });
+    const token = preflight({
+      CLOUDFLARE_AUTH_VERIFIED: 'false',
+      CLOUDFLARE_API_TOKEN: 'c'.repeat(32),
+    });
+
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain('set a least-privilege CLOUDFLARE_API_TOKEN or set CLOUDFLARE_AUTH_VERIFIED=true');
+    expect(token.status).toBe(0);
   });
 });

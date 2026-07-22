@@ -6,10 +6,11 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const errors = [];
 const hermesRuntimeEnabled = process.env.HERMES_RUNTIME_ENABLED === 'true';
 const productionContentIngestEnabled = process.env.PRODUCTION_CONTENT_INGEST_ENABLED === 'true';
-const requiredSecrets = ['API_KEY', 'HUMAN_APPROVAL_KEY', 'CLOUDFLARE_API_TOKEN'];
+const cloudflareAuthVerified = process.env.CLOUDFLARE_AUTH_VERIFIED === 'true';
+const requiredSecrets = ['API_KEY', 'HUMAN_APPROVAL_KEY'];
 if (hermesRuntimeEnabled) requiredSecrets.push('HERMES_ACCESS_TOKEN');
 
-for (const name of ['HERMES_RUNTIME_ENABLED', 'PRODUCTION_CONTENT_INGEST_ENABLED']) {
+for (const name of ['HERMES_RUNTIME_ENABLED', 'PRODUCTION_CONTENT_INGEST_ENABLED', 'CLOUDFLARE_AUTH_VERIFIED']) {
   if (process.env[name] && !['true', 'false'].includes(process.env[name])) {
     errors.push(`${name} must be true or false when set`);
   }
@@ -18,6 +19,12 @@ for (const name of ['HERMES_RUNTIME_ENABLED', 'PRODUCTION_CONTENT_INGEST_ENABLED
 for (const name of requiredSecrets) {
   if (!process.env[name]) errors.push(`missing secret environment variable: ${name}`);
   else if (process.env[name].length < 32) errors.push(`${name} is shorter than the 32-character production minimum`);
+}
+if (process.env.CLOUDFLARE_API_TOKEN && process.env.CLOUDFLARE_API_TOKEN.length < 32) {
+  errors.push('CLOUDFLARE_API_TOKEN is shorter than the 32-character production minimum');
+}
+if (!process.env.CLOUDFLARE_API_TOKEN && !cloudflareAuthVerified) {
+  errors.push('set a least-privilege CLOUDFLARE_API_TOKEN or set CLOUDFLARE_AUTH_VERIFIED=true after wrangler whoami succeeds');
 }
 const authorizationSecretNames = ['API_KEY', 'HUMAN_APPROVAL_KEY'];
 if (hermesRuntimeEnabled) authorizationSecretNames.push('HERMES_ACCESS_TOKEN');

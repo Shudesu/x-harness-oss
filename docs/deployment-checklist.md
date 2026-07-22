@@ -8,6 +8,7 @@
 - Protect `ops.cubelic-fan.com` with Cloudflare Access before granting operator access.
 - Replace the Worker URL, D1 database id and X Harness account-row placeholder.
 - Provision distinct `API_KEY` and `HUMAN_APPROVAL_KEY` secrets. Keep `HERMES_RUNTIME_ENABLED=false` and do not provision `HERMES_ACCESS_TOKEN` in Phase 1; if a later release enables the Hermes runtime, its token becomes required and must be distinct.
+- For CI, provision a least-privilege `CLOUDFLARE_API_TOKEN`. For a manual release using Wrangler's encrypted OAuth store, run `wrangler whoami` for the intended account and only then set `CLOUDFLARE_AUTH_VERIFIED=true` in the release shell.
 - Keep `CUBELIC_SAFE_MODE=true`; give Hermes neither the API admin key nor the human approval key.
 - Configure an allowlisted production CORS origin before exposing the approval UI.
 - Production CORS must be exactly `https://ops.cubelic-fan.com`; the public fan-site origin is not an operator origin.

@@ -52,13 +52,13 @@
 
 ## DG-006 — X account database identifier
 
-- Status: NON_BLOCKING
+- Status: RESOLVED
 - Evidence: `SPEC.md` §27 uses logical id `tubelic_cube`; upstream X Harness stores a generated `x_accounts.id` plus username.
 - Conflict/gap: The logical account id is not guaranteed to equal the X Harness row id.
 - Impact: Adapter handoff and account isolation.
 - Safest current behavior: Resolve through the explicit `X_HARNESS_ACCOUNT_ID` deployment setting and reject a mismatch.
 - Needed answer: Provide the production X Harness row id after account setup.
-- Resolution: Pending.
+- Resolution: Production account `tubelic_cube` is mapped to X Harness row id `89f9bfc0-428c-480b-9cb3-9ba1698c30da`. The production Worker configuration binds that exact id and preflight rejects the former setup placeholder.
 
 ## DG-007 — X text length semantics
 
@@ -170,3 +170,13 @@
 - Safest current behavior: Keep Hermes runtime and production content ingestion disabled by default; require their credentials and validated real inputs only when their explicit enable flags are true. Independently require safe mode, global publishing disable, human/API separation, production CORS, account mapping and staging smoke for every release.
 - Needed answer: Whether to separate content ingestion into finer GAS, member and Resolve capability flags when each production integration is activated.
 - Resolution: The user approved separating Phase 1 from Phase 2/deferred inputs. `HERMES_RUNTIME_ENABLED` and `PRODUCTION_CONTENT_INGEST_ENABLED` default to false; preflight conditionally requires `HERMES_ACCESS_TOKEN` or `PRODUCTION_INPUTS_VALIDATED` only when the respective capability is enabled. The operator UI remains in build-time maintenance mode until the production API passes smoke verification.
+
+## DG-018 — Cloudflare release authentication proof
+
+- Status: RESOLVED
+- Evidence: `SPEC.md` §21.1 forbids storing Cloudflare tokens in Git; `docs/required-production-inputs.md` required a least-privilege API token; the manual production release is authenticated through Wrangler's encrypted OAuth store and `wrangler whoami` succeeds without exposing a token to the release shell.
+- Conflict/gap: Preflight required the raw `CLOUDFLARE_API_TOKEN` environment value even when Wrangler already held a working encrypted credential.
+- Impact: Operators were pushed to duplicate a deployment credential into process environment solely to satisfy preflight.
+- Safest current behavior: CI uses a least-privilege API token. A manual release may instead set `CLOUDFLARE_AUTH_VERIFIED=true` only after `wrangler whoami` succeeds for the intended account; neither path prints or copies the credential.
+- Needed answer: None for the current manual Phase 1 release. Replace the broad interactive OAuth grant with a narrower release identity before unattended deployment is enabled.
+- Resolution: Production preflight now accepts either a non-empty minimum-length `CLOUDFLARE_API_TOKEN` or the explicit post-`wrangler whoami` attestation. The current release remains manual and Hermes cannot access either credential.

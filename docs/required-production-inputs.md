@@ -21,8 +21,8 @@ The example identifiers and names are test-only and must not be promoted as prod
 
 ## Secrets
 
-- `API_KEY`, `HERMES_ACCESS_TOKEN` and `HUMAN_APPROVAL_KEY`: distinct random values of at least 32 characters.
-- `CLOUDFLARE_API_TOKEN` with only the resources needed for the selected environment.
+- `API_KEY` and `HUMAN_APPROVAL_KEY`: distinct random values of at least 32 characters. `HERMES_ACCESS_TOKEN` is additionally required and must be distinct only when `HERMES_RUNTIME_ENABLED=true` in a later phase.
+- For CI, a `CLOUDFLARE_API_TOKEN` with only the resources needed for the selected environment. A manual release may instead use Wrangler's encrypted OAuth credential and set `CLOUDFLARE_AUTH_VERIFIED=true` only after `wrangler whoami` succeeds for the intended account.
 - `CORS_ALLOWED_ORIGINS=https://ops.cubelic-fan.com`; no wildcard and no public fan-site origin.
 
 After provisioning, run `pnpm preflight:production` and the staging steps in `docs/deployment-checklist.md`.

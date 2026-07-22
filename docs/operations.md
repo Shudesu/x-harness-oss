@@ -9,7 +9,7 @@ Phase 1 creates, reviews and measures content. It does not publish, schedule, de
 1. Copy the variable names from `.env.example` into the deployment secret store. Never commit values.
 2. Apply `packages/db/migrations/018-cubelic-content-os.sql` to a backed-up D1 environment.
 3. Set `X_HARNESS_ACCOUNT_ID` to the selected `x_accounts.id`; do not use the public username.
-4. Give Hermes only `HERMES_ACCESS_TOKEN` (the MCP process prefers it over `X_HARNESS_API_KEY`). Give the approval UI operators `HUMAN_APPROVAL_KEY`; never expose it to Hermes.
+4. Keep `HERMES_RUNTIME_ENABLED=false` in Phase 1 and do not provision Hermes runtime credentials. If a later reviewed release enables it, give Hermes only `HERMES_ACCESS_TOKEN` (the MCP process prefers it over `X_HARNESS_API_KEY`). Give approval UI operators `HUMAN_APPROVAL_KEY`; never expose it to Hermes.
 5. Set `CORS_ALLOWED_ORIGINS` to the exact HTTPS approval-UI origin(s), comma-separated; wildcard origins fail closed.
 6. Run `corepack pnpm check` before deployment.
 7. Run `corepack pnpm preflight:production`; do not deploy while it reports placeholders or missing secret names.
@@ -34,4 +34,4 @@ Phase 1 creates, reviews and measures content. It does not publish, schedule, de
 
 Set the emergency stop first, then roll the Worker/UI back to the last known version. The migration is additive; do not drop tables during an incident. Preserve append-only audit rows and export relevant D1 records before any repair.
 
-Production identifiers, GAS payload shape, Resolve path and deployment topology remain tracked in [Decision-Grill.md](Decision-Grill.md).
+Production GAS payload shape, Resolve path and other deferred integration inputs remain tracked in [Decision-Grill.md](Decision-Grill.md). The production topology and X Harness account mapping are resolved.
