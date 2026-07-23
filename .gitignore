@@ -2,6 +2,11 @@ node_modules/
 dist/
 .wrangler/
 .dev.vars
+.env
+.env.*
+!.env.example
+*.pem
+*.key
 *.log
 .next/
 out/
@@ -10,3 +15,5 @@ out/
 packages/mcp/dist/
 .DS_Store
 .worktrees/
+# Human-approved production contracts and media; never commit.
+/production-inputs/

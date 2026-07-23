@@ -1,0 +1,12 @@
+human_approval_required:
+  - live_video
+  - member_content
+  - opinion_content
+  - setlist_flash
+  - event_notice
+  - evergreen_update
+phase_1:
+  scheduling_enabled: false
+  publishing_enabled: false
+  deletion_enabled: false
+  human_proof_header: X-Human-Approval-Key

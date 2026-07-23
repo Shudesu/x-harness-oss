@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/content-os/event.v1.json",
+  "title": "CUBΣLIC Event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "title", "venue", "starts_at", "ends_at", "state", "event_tags", "filming_policy"],
+  "properties": {
+    "event_id": { "type": "string", "pattern": "^evt_[A-Za-z0-9_-]+$" },
+    "title": { "type": "string", "minLength": 1 },
+    "venue": { "type": "string", "minLength": 1 },
+    "starts_at": { "type": "string", "format": "date-time" },
+    "ends_at": { "type": "string", "format": "date-time" },
+    "state": { "enum": ["draft", "announced", "ticket_open", "upcoming", "event_day", "in_progress", "ended", "setlist_confirmed", "digest_ready", "archived"] },
+    "official_url": { "type": ["string", "null"], "format": "uri" },
+    "ticket_url": { "type": ["string", "null"], "format": "uri" },
+    "event_tags": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "filming_policy": { "$ref": "https://cubelic-fan.com/schemas/content-os/rights-evidence.v1.json#/$defs/filming_policy" }
+  }
+}

@@ -18,6 +18,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       router.replace('/login')
       return
     }
+    if (pathname !== '/cubelic') {
+      router.replace('/cubelic')
+      return
+    }
     setChecked(true)
   }, [pathname, router])
 

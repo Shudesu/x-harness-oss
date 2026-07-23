@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/content-os/incident.v1.json",
+  "title": "CUBΣLIC Incident v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["incident_id", "type", "status", "summary", "created_at", "created_by"],
+  "properties": {
+    "incident_id": { "type": "string" },
+    "type": { "enum": ["wrong_event", "wrong_member", "wrong_song", "rights_violation", "privacy_issue", "broken_link", "duplicate_post", "official_confusion", "inappropriate_text", "system_malfunction", "unauthorized_publish", "account_access_issue"] },
+    "status": { "enum": ["open", "contained", "resolved"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": { "type": "string" }
+  }
+}

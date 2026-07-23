@@ -1,0 +1,25 @@
+{
+  "asset_id": "ast_20260721_001",
+  "event_id": "evt_20260721_example",
+  "path": "/exports/20260721/clip01.mp4",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "duration_seconds": 24.8,
+  "orientation": "vertical",
+  "resolution": "1080x1920",
+  "audio_present": true,
+  "rights": {
+    "filming_policy_confirmed": true,
+    "publishing_allowed": true,
+    "evidence_url": "https://x.com/CUBELIC_hvt/status/123",
+    "song_scope_confirmed": true
+  },
+  "privacy": {
+    "audience_visible": false,
+    "third_party_faces_detected": false,
+    "manual_review_completed": true,
+    "cropping_required": false,
+    "blurring_required": false
+  },
+  "quality": { "video_ok": true, "audio_ok": true, "sync_ok": true, "score": 86 },
+  "status": "approved_for_draft"
+}

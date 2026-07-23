@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/content-os/rights-evidence.v1.json",
+  "title": "CUBΣLIC Rights Evidence v1",
+  "$defs": {
+    "filming_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["confirmed", "scope", "evidence_type", "evidence_url", "confirmed_at", "confirmed_by"],
+      "properties": {
+        "confirmed": { "type": "boolean" },
+        "scope": { "enum": ["full_event", "selected_songs", "selected_time", "other", "unknown"] },
+        "evidence_type": { "type": ["string", "null"], "enum": ["official_x", "official_site", "venue_notice", "staff_confirmation", null] },
+        "evidence_url": { "type": ["string", "null"] },
+        "confirmed_at": { "type": ["string", "null"], "format": "date-time" },
+        "confirmed_by": { "type": ["string", "null"], "enum": ["human_operator", null] },
+        "notes": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "confirmed": { "const": true } }, "required": ["confirmed"] },
+          "then": {
+            "properties": {
+              "evidence_type": { "type": "string", "enum": ["official_x", "official_site", "venue_notice", "staff_confirmation"] },
+              "evidence_url": { "type": "string", "minLength": 1 },
+              "confirmed_at": { "type": "string", "format": "date-time" },
+              "confirmed_by": { "const": "human_operator" }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["evidence_id", "event_id", "filming_policy", "created_at"],
+  "properties": {
+    "evidence_id": { "type": "string" },
+    "event_id": { "type": "string" },
+    "filming_policy": { "$ref": "#/$defs/filming_policy" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

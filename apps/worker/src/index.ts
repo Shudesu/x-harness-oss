@@ -1,18 +1,14 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { XClient } from '@x-harness/x-sdk';
-import { getXAccounts, hasSnapshotForToday, recordSnapshot } from '@x-harness/db';
 import { authMiddleware } from './middleware/auth.js';
 import { health } from './routes/health.js';
+import { session } from './routes/session.js';
 import { engagementGates } from './routes/engagement-gates.js';
 import { followers } from './routes/followers.js';
 import { tags } from './routes/tags.js';
 import { posts } from './routes/posts.js';
 import { users } from './routes/users.js';
 import { xAccounts } from './routes/x-accounts.js';
-import { processEngagementGates } from './services/engagement-gate.js';
-import { processScheduledPosts } from './services/post-scheduler.js';
-import { EngagementCache } from './services/reply-trigger-cache.js';
 import { stepSequences } from './routes/step-sequences.js';
 import { verify } from './routes/verify.js';
 import { staff } from './routes/staff.js';
@@ -26,7 +22,10 @@ import { articles } from './routes/articles.js';
 import { growth } from './routes/growth.js';
 import { growthSources } from './routes/growth-sources.js';
 import { growthArticles } from './routes/growth-articles.js';
-import { processStepSequences } from './services/step-processor.js';
+import { cubelic } from './routes/cubelic.js';
+import { cubelicPhase1RouteGuard } from './cubelic/safety.js';
+import { resolveCorsOrigin } from './cubelic/cors.js';
+import type { CubelicXAdapterFactory } from './cubelic/adapter.js';
 
 export type Env = {
   Bindings: {
@@ -40,20 +39,36 @@ export type Env = {
     USER_SEARCH_DAILY_LIMIT?: string;
     VERIFY_LOOKUP_DAILY_LIMIT?: string;
     GROWTH_IMAGES?: R2Bucket;
+    CUBELIC_SAFE_MODE?: string;
+    GLOBAL_PUBLISHING_DISABLED?: string;
+    HUMAN_APPROVAL_KEY?: string;
+    HERMES_ACCESS_TOKEN?: string;
+    X_HARNESS_ACCOUNT_ID?: string;
+    CORS_ALLOWED_ORIGINS?: string;
   };
   Variables: {
     staffRole?: 'admin' | 'editor' | 'viewer';
     staffId?: string;
     staffName?: string;
+    requestActor?: 'human' | 'hermes';
+    cubelicAdapterFactory?: CubelicXAdapterFactory;
+    correlationId?: string;
   };
 };
 
 const app = new Hono<Env>();
 
-app.use('*', cors({ origin: '*' }));
+app.use('*', cors({
+  origin: (origin, c) => resolveCorsOrigin(origin, (c.env as Env['Bindings']).CORS_ALLOWED_ORIGINS),
+  allowHeaders: ['Authorization', 'Content-Type', 'X-Correlation-Id', 'X-Human-Approval-Key'],
+  allowMethods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  maxAge: 600,
+}));
+app.use('*', cubelicPhase1RouteGuard);
 app.use('*', authMiddleware);
 
 app.route('/', health);
+app.route('/', session);
 app.route('/', verify);
 app.route('/', engagementGates);
 app.route('/', followers);
@@ -73,6 +88,7 @@ app.route('/', articles);
 app.route('/', growth);
 app.route('/', growthSources);
 app.route('/', growthArticles);
+app.route('/', cubelic);
 
 // Settings API (key-value store)
 app.get('/api/settings', async (c) => {
@@ -119,87 +135,13 @@ app.delete('/api/line-connections/:id', async (c) => {
 
 app.notFound((c) => c.json({ success: false, error: 'Not found' }, 404));
 
-async function getSettingBool(db: D1Database, key: string, defaultValue = false): Promise<boolean> {
-  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind(key).first<{ value: string }>();
-  if (!row) return defaultValue;
-  return row.value === 'true' || row.value === '1';
-}
-
 async function scheduled(
   _event: ScheduledEvent,
-  env: Env['Bindings'],
+  _env: Env['Bindings'],
   _ctx: ExecutionContext,
 ): Promise<void> {
-  // Auto-features are OFF by default to avoid unexpected API costs.
-  // Users enable them from the dashboard settings page.
-  const autoEnabled = await getSettingBool(env.DB, 'auto_features_enabled', false);
-
-  const dbAccounts = await getXAccounts(env.DB);
-
-  if (autoEnabled) {
-    const jobs: Promise<void>[] = [];
-    for (const account of dbAccounts) {
-      const xClient = account.consumer_key && account.consumer_secret && account.access_token_secret
-        ? new XClient({
-            type: 'oauth1',
-            consumerKey: account.consumer_key,
-            consumerSecret: account.consumer_secret,
-            accessToken: account.access_token,
-            accessTokenSecret: account.access_token_secret,
-          })
-        : new XClient(account.access_token);
-      const cache = new EngagementCache();
-      jobs.push(processEngagementGates(env.DB, xClient, account.id, false, cache));
-      jobs.push(processScheduledPosts(env.DB, xClient, account.id));
-    }
-    await Promise.allSettled(jobs);
-  }
-
-  // Record daily follower snapshots
-  for (const account of dbAccounts) {
-    try {
-      const alreadyRecorded = await hasSnapshotForToday(env.DB, account.id);
-      if (alreadyRecorded) continue;
-      const xClient = account.consumer_key && account.consumer_secret && account.access_token_secret
-        ? new XClient({
-            type: 'oauth1',
-            consumerKey: account.consumer_key,
-            consumerSecret: account.consumer_secret,
-            accessToken: account.access_token,
-            accessTokenSecret: account.access_token_secret,
-          })
-        : new XClient(account.access_token);
-      const me = await xClient.getMe();
-      if (me.public_metrics) {
-        await recordSnapshot(env.DB, {
-          xAccountId: account.id,
-          followersCount: me.public_metrics.followers_count,
-          followingCount: me.public_metrics.following_count,
-          tweetCount: me.public_metrics.tweet_count,
-        });
-      }
-    } catch {
-      // Non-blocking — continue with other accounts
-    }
-  }
-
-  // Process step sequences (also gated by auto_features_enabled)
-  if (autoEnabled) {
-    const buildXClient = async (accountId: string): Promise<XClient | null> => {
-      const account = dbAccounts.find((a) => a.id === accountId);
-      if (!account) return null;
-      return account.consumer_key && account.consumer_secret && account.access_token_secret
-        ? new XClient({
-            type: 'oauth1',
-            consumerKey: account.consumer_key,
-            consumerSecret: account.consumer_secret,
-            accessToken: account.access_token,
-            accessTokenSecret: account.access_token_secret,
-          })
-        : new XClient(account.access_token);
-    };
-    await processStepSequences(env.DB, buildXClient);
-  }
+  // Phase 1 has no continuous X polling. Read-only metric collection is
+  // initiated explicitly through XPublishingAdapter after a post mapping.
 }
 
 export default {

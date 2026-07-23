@@ -1,0 +1,4 @@
+interface:
+  display_name: "CUBΣLIC Inspect Media"
+  short_description: "Check media rights, privacy, quality, and hashes"
+  default_prompt: "Use -media to validate Resolve media metadata without inferring rights."

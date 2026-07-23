@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/contracts/analytics-event.v1.json",
+  "title": "Analytics Event Contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_name", "occurred_at", "metrics"],
+  "properties": {
+    "schema_version": { "const": "cubelic.analytics-event.v1" },
+    "event_name": { "const": "x_post_metrics_collected" },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "metrics": { "$ref": "https://cubelic-fan.com/schemas/content-os/metrics.v1.json" }
+  }
+}

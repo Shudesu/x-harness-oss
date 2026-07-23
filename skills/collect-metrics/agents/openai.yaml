@@ -1,0 +1,4 @@
+interface:
+  display_name: "CUBΣLIC Collect Metrics"
+  short_description: "Collect timed post metrics without guessing gaps"
+  default_prompt: "Use -metrics to collect a configured post-metrics snapshot without guessing missing values."

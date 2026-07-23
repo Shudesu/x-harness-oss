@@ -1,0 +1,18 @@
+{
+  "fixtureFiles": [
+    "gas-setlist-v1.json",
+    "resolve-metadata-v1.json",
+    "song-master-v1.json",
+    "member-master-v1.json"
+  ],
+  "testOnlyValues": [
+    { "value": "evt_20260721_example", "replacement": "evt_production_contract" },
+    { "value": "ast_20260721_001", "replacement": "ast_production_contract" },
+    { "value": "song_1", "replacement": "song_alpha" },
+    { "value": "song_2", "replacement": "song_beta" },
+    { "value": "member_example", "replacement": "member_alpha" },
+    { "value": "サンプル（テスト専用）", "replacement": "承認済みメンバー" },
+    { "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "replacement": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    { "value": "https://x.com/CUBELIC_hvt/status/123", "replacement": "https://x.com/CUBELIC_hvt/status/456" }
+  ]
+}

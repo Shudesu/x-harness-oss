@@ -1,0 +1,13 @@
+window_days: 28
+targets:
+  live_and_member_video: 35
+  beginner_and_evergreen: 20
+  setlist_and_primary_information: 15
+  event_conversion: 15
+  member_and_song_profiles: 10
+  community_conversation: 5
+constraints:
+  max_consecutive_same_member: 3
+  max_consecutive_live_video: 4
+  max_consecutive_announcements: 2
+  similar_text_cooldown_hours: 72

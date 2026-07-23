@@ -1,0 +1,9 @@
+filming_confirmation_required: true
+evidence_required: true
+third_party_manual_review_required: true
+allowed_evidence_types:
+  - official_x
+  - official_site
+  - venue_notice
+  - staff_confirmation
+fail_closed: true

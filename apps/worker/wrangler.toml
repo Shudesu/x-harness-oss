@@ -1,23 +1,46 @@
 name = "x-harness-worker"
 main = "src/index.ts"
-compatibility_date = "2024-12-01"
+compatibility_date = "2026-07-21"
 workers_dev = true
 
-# Set via: wrangler secret put API_KEY
-# Set via: wrangler secret put X_ACCESS_TOKEN
-# Set via: wrangler secret put X_REFRESH_TOKEN
+# Secrets are provisioned per environment with Wrangler and never stored here.
 
-[vars]
-WORKER_URL = "https://x-harness-worker.your-subdomain.workers.dev"
+[env.staging]
+name = "x-harness-worker-staging"
+workers_dev = true
 
-[[d1_databases]]
+[env.staging.vars]
+WORKER_URL = "https://x-harness-worker-staging.yoshihiro-fukiya.workers.dev"
+CUBELIC_SAFE_MODE = "true"
+GLOBAL_PUBLISHING_DISABLED = "true"
+X_HARNESS_ACCOUNT_ID = "staging-inert-account"
+CORS_ALLOWED_ORIGINS = "https://cubelic-fan-staging.pages.dev"
+
+[[env.staging.d1_databases]]
 binding = "DB"
-database_name = "x-harness"
-database_id = "YOUR_D1_DATABASE_ID"
+database_name = "x-harness-staging"
+database_id = "7a58b4f9-a0ab-42d9-8357-5862802fe74f"
 
-[triggers]
-crons = ["*/5 * * * *"]
-
-[[r2_buckets]]
+[[env.staging.r2_buckets]]
 binding = "GROWTH_IMAGES"
-bucket_name = "x-harness-growth-images"
+bucket_name = "x-harness-growth-images-staging"
+
+[env.production]
+name = "x-harness-worker-production"
+workers_dev = true
+
+[env.production.vars]
+WORKER_URL = "https://x-harness-worker-production.yoshihiro-fukiya.workers.dev"
+CUBELIC_SAFE_MODE = "true"
+GLOBAL_PUBLISHING_DISABLED = "true"
+X_HARNESS_ACCOUNT_ID = "89f9bfc0-428c-480b-9cb3-9ba1698c30da"
+CORS_ALLOWED_ORIGINS = "https://ops.cubelic-fan.com"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "x-harness-production"
+database_id = "ef612e3b-60bf-425f-9dc3-ad0e11d13798"
+
+[[env.production.r2_buckets]]
+binding = "GROWTH_IMAGES"
+bucket_name = "x-harness-growth-images-production"

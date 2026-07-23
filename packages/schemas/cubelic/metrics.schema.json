@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/content-os/metrics.v1.json",
+  "title": "CUBΣLIC Metrics Snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["metric_id", "post_id", "collected_at", "window", "values"],
+  "properties": {
+    "metric_id": { "type": "string" },
+    "post_id": { "type": "string" },
+    "collected_at": { "type": "string", "format": "date-time" },
+    "window": { "enum": ["2h", "24h", "72h", "7d"] },
+    "values": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "impressions": { "type": ["number", "null"] },
+        "video_views": { "type": ["number", "null"] },
+        "video_completion_rate": { "type": ["number", "null"] },
+        "likes": { "type": ["number", "null"] },
+        "reposts": { "type": ["number", "null"] },
+        "quotes": { "type": ["number", "null"] },
+        "replies": { "type": ["number", "null"] },
+        "profile_visits": { "type": ["number", "null"] },
+        "follows_attributed": { "type": ["number", "null"] },
+        "link_clicks": { "type": ["number", "null"] },
+        "qualified_visits": { "type": ["number", "null"] },
+        "youtube_clicks": { "type": ["number", "null"] },
+        "spotify_clicks": { "type": ["number", "null"] },
+        "ticket_clicks": { "type": ["number", "null"] }
+      }
+    }
+  }
+}

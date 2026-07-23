@@ -8,14 +8,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "hono": "^4.6.0",
+    "@x-harness/content-os": "workspace:*",
     "@x-harness/db": "workspace:*",
+    "@x-harness/shared": "workspace:*",
     "@x-harness/x-sdk": "workspace:*",
-    "@x-harness/shared": "workspace:*"
+    "hono": "^4.6.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20241205.0",
     "typescript": "^5.9.3",
-    "wrangler": "^3.99.0"
+    "wrangler": "^4.113.0"
   }
 }

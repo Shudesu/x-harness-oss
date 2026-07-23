@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/content-os/media-asset.v1.json",
+  "title": "CUBΣLIC Media Asset v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["asset_id", "event_id", "path", "sha256", "duration_seconds", "orientation", "resolution", "audio_present", "rights", "privacy", "quality", "status"],
+  "properties": {
+    "asset_id": { "type": "string" },
+    "event_id": { "type": "string" },
+    "path": { "type": "string", "pattern": "^/" },
+    "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+    "duration_seconds": { "type": "number", "exclusiveMinimum": 0 },
+    "orientation": { "enum": ["vertical", "horizontal", "square"] },
+    "resolution": { "type": "string", "pattern": "^[0-9]+x[0-9]+$" },
+    "audio_present": { "type": "boolean" },
+    "rights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filming_policy_confirmed", "publishing_allowed", "evidence_url", "song_scope_confirmed"],
+      "properties": {
+        "filming_policy_confirmed": { "type": "boolean" },
+        "publishing_allowed": { "type": "boolean" },
+        "evidence_url": { "type": "string" },
+        "song_scope_confirmed": { "type": "boolean" }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["audience_visible", "third_party_faces_detected", "manual_review_completed", "cropping_required", "blurring_required"],
+      "properties": {
+        "audience_visible": { "type": "boolean" },
+        "third_party_faces_detected": { "type": "boolean" },
+        "manual_review_completed": { "type": "boolean" },
+        "cropping_required": { "type": "boolean" },
+        "blurring_required": { "type": "boolean" }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["video_ok", "audio_ok", "sync_ok", "score"],
+      "properties": {
+        "video_ok": { "type": "boolean" },
+        "audio_ok": { "type": "boolean" },
+        "sync_ok": { "type": "boolean" },
+        "score": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "status": { "enum": ["pending_validation", "blocked", "approved_for_draft"] }
+  }
+}

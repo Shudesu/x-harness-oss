@@ -1,0 +1,4 @@
+interface:
+  display_name: "CUBΣLIC Weekly Review"
+  short_description: "Summarize KPI, content mix, and review outcomes"
+  default_prompt: "Use -review to summarize weekly CUBΣLIC content performance without changing strategy."

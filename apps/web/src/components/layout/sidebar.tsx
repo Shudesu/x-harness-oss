@@ -7,7 +7,8 @@ import { useSelectedAccount } from '@/hooks/use-selected-account'
 
 // ─── メニュー定義 ───
 
-const menuSections = [
+// Retained only as upstream reference; Phase 1 never selects this export.
+export const legacyMenuSections = [
   {
     label: 'メイン',
     items: [
@@ -55,6 +56,19 @@ const menuSections = [
     ],
   },
 ]
+
+const safeMenuSections = [
+  {
+    label: 'CUBΣLIC Content OS',
+    items: [
+      { href: '/cubelic', label: '下書き承認', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+    ],
+  },
+]
+
+// Phase 1 navigation is a compile-time allowlist. Environment variables must
+// not reveal legacy publishing, scheduling, DM, or engagement surfaces.
+const menuSections = safeMenuSections
 
 function NavIcon({ d }: { d: string }) {
   return (
@@ -110,45 +124,16 @@ function AccountSwitcher() {
 }
 
 function PlatformSwitcher() {
-  const lineHarnessUrl = process.env.NEXT_PUBLIC_LINE_HARNESS_URL
-  const isConnected = lineHarnessUrl && lineHarnessUrl !== '#' && lineHarnessUrl !== ''
-
   return (
     <div className="px-3 py-3 border-b border-gray-200">
-      {/* X Harness (active) */}
       <div
-        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-1"
+        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg"
         style={{ backgroundColor: '#1D9BF0' }}
       >
         <span className="text-base leading-none">🐦</span>
-        <p className="flex-1 text-sm font-semibold text-white truncate">X Harness</p>
+        <p className="flex-1 text-sm font-semibold text-white truncate">CUBΣLIC Phase 1</p>
         <div className="w-2 h-2 rounded-full bg-white shrink-0" />
       </div>
-
-      {/* L Harness: connected → external link, not connected → settings page */}
-      {isConnected ? (
-        <a
-          href={lineHarnessUrl}
-          className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-gray-50 transition-colors"
-        >
-          <span className="text-base leading-none">📱</span>
-          <p className="flex-1 text-sm font-medium text-gray-600 truncate">L Harness</p>
-          <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-          </svg>
-        </a>
-      ) : (
-        <Link
-          href="/settings"
-          className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-gray-50 transition-colors group"
-        >
-          <span className="text-base leading-none opacity-40">📱</span>
-          <p className="flex-1 text-xs font-medium text-gray-400 truncate group-hover:text-gray-600">L Harness 連携</p>
-          <svg className="w-3.5 h-3.5 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-        </Link>
-      )}
     </div>
   )
 }

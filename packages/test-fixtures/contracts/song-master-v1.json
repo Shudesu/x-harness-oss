@@ -1,0 +1,8 @@
+{
+  "schema_version": "cubelic.song-master.v1",
+  "generated_at": "2026-07-21T18:00:00+09:00",
+  "songs": [
+    { "song_id": "song_1", "title": "微レ存ガール", "aliases": [], "active": true },
+    { "song_id": "song_2", "title": "いえないっしょん", "aliases": [], "active": true }
+  ]
+}

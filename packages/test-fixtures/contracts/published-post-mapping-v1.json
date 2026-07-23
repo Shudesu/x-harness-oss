@@ -1,0 +1,9 @@
+{
+  "schema_version": "cubelic.published-post-mapping.v1",
+  "post_id": "1234567890123456789",
+  "draft_id": "drf_fixture_001",
+  "published_at": "2026-07-21T22:00:00+09:00",
+  "source": "manual",
+  "created_by": "Fixture Operator",
+  "created_at": "2026-07-21T22:01:00+09:00"
+}

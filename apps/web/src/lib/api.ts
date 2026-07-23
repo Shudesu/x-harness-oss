@@ -1,5 +1,15 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8787';
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 export function getApiKey(): string {
   if (typeof window === 'undefined') return '';
   return localStorage.getItem('xh_api_key') || '';
@@ -16,7 +26,7 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as { error?: string }).error || `HTTP ${res.status}`);
+    throw new ApiError((body as { error?: string }).error || `HTTP ${res.status}`, res.status);
   }
   return res.json();
 }
@@ -210,6 +220,11 @@ export interface ArticleDraft {
 
 export const api = {
   health: () => fetchApi<ApiResponse<{ status: string }>>('/api/health'),
+  session: () => fetchApi<ApiResponse<{
+    authenticated: true;
+    role: 'admin' | 'editor' | 'viewer';
+    name: string | null;
+  }>>('/api/session'),
 
   engagementGates: {
     list: (params?: { xAccountId?: string }) => {
@@ -426,5 +441,65 @@ export const api = {
       if (params.xAccountId) qs.set('xAccountId', params.xAccountId);
       return fetchApi<ApiResponse<NewsStory[]>>(`/api/news/search?${qs}`);
     },
+  },
+};
+
+export interface CubelicDraft {
+  draft_id: string;
+  content_id: string;
+  account_id: 'tubelic_cube';
+  text: string;
+  media_asset_ids: string[];
+  category: string;
+  template_id: string;
+  template_version: string;
+  variant: 'a' | 'b' | 'c';
+  target_stage: string;
+  hashtags: string[];
+  destination_url: string;
+  quality_score: number;
+  freshness_score: number;
+  rights_gate: 'passed' | 'not_applicable';
+  approval_status: 'pending_review' | 'needs_revision' | 'rejected' | 'approved' | 'handed_off';
+  risks: string[];
+  human_review_required: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CubelicSystemStatus {
+  safeMode: boolean;
+  environmentStop: boolean;
+  emergencyStop: boolean;
+  publishingEnabled: false;
+  schedulingEnabled: false;
+}
+
+export const cubelicApi = {
+  drafts: {
+    list: (status?: string) => fetchApi<ApiResponse<CubelicDraft[]>>(`/api/cubelic/drafts${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+    update: (id: string, text: string) => fetchApi<ApiResponse<CubelicDraft>>(`/api/cubelic/drafts/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ text }),
+    }),
+    approve: (id: string, humanApprovalKey: string) => fetchApi<ApiResponse<{ draft: CubelicDraft }>>(`/api/cubelic/drafts/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': humanApprovalKey },
+      body: '{}',
+    }),
+    reject: (id: string, humanApprovalKey: string, reason = 'manual_rejection') => fetchApi<ApiResponse<CubelicDraft>>(`/api/cubelic/drafts/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': humanApprovalKey },
+      body: JSON.stringify({ reason }),
+    }),
+  },
+  system: {
+    status: () => fetchApi<ApiResponse<CubelicSystemStatus>>('/api/cubelic/admin/status'),
+    stop: (humanApprovalKey: string) => fetchApi<ApiResponse<{ stopped: true }>>('/api/cubelic/admin/emergency-stop', {
+      method: 'POST', headers: { 'X-Human-Approval-Key': humanApprovalKey }, body: '{}',
+    }),
+    resume: (humanApprovalKey: string) => fetchApi<ApiResponse<{ stopped: false }>>('/api/cubelic/admin/emergency-resume', {
+      method: 'POST', headers: { 'X-Human-Approval-Key': humanApprovalKey }, body: '{}',
+    }),
   },
 };

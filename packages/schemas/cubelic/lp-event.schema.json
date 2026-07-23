@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/contracts/lp-event.v1.json",
+  "title": "LP Event Contract v1",
+  "$ref": "https://cubelic-fan.com/schemas/content-os/event.v1.json",
+  "properties": {
+    "event_id": true,
+    "title": true,
+    "venue": true,
+    "starts_at": true,
+    "ends_at": true,
+    "state": true,
+    "official_url": true,
+    "ticket_url": true,
+    "event_tags": true,
+    "filming_policy": true
+  },
+  "additionalProperties": false
+}

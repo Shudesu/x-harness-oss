@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 
 export default function LoginPage() {
   const [apiKey, setApiKey] = useState('')
@@ -15,20 +15,22 @@ export default function LoginPage() {
     setError('')
 
     try {
-      // Temporarily store key so api.health() picks it up
+      // Temporarily store the dashboard key so api.session() can validate it.
       localStorage.setItem('xh_api_key', apiKey)
 
-      const res = await api.health()
+      const res = await api.session()
 
       if (res.success) {
-        router.push('/')
+        router.push('/cubelic')
       } else {
         localStorage.removeItem('xh_api_key')
         setError('APIキーが正しくありません')
       }
-    } catch {
+    } catch (error) {
       localStorage.removeItem('xh_api_key')
-      setError('接続に失敗しました')
+      setError(error instanceof ApiError && error.status === 401
+        ? 'X Harness管理APIキーが正しくありません'
+        : 'APIへの接続に失敗しました')
     } finally {
       setLoading(false)
     }
@@ -42,21 +44,24 @@ export default function LoginPage() {
             X
           </div>
           <h1 className="text-xl font-bold text-gray-900">X Harness</h1>
-          <p className="text-sm text-gray-500 mt-1">Xアカウント自動化ダッシュボード</p>
+          <p className="text-sm text-gray-500 mt-1">CUBΣLIC 下書き作成・承認ダッシュボード</p>
         </div>
 
         <form onSubmit={handleLogin}>
           <div className="mb-4">
-            <label htmlFor="api-key" className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+            <label htmlFor="api-key" className="block text-sm font-medium text-gray-700 mb-1">X Harness 管理APIキー</label>
             <input
               id="api-key"
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="APIキーを入力"
+              placeholder="管理APIキーを入力"
               className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               autoFocus
             />
+            <p className="mt-2 text-xs text-gray-500">
+              X Developer PlatformのAPIキーやOAuthトークンではありません。
+            </p>
           </div>
 
           {error && (

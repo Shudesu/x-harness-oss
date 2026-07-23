@@ -1,0 +1,21 @@
+version: 1
+mission: "CUBΣLICを初めて知った人が、魅力を理解し、不安なくライブに参加できるよう、正確で役立つ一次情報を整理して届ける。"
+north_star_metric: first_visit_actions
+phase_1_kpis:
+  - monthly_new_followers
+  - qualified_calendar_visits
+publishing:
+  max_posts_per_day: 2
+  max_posts_per_week: 10
+  minimum_interval_minutes: 240
+  publish_now_enabled: false
+  auto_schedule_enabled: false
+  auto_dm_enabled: false
+  auto_reply_enabled: false
+  auto_like_enabled: false
+  auto_follow_enabled: false
+content:
+  max_hashtags: 3
+  max_generated_variants: 3
+  duplicate_similarity_threshold: 0.82
+  minimum_quality_score: 80

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/content-os/published-post-mapping.v1.json",
+  "title": "CUBΣLIC Published Post Mapping v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "post_id", "draft_id", "published_at", "source", "created_by", "created_at"],
+  "properties": {
+    "schema_version": { "const": "cubelic.published-post-mapping.v1" },
+    "post_id": { "type": "string", "pattern": "^[0-9]{5,30}$" },
+    "draft_id": { "type": "string", "pattern": "^drf_" },
+    "published_at": { "type": "string", "format": "date-time" },
+    "source": { "const": "manual" },
+    "created_by": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

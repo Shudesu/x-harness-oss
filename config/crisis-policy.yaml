@@ -1,0 +1,20 @@
+global_publishing_disabled: true
+emergency_stop_blocks:
+  - hermes_draft_creation
+  - scheduling
+  - publishing
+  - non_metrics_writes
+correction_auto_publish: false
+incident_types:
+  - wrong_event
+  - wrong_member
+  - wrong_song
+  - rights_violation
+  - privacy_issue
+  - broken_link
+  - duplicate_post
+  - official_confusion
+  - inappropriate_text
+  - system_malfunction
+  - unauthorized_publish
+  - account_access_issue
