@@ -93,19 +93,19 @@ if (!/CORS_ALLOWED_ORIGINS\s*=\s*"https:\/\/ops\.cubelic-fan\.com"/.test(wrangle
   errors.push('wrangler.toml does not bind production CORS to the approved operator UI origin');
 }
 if (!/^CUBELIC_SAFE_MODE\s*=\s*"true"$/m.test(wrangler)) errors.push('wrangler.toml does not default CUBELIC_SAFE_MODE to true');
-if (phase3Enabled) {
-  const expectedProductionVars = {
-    CUBELIC_PHASE3_ENABLED: 'true',
-    CUBELIC_PHASE3_DELIVERY_MODE: 'x',
-    CUBELIC_PHASE3_SCHEDULE_POLICIES: process.env.CUBELIC_PHASE3_SCHEDULE_POLICIES,
-    PHASE3_RELEASE_APPROVED: 'true',
-    STAGING_PHASE3_SMOKE_VERIFIED: 'true',
-    GLOBAL_PUBLISHING_DISABLED: 'false',
-  };
-  for (const [name, expected] of Object.entries(expectedProductionVars)) {
-    if (productionVar(name) !== expected) {
-      errors.push(`wrangler production ${name} does not match the approved Phase 3 release value`);
-    }
+const expectedProductionVars = {
+  CUBELIC_PHASE3_ENABLED: phase3Enabled ? 'true' : 'false',
+  CUBELIC_PHASE3_DELIVERY_MODE: 'x',
+  CUBELIC_PHASE3_SCHEDULE_POLICIES: phase3Enabled
+    ? process.env.CUBELIC_PHASE3_SCHEDULE_POLICIES
+    : '',
+  PHASE3_RELEASE_APPROVED: phase3Enabled ? 'true' : 'false',
+  STAGING_PHASE3_SMOKE_VERIFIED: phase3Enabled ? 'true' : 'false',
+  GLOBAL_PUBLISHING_DISABLED: phase3Enabled ? 'false' : 'true',
+};
+for (const [name, expected] of Object.entries(expectedProductionVars)) {
+  if (productionVar(name) !== expected) {
+    errors.push(`wrangler production ${name} does not match the requested release mode`);
   }
 }
 

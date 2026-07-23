@@ -5,14 +5,18 @@ import { describe, expect, it } from 'vitest';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
-const phase1Environment = {
+const productionEnvironment = {
   API_KEY: 'a'.repeat(32),
   HUMAN_APPROVAL_KEY: 'b'.repeat(32),
   CLOUDFLARE_AUTH_VERIFIED: 'true',
   X_HARNESS_ACCOUNT_ID: '89f9bfc0-428c-480b-9cb3-9ba1698c30da',
   CUBELIC_SAFE_MODE: 'true',
   CUBELIC_PHASE3_DELIVERY_MODE: 'x',
-  GLOBAL_PUBLISHING_DISABLED: 'true',
+  CUBELIC_PHASE3_ENABLED: 'true',
+  CUBELIC_PHASE3_SCHEDULE_POLICIES: 'event_notice:event_notice_manual_v1',
+  PHASE3_RELEASE_APPROVED: 'true',
+  STAGING_PHASE3_SMOKE_VERIFIED: 'true',
+  GLOBAL_PUBLISHING_DISABLED: 'false',
   STAGING_SMOKE_VERIFIED: 'true',
   CORS_ALLOWED_ORIGINS: 'https://ops.cubelic-fan.com',
 };
@@ -23,23 +27,29 @@ function preflight(overrides: Record<string, string> = {}) {
     encoding: 'utf8',
     env: {
       PATH: process.env.PATH,
-      ...phase1Environment,
+      ...productionEnvironment,
       ...overrides,
     },
   });
 }
 
 describe('production preflight phase boundaries', () => {
-  it('allows the Phase 1 shell without Hermes runtime or real production content inputs', () => {
-    const result = preflight();
+  it('rejects a Phase 1 shell when the deployed production config requests Phase 3', () => {
+    const result = preflight({
+      CUBELIC_PHASE3_ENABLED: 'false',
+      CUBELIC_PHASE3_SCHEDULE_POLICIES: '',
+      PHASE3_RELEASE_APPROVED: 'false',
+      STAGING_PHASE3_SMOKE_VERIFIED: 'false',
+      GLOBAL_PUBLISHING_DISABLED: 'true',
+    });
 
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('Production preflight passed for the Phase 1 runtime');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('wrangler production CUBELIC_PHASE3_ENABLED does not match');
   });
 
   it('requires a distinct Hermes token only when Hermes runtime is enabled', () => {
     const missing = preflight({ HERMES_RUNTIME_ENABLED: 'true' });
-    const reused = preflight({ HERMES_RUNTIME_ENABLED: 'true', HERMES_ACCESS_TOKEN: phase1Environment.API_KEY });
+    const reused = preflight({ HERMES_RUNTIME_ENABLED: 'true', HERMES_ACCESS_TOKEN: productionEnvironment.API_KEY });
 
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain('missing secret environment variable: HERMES_ACCESS_TOKEN');
@@ -66,17 +76,18 @@ describe('production preflight phase boundaries', () => {
     expect(validated.status).toBe(0);
   });
 
-  it('always requires the independent global publishing stop', () => {
-    const result = preflight({ GLOBAL_PUBLISHING_DISABLED: 'false' });
+  it('requires the release shell to match the production environment stop', () => {
+    const result = preflight({ GLOBAL_PUBLISHING_DISABLED: 'true' });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('GLOBAL_PUBLISHING_DISABLED must be explicitly true');
+    expect(result.stderr).toContain('GLOBAL_PUBLISHING_DISABLED must be explicitly false');
   });
 
   it('allows an explicitly approved Phase 3 release only with exact allowlists and resumed environment', () => {
     const missingApproval = preflight({
       CUBELIC_PHASE3_ENABLED: 'true',
       GLOBAL_PUBLISHING_DISABLED: 'false',
+      PHASE3_RELEASE_APPROVED: 'false',
     });
     expect(missingApproval.status).toBe(1);
     expect(missingApproval.stderr).toContain('PHASE3_RELEASE_APPROVED must be true');
