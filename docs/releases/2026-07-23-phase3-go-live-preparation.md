@@ -78,5 +78,6 @@ The first named admin operator is `Y-Fukiya`.
   `category:template_id` policy pairs.
 - Media delivery remains disabled pending a reviewed R2-to-X upload and
   reconciliation contract.
-- Outcome-unknown recovery remains a manual audited operation until DG-026 is
-  approved and implemented.
+- DG-026 outcome-unknown recovery is implemented as a named-human-only
+  reconciliation API. It requires the D1 emergency stop, performs no X write,
+  and preserves the stop; any later retry still requires separate approval.

@@ -16,7 +16,10 @@ disabled until a separate human resume decision.
 ## Initial setup
 
 1. Copy the variable names from `.env.example` into the deployment secret store. Never commit values.
-2. Apply `packages/db/migrations/018-cubelic-content-os.sql`, then `019-cubelic-fail-closed-boundaries.sql`, to a backed-up D1 environment.
+2. Apply `packages/db/migrations/018-cubelic-content-os.sql`,
+   `019-cubelic-fail-closed-boundaries.sql`,
+   `020-cubelic-phase3-publication.sql`, then
+   `021-cubelic-publication-reconciliation.sql` to a backed-up D1 environment.
 3. Set `X_HARNESS_ACCOUNT_ID` to the selected `x_accounts.id`; do not use the public username.
 4. Keep `HERMES_RUNTIME_ENABLED=false` in Phase 1 and do not provision Hermes runtime credentials. If a later reviewed release enables it, give Hermes only `HERMES_ACCESS_TOKEN` (the MCP process prefers it over `X_HARNESS_API_KEY`). Give approval UI operators `HUMAN_APPROVAL_KEY`; never expose it to Hermes.
 5. Set `CORS_ALLOWED_ORIGINS` to the exact HTTPS approval-UI origin(s), comma-separated; wildcard origins fail closed.
@@ -42,9 +45,10 @@ disabled until a separate human resume decision.
 - Follow [incident-response.md](incident-response.md) whenever a boundary or rights concern is discovered.
 - An X timeout or ambiguous response must remain `publishing`; never retry it
   automatically. Follow “Publication outcome unknown” in
-  [incident-response.md](incident-response.md). Until DG-026 is resolved,
-  reconciliation is an exceptional documented operation rather than a normal
-  UI/API action.
+  [incident-response.md](incident-response.md). DG-026 reconciliation is
+  available only to a named human through
+  `POST /api/cubelic/admin/publications/:jobId/reconcile` while the D1
+  emergency stop is active. It performs no X write and leaves the stop active.
 
 ## Rollback
 

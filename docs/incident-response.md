@@ -32,10 +32,39 @@ If an X delivery attempt remains `publishing` with
    ten posts. Reconcile by returned post id first, then by the approved fixed
    text. Do not require literal URL equality because X normalizes links to
    `t.co`.
-4. If the post exists, complete the existing job through an audited repair; do
-   not create another X write.
-5. If no post exists, retain `publishing` until a named human explicitly
-   approves both failure reconciliation and a separate retry.
-6. Record the evidence count and match result without storing post bodies.
-7. Keep direct D1 repair as an exceptional two-person operation until DG-026
-   defines and implements the reviewed reconciliation API.
+4. Keep the D1 emergency stop active and have a named human call
+   `POST /api/cubelic/admin/publications/:jobId/reconcile` with the normal
+   bearer API key and `X-Human-Approval-Key`. The endpoint performs no X write.
+5. If the post exists, submit its numeric id and UTC publication time:
+
+   ```json
+   {
+     "outcome": "published",
+     "postId": "2080209283598487956",
+     "publishedAt": "2026-07-23T08:31:56.000Z"
+   }
+   ```
+
+   This completes the existing job without creating a second post.
+6. If no post exists, submit the evidence summary without post bodies:
+
+   ```json
+   {
+     "outcome": "not_published",
+     "evidence": {
+       "recentPostsChecked": 10,
+       "postIdMatchFound": false,
+       "fixedTextPrefixMatchFound": false
+     }
+   }
+   ```
+
+   At least ten posts and both explicit no-match values are required. The
+   endpoint atomically fails the unknown job and returns a new retry
+   idempotency key.
+7. Confirm `GET /api/cubelic/admin/status` still reports
+   `emergencyStop: true`, and confirm the reconciliation audit actions under
+   the request correlation id. A returned retry identity is not permission to
+   publish: resumption and any retry require separate named-human approval.
+8. Do not repair these states with direct D1 writes while the reviewed DG-026
+   endpoint is available.

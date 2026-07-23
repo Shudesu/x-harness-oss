@@ -24,6 +24,38 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+export function normalizeCubelicIso8601Timestamp(value: string): string | null {
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|([+-])(\d{2}):(\d{2}))$/,
+  );
+  if (!match) return null;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, , zone, , offsetHourText, offsetMinuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1] ?? 0;
+  if (
+    month < 1
+    || month > 12
+    || day < 1
+    || day > daysInMonth
+    || hour > 23
+    || minute > 59
+    || second > 59
+  ) return null;
+  if (zone !== 'Z') {
+    const offsetHour = Number(offsetHourText);
+    const offsetMinute = Number(offsetMinuteText);
+    if (offsetHour > 14 || offsetMinute > 59 || (offsetHour === 14 && offsetMinute !== 0)) return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+}
+
 function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('UNIQUE constraint failed');
 }
@@ -716,6 +748,13 @@ export async function getCubelicEmergencyStop(db: D1Database): Promise<boolean> 
   return row?.value !== 'false';
 }
 
+async function hasExactCubelicEmergencyStop(db: D1Database): Promise<boolean> {
+  const row = await db.prepare(
+    "SELECT 1 AS active FROM cubelic_system_flags WHERE key = 'emergency_stop' AND value = 'true'",
+  ).first<{ active: number }>();
+  return row?.active === 1;
+}
+
 export async function setCubelicEmergencyStop(db: D1Database, stopped: boolean, actor: string, audit: AuditInput): Promise<void> {
   const statement = db.prepare(
     "INSERT INTO cubelic_system_flags (key, value, updated_at, updated_by) VALUES ('emergency_stop', ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by",
@@ -1165,6 +1204,238 @@ export async function failCubelicPublicationJob(
     "UPDATE cubelic_publication_jobs SET status = 'failed', failure_code = ?, updated_at = ? WHERE job_id = ? AND status = 'publishing'",
   ).bind(input.failureCode, nowIso(), input.jobId);
   await runCubelicMutation(db, [statement], [audit]);
+}
+
+async function getCubelicPublicationReconciliationTarget(
+  db: D1Database,
+  jobId: string,
+): Promise<{ job: CubelicPublicationJob; draft: DraftCandidate }> {
+  if (!(await hasExactCubelicEmergencyStop(db))) {
+    throw new Error('Publication reconciliation requires the emergency stop');
+  }
+  const job = await getCubelicPublicationJob(db, jobId);
+  if (!job || job.status !== 'publishing' || job.postId !== null) {
+    throw new Error('Only an outcome-unknown publishing job can be reconciled');
+  }
+  const draft = await getCubelicDraft(db, job.draftId);
+  if (!draft || draft.approval_status !== 'approved') {
+    throw new Error('Publication reconciliation requires an approved draft');
+  }
+  return { job, draft };
+}
+
+function cubelicPublicationReconciliationAudits(
+  input: {
+    reconciliationId: string;
+    jobId: string;
+    outcome: 'not_published' | 'published';
+    actor: string;
+  },
+  mutationAudits: AuditInput[],
+  stopAudit: AuditInput,
+): AuditInput[] {
+  const correlationId = mutationAudits[0]?.correlationId ?? stopAudit.correlationId;
+  return [
+    {
+      actor: 'human',
+      action: 'publication.reconciliation_started',
+      entityType: 'publication_reconciliation',
+      entityId: input.reconciliationId,
+      before: {},
+      after: { jobId: input.jobId, outcome: input.outcome, actorId: input.actor },
+      correlationId,
+    },
+    ...mutationAudits,
+    {
+      actor: 'human',
+      action: 'publication.reconciliation_completed',
+      entityType: 'publication_reconciliation',
+      entityId: input.reconciliationId,
+      before: { status: 'pending' },
+      after: { status: 'completed' },
+      correlationId,
+    },
+    stopAudit,
+  ];
+}
+
+export async function reconcileCubelicPublicationNotPublished(
+  db: D1Database,
+  input: {
+    jobId: string;
+    actor: string;
+    retryIdempotencyKey: string;
+    failureCode: 'reconciled_no_matching_post';
+    evidence: {
+      recentPostsChecked: number;
+      postIdMatchFound: false;
+      fixedTextPrefixMatchFound: false;
+    };
+  },
+  audits: {
+    publication: AuditInput;
+    draft: AuditInput;
+    stop: AuditInput;
+  },
+): Promise<{ job: CubelicPublicationJob; retryIdempotencyKey: string }> {
+  if (
+    !Number.isInteger(input.evidence.recentPostsChecked)
+    || input.evidence.recentPostsChecked < 10
+    || input.evidence.postIdMatchFound !== false
+    || input.evidence.fixedTextPrefixMatchFound !== false
+  ) {
+    throw new Error('Publication reconciliation requires sufficient no-match evidence');
+  }
+  const { draft } = await getCubelicPublicationReconciliationTarget(db, input.jobId);
+  const timestamp = nowIso();
+  const reconciliationId = `rec_${crypto.randomUUID()}`;
+  const statements = [
+    db.prepare(
+      `INSERT INTO cubelic_publication_reconciliations (
+         reconciliation_id, job_id, outcome, status, actor,
+         recent_posts_checked, post_id_match_found, fixed_text_prefix_match_found,
+         retry_idempotency_key, post_id, published_at, created_at, completed_at
+       ) VALUES (?, ?, 'not_published', 'pending', ?, ?, 0, 0, ?, NULL, NULL, ?, NULL)`,
+    ).bind(
+      reconciliationId,
+      input.jobId,
+      input.actor,
+      input.evidence.recentPostsChecked,
+      input.retryIdempotencyKey,
+      timestamp,
+    ),
+    db.prepare(
+      `UPDATE cubelic_publication_jobs
+       SET status = 'failed', failure_code = ?, updated_at = ?
+       WHERE job_id = ? AND status = 'publishing' AND post_id IS NULL
+         AND EXISTS (
+           SELECT 1 FROM cubelic_publication_reconciliations
+           WHERE reconciliation_id = ? AND status = 'pending'
+         )`,
+    ).bind(input.failureCode, timestamp, input.jobId, reconciliationId),
+    db.prepare(
+      `UPDATE cubelic_draft_posts
+       SET idempotency_key = ?, updated_at = ?
+       WHERE draft_id = ? AND approval_status = 'approved' AND idempotency_key = ?
+         AND EXISTS (
+           SELECT 1
+           FROM cubelic_publication_reconciliations AS reconciliation
+           JOIN cubelic_publication_jobs AS publication
+             ON publication.job_id = reconciliation.job_id
+           WHERE reconciliation.reconciliation_id = ?
+             AND reconciliation.status = 'pending'
+             AND publication.status = 'failed'
+             AND publication.failure_code = ?
+         )`,
+    ).bind(
+      input.retryIdempotencyKey,
+      timestamp,
+      draft.draft_id,
+      draft.idempotency_key,
+      reconciliationId,
+      input.failureCode,
+    ),
+    db.prepare(
+      `UPDATE cubelic_publication_reconciliations
+       SET status = 'completed', completed_at = ?
+       WHERE reconciliation_id = ? AND status = 'pending'`,
+    ).bind(timestamp, reconciliationId),
+  ];
+  await runCubelicMutation(
+    db,
+    statements,
+    cubelicPublicationReconciliationAudits(
+      { reconciliationId, jobId: input.jobId, outcome: 'not_published', actor: input.actor },
+      [audits.publication, audits.draft],
+      audits.stop,
+    ),
+  );
+  const [updatedJob, updatedDraft, stopped] = await Promise.all([
+    getCubelicPublicationJob(db, input.jobId),
+    getCubelicDraft(db, draft.draft_id),
+    getCubelicEmergencyStop(db),
+  ]);
+  if (
+    !updatedJob
+    || updatedJob.status !== 'failed'
+    || updatedDraft?.idempotency_key !== input.retryIdempotencyKey
+    || !stopped
+  ) {
+    throw new Error('Publication reconciliation did not complete atomically');
+  }
+  return { job: updatedJob, retryIdempotencyKey: input.retryIdempotencyKey };
+}
+
+export async function reconcileCubelicPublicationPublished(
+  db: D1Database,
+  input: {
+    jobId: string;
+    actor: string;
+    postId: string;
+    publishedAt: string;
+  },
+  audits: {
+    publication: AuditInput;
+    stop: AuditInput;
+  },
+): Promise<CubelicPublicationJob> {
+  const normalizedPublishedAt = normalizeCubelicIso8601Timestamp(input.publishedAt);
+  if (
+    !/^[1-9][0-9]*$/.test(input.postId)
+    || !normalizedPublishedAt
+    || Date.parse(normalizedPublishedAt) > Date.now() + 5 * 60_000
+  ) {
+    throw new Error('Publication reconciliation requires valid published evidence');
+  }
+  await getCubelicPublicationReconciliationTarget(db, input.jobId);
+  const timestamp = nowIso();
+  const reconciliationId = `rec_${crypto.randomUUID()}`;
+  const statements = [
+    db.prepare(
+      `INSERT INTO cubelic_publication_reconciliations (
+         reconciliation_id, job_id, outcome, status, actor,
+         recent_posts_checked, post_id_match_found, fixed_text_prefix_match_found,
+         retry_idempotency_key, post_id, published_at, created_at, completed_at
+       ) VALUES (?, ?, 'published', 'pending', ?, NULL, NULL, NULL, NULL, ?, ?, ?, NULL)`,
+    ).bind(reconciliationId, input.jobId, input.actor, input.postId, normalizedPublishedAt, timestamp),
+    db.prepare(
+      `UPDATE cubelic_publication_jobs
+       SET status = 'published', post_id = ?, published_at = ?, updated_at = ?
+       WHERE job_id = ? AND status = 'publishing' AND post_id IS NULL
+         AND EXISTS (
+           SELECT 1 FROM cubelic_publication_reconciliations
+           WHERE reconciliation_id = ? AND status = 'pending'
+         )`,
+    ).bind(input.postId, normalizedPublishedAt, timestamp, input.jobId, reconciliationId),
+    db.prepare(
+      `UPDATE cubelic_publication_reconciliations
+       SET status = 'completed', completed_at = ?
+       WHERE reconciliation_id = ? AND status = 'pending'`,
+    ).bind(timestamp, reconciliationId),
+  ];
+  await runCubelicMutation(
+    db,
+    statements,
+    cubelicPublicationReconciliationAudits(
+      { reconciliationId, jobId: input.jobId, outcome: 'published', actor: input.actor },
+      [audits.publication],
+      audits.stop,
+    ),
+  );
+  const [updatedJob, stopped] = await Promise.all([
+    getCubelicPublicationJob(db, input.jobId),
+    getCubelicEmergencyStop(db),
+  ]);
+  if (
+    !updatedJob
+    || updatedJob.status !== 'published'
+    || updatedJob.postId !== input.postId
+    || updatedJob.publishedAt !== normalizedPublishedAt
+    || !stopped
+  ) {
+    throw new Error('Publication reconciliation did not complete atomically');
+  }
+  return updatedJob;
 }
 
 export interface PublishedPostMapping {

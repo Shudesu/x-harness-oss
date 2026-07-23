@@ -22,6 +22,7 @@ const migrationPaths = [
   fileURLToPath(new URL('../../../../packages/db/migrations/018-cubelic-content-os.sql', import.meta.url)),
   fileURLToPath(new URL('../../../../packages/db/migrations/019-cubelic-fail-closed-boundaries.sql', import.meta.url)),
   fileURLToPath(new URL('../../../../packages/db/migrations/020-cubelic-phase3-publication.sql', import.meta.url)),
+  fileURLToPath(new URL('../../../../packages/db/migrations/021-cubelic-publication-reconciliation.sql', import.meta.url)),
 ];
 
 describe('CUBΣLIC Worker API integration', () => {
@@ -227,6 +228,7 @@ describe('CUBΣLIC Worker API integration', () => {
       headers: {
         'content-type': 'application/json',
         'X-Human-Approval-Key': 'integration-human-key',
+        'X-Correlation-Id': 'corr_reconciliation_not_published_api',
       },
       body: JSON.stringify({
         text: '人間が確認したライブ予定です https://example.test/events/1',
@@ -362,6 +364,336 @@ describe('CUBΣLIC Worker API integration', () => {
     expect((await db.prepare(
       "SELECT COUNT(*) AS count FROM cubelic_audit_logs WHERE action IN ('manual_authority.created','draft.manual_created')",
     ).first<{ count: number }>())?.count).toBe(2);
+  });
+
+  it('reconciles a confirmed missing post into a failed job and a new retry identity while stopped', async () => {
+    bindings.CUBELIC_PHASE3_ENABLED = 'true';
+    bindings.PHASE3_RELEASE_APPROVED = 'true';
+    bindings.STAGING_PHASE3_SMOKE_VERIFIED = 'true';
+    bindings.CUBELIC_PHASE3_DELIVERY_MODE = 'staging_fake';
+    bindings.WORKER_URL = 'https://x-harness-worker-staging.yoshihiro-fukiya.workers.dev';
+
+    const manual = await request('/api/cubelic/manual-drafts', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+      },
+      body: JSON.stringify({
+        text: '結果不明の照合テストです https://example.test/reconciliation',
+        category: 'event_notice',
+        destinationUrl: 'https://example.test/reconciliation',
+        rightsConfirmed: true,
+        privacyReviewCompleted: true,
+        linkValidated: true,
+      }),
+    });
+    const draftId = ((await manual.json()) as { data: { draft_id: string } }).data.draft_id;
+    expect((await request(`/api/cubelic/drafts/${draftId}/approve`, {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': 'integration-human-key' },
+      body: '{}',
+    })).status).toBe(200);
+    const draft = await db.prepare(
+      'SELECT idempotency_key FROM cubelic_draft_posts WHERE draft_id = ?',
+    ).bind(draftId).first<{ idempotency_key: string }>();
+    const unknown = await createCubelicPublicationJob(db, {
+      draftId,
+      operation: 'publish',
+      authorizationKind: 'human_individual',
+      authorizedBy: 'staff_integration_operator',
+      authorizedAt: new Date().toISOString(),
+      idempotencyKey: `${draft!.idempotency_key}:publish`,
+    }, {
+      actor: 'human',
+      action: 'publication.started',
+      entityType: 'publication_job',
+      entityId: draftId,
+      before: {},
+      after: { draftId },
+      correlationId: 'corr_reconciliation_unknown',
+    });
+    await setCubelicEmergencyStop(db, true, 'integration-operator', {
+      actor: 'human',
+      action: 'system.emergency_stop',
+      entityType: 'system',
+      entityId: 'publishing',
+      before: { stopped: false },
+      after: { stopped: true },
+      correlationId: 'corr_reconciliation_stop',
+    });
+
+    const response = await request(`/api/cubelic/admin/publications/${unknown.jobId}/reconcile`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+        'X-Correlation-Id': 'corr_reconciliation_not_published_api',
+      },
+      body: JSON.stringify({
+        outcome: 'not_published',
+        evidence: {
+          recentPostsChecked: 10,
+          postIdMatchFound: false,
+          fixedTextPrefixMatchFound: false,
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        jobId: unknown.jobId,
+        outcome: 'not_published',
+        status: 'failed',
+        retryIdempotencyKey: expect.stringMatching(new RegExp(`^${draft!.idempotency_key}:retry:`)),
+      },
+    });
+    await expect((await request('/api/cubelic/admin/status')).json()).resolves.toMatchObject({
+      data: { emergencyStop: true, publishingEnabled: false, schedulingEnabled: false },
+    });
+    const audits = await db.prepare(
+      'SELECT action, before_json, after_json FROM cubelic_audit_logs WHERE correlation_id = ? ORDER BY action',
+    ).bind('corr_reconciliation_not_published_api').all<{
+      action: string;
+      before_json: string;
+      after_json: string;
+    }>();
+    expect(audits.results.map(({ action }) => action)).toEqual([
+      'draft.retry_idempotency_issued',
+      'publication.reconciled_failed',
+      'publication.reconciliation_completed',
+      'publication.reconciliation_started',
+      'system.reconciliation_stop_preserved',
+    ]);
+    expect(JSON.stringify(audits.results)).not.toContain('結果不明の照合テストです');
+    expect(JSON.stringify(audits.results)).not.toContain('Integration Operator');
+    await expect(db.prepare(
+      'SELECT actor FROM cubelic_publication_reconciliations WHERE job_id = ?',
+    ).bind(unknown.jobId).first()).resolves.toEqual({ actor: 'staff_integration_operator' });
+  });
+
+  it('reconciles a confirmed existing X post by completing the original job without another X write', async () => {
+    bindings.CUBELIC_PHASE3_ENABLED = 'true';
+    bindings.PHASE3_RELEASE_APPROVED = 'true';
+    bindings.STAGING_PHASE3_SMOKE_VERIFIED = 'true';
+    bindings.CUBELIC_PHASE3_DELIVERY_MODE = 'staging_fake';
+    bindings.WORKER_URL = 'https://x-harness-worker-staging.yoshihiro-fukiya.workers.dev';
+
+    const manual = await request('/api/cubelic/manual-drafts', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+      },
+      body: JSON.stringify({
+        text: '投稿済み照合テストです https://example.test/reconciliation/published',
+        category: 'event_notice',
+        destinationUrl: 'https://example.test/reconciliation/published',
+        rightsConfirmed: true,
+        privacyReviewCompleted: true,
+        linkValidated: true,
+      }),
+    });
+    const draftId = ((await manual.json()) as { data: { draft_id: string } }).data.draft_id;
+    expect((await request(`/api/cubelic/drafts/${draftId}/approve`, {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': 'integration-human-key' },
+      body: '{}',
+    })).status).toBe(200);
+    const draft = await db.prepare(
+      'SELECT idempotency_key FROM cubelic_draft_posts WHERE draft_id = ?',
+    ).bind(draftId).first<{ idempotency_key: string }>();
+    const unknown = await createCubelicPublicationJob(db, {
+      draftId,
+      operation: 'publish',
+      authorizationKind: 'human_individual',
+      authorizedBy: 'staff_integration_operator',
+      authorizedAt: new Date().toISOString(),
+      idempotencyKey: `${draft!.idempotency_key}:publish`,
+    }, {
+      actor: 'human',
+      action: 'publication.started',
+      entityType: 'publication_job',
+      entityId: draftId,
+      before: {},
+      after: { draftId },
+      correlationId: 'corr_reconciliation_published_unknown',
+    });
+    await setCubelicEmergencyStop(db, true, 'integration-operator', {
+      actor: 'human',
+      action: 'system.emergency_stop',
+      entityType: 'system',
+      entityId: 'publishing',
+      before: { stopped: false },
+      after: { stopped: true },
+      correlationId: 'corr_reconciliation_published_stop',
+    });
+    const future = await request(`/api/cubelic/admin/publications/${unknown.jobId}/reconcile`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+      },
+      body: JSON.stringify({
+        outcome: 'published',
+        postId: '2080209283598487956',
+        publishedAt: '2999-07-23T08:31:56.000Z',
+      }),
+    });
+    expect(future.status).toBe(422);
+    await expect(future.json()).resolves.toMatchObject({
+      code: 'reconciliation_published_evidence_invalid',
+    });
+    for (const invalidPublishedAt of ['2026-02-31T00:00:00Z', '2026-07-23T24:00:00Z']) {
+      const invalid = await request(`/api/cubelic/admin/publications/${unknown.jobId}/reconcile`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'X-Human-Approval-Key': 'integration-human-key',
+        },
+        body: JSON.stringify({
+          outcome: 'published',
+          postId: '2080209283598487956',
+          publishedAt: invalidPublishedAt,
+        }),
+      });
+      expect(invalid.status).toBe(422);
+      await expect(invalid.json()).resolves.toMatchObject({
+        code: 'reconciliation_published_evidence_invalid',
+      });
+    }
+    const publishedAtInput = '2026-07-23T17:31:56+09:00';
+    const publishedAt = '2026-07-23T08:31:56.000Z';
+    const response = await request(`/api/cubelic/admin/publications/${unknown.jobId}/reconcile`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+        'X-Correlation-Id': 'corr_reconciliation_published_api',
+      },
+      body: JSON.stringify({
+        outcome: 'published',
+        postId: '2080209283598487956',
+        publishedAt: publishedAtInput,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        jobId: unknown.jobId,
+        outcome: 'published',
+        status: 'published',
+        postId: '2080209283598487956',
+        publishedAt,
+      },
+    });
+    expect(publishPost).not.toHaveBeenCalled();
+    await expect((await request('/api/cubelic/admin/status')).json()).resolves.toMatchObject({
+      data: { emergencyStop: true, publishingEnabled: false, schedulingEnabled: false },
+    });
+    const audits = await db.prepare(
+      'SELECT action, before_json, after_json FROM cubelic_audit_logs WHERE correlation_id = ? ORDER BY action',
+    ).bind('corr_reconciliation_published_api').all<{
+      action: string;
+      before_json: string;
+      after_json: string;
+    }>();
+    expect(audits.results.map(({ action }) => action)).toEqual([
+      'publication.reconciled_published',
+      'publication.reconciliation_completed',
+      'publication.reconciliation_started',
+      'system.reconciliation_stop_preserved',
+    ]);
+    expect(JSON.stringify(audits.results)).not.toContain('投稿済み照合テストです');
+  });
+
+  it('fails reconciliation closed without a named human, approval proof, stop, or sufficient evidence', async () => {
+    const path = '/api/cubelic/admin/publications/pub_unknown/reconcile';
+    const validBody = JSON.stringify({
+      outcome: 'not_published',
+      evidence: {
+        recentPostsChecked: 10,
+        postIdMatchFound: false,
+        fixedTextPrefixMatchFound: false,
+      },
+    });
+    expect((await request(path, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+      },
+      body: validBody,
+    })).status).toBe(423);
+
+    await setCubelicEmergencyStop(db, true, 'integration-operator', {
+      actor: 'human',
+      action: 'system.emergency_stop',
+      entityType: 'system',
+      entityId: 'publishing',
+      before: { stopped: false },
+      after: { stopped: true },
+      correlationId: 'corr_reconciliation_auth_stop',
+    });
+    expect((await request(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: validBody,
+    })).status).toBe(403);
+    expect((await request(path, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+        'X-Test-Actor': 'hermes',
+      },
+      body: validBody,
+    })).status).toBe(403);
+    expect((await request(path, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+        'X-Test-Global': 'true',
+      },
+      body: validBody,
+    })).status).toBe(403);
+
+    const insufficient = await request(path, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+      },
+      body: JSON.stringify({
+        outcome: 'not_published',
+        evidence: {
+          recentPostsChecked: 9,
+          postIdMatchFound: false,
+          fixedTextPrefixMatchFound: false,
+        },
+      }),
+    });
+    expect(insufficient.status).toBe(422);
+    await expect(insufficient.json()).resolves.toMatchObject({
+      code: 'reconciliation_evidence_insufficient',
+    });
+
+    await db.prepare("DELETE FROM cubelic_system_flags WHERE key = 'emergency_stop'").run();
+    const missingStop = await request(path, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+      },
+      body: validBody,
+    });
+    expect(missingStop.status).toBe(423);
+    await expect(missingStop.json()).resolves.toMatchObject({
+      code: 'reconciliation_emergency_stop_state_invalid',
+    });
   });
 
   it('rejects expired and cross-event operation-window writes', async () => {

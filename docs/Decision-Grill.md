@@ -252,13 +252,13 @@
 
 ## DG-026 — Publication-outcome reconciliation API
 
-- Status: BLOCKING
+- Status: RESOLVED
 - Evidence: `apps/worker/src/cubelic/adapter.ts` retains an uncertain delivery as `publishing` and refuses every automatic retry; `docs/incidents/2026-07-23-first-phase3-publication.md` required a manual, audited D1 reconciliation before the approved retry; `docs/incident-response.md` does not define a public reconciliation contract.
 - Conflict/gap: The safe runtime behavior correctly prevents duplicate delivery, but no reviewed operator API exists to resolve an outcome-unknown job or issue a new retry identity while the emergency stop remains logically active.
 - Impact: Future X timeout recovery requires direct production D1 access, and the intended request schema, evidence threshold, operator authorization, published/not-published outcomes, and audit vocabulary are not yet a stable external contract.
 - Safest current behavior: Keep outcome-unknown jobs in `publishing`, keep the D1 emergency stop active, require read-only X reconciliation, and permit no retry until a named human separately authorizes a documented manual repair.
 - Needed answer: Approve a named-human-only `POST /api/cubelic/admin/publications/:jobId/reconcile` seam with two explicit outcomes: `not_published` requires at least ten recent posts checked and no post-id/fixed-prefix match, then atomically fails the job and issues a retry idempotency key while the externally visible stop remains active; `published` requires the confirmed X post id and timestamp, then completes the existing job without another X write.
-- Resolution: Pending.
+- Resolution: On 2026-07-23 the user explicitly answered “DG-026を承認します”. The approved seam is a named-human-only `POST /api/cubelic/admin/publications/:jobId/reconcile` route. It accepts only `not_published` with at least ten checked posts and explicit no-match evidence, or `published` with a numeric X post id and ISO 8601 publication timestamp normalized to UTC. Migration 021 gives each job one persistent reconciliation record and narrowly permits only the matching reconciliation transition while the D1 emergency-stop value remains `true`; duplicate or incomplete attempts roll back. The operation performs no X write and atomically changes the job, retry identity when applicable, reconciliation record, and append-only audits.
 
 ## DG-027 — Boundary checker rejected the approved Phase 3 release
 

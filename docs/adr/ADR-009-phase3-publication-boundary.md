@@ -17,6 +17,17 @@ Immediate publication requires an individually approved draft and a named human 
 
 Persist publication intent before calling X. An unresolved `publishing` job is never retried automatically because the external outcome may be unknown. Scheduled execution is claimed once and audited. Manual production input requires a versioned human-attestation record.
 
+An outcome-unknown job may be reconciled only through the DG-026
+named-human administration route while the D1 emergency stop is active.
+`not_published` requires evidence that at least ten recent posts were checked
+and neither the expected post id nor fixed-text prefix matched; it atomically
+marks the job failed and gives the approved draft a new retry idempotency key.
+`published` requires the confirmed numeric X post id and ISO 8601 publication
+time and completes the existing job. Reconciliation performs no X write and
+never changes the D1 emergency-stop value. Migration 021 uses one persistent,
+unique reconciliation record per publication job to guard the narrow stopped
+transition and make duplicate or partial attempts roll back.
+
 The first release supports text-only X delivery. CUBΣLIC media identifiers are not X media identifiers, so media publication remains blocked until a reviewed R2-to-X upload and reconciliation contract exists.
 
 Staging may use `CUBELIC_PHASE3_DELIVERY_MODE=staging_fake` only when
@@ -30,4 +41,4 @@ delivery modes disable Phase 3.
 - Phase 1 production behavior remains unchanged by default.
 - Normal Phase 3 operation may keep the D1 stop disengaged, but missing or malformed stop state still fails closed.
 - Cron may be installed while Phase 3 is disabled because the handler performs no work unless all enable conditions pass.
-- Production enablement requires migration 020, Phase 3 staging smoke, explicit release approval, and reviewed category/template allowlists.
+- Production enablement requires migrations 020 and 021, Phase 3 staging smoke, explicit release approval, and reviewed category/template allowlists.

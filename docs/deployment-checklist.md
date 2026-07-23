@@ -18,7 +18,12 @@
 
 ## Staging validation
 
-1. Run `pnpm check`, apply `018-cubelic-content-os.sql`, `019-cubelic-fail-closed-boundaries.sql`, then `020-cubelic-phase3-publication.sql` to staging D1, then run `STAGING_WORKER_URL=... STAGING_API_KEY=... pnpm smoke:staging` from an approved secret-bearing shell.
+1. Run `pnpm check`, apply `018-cubelic-content-os.sql`,
+   `019-cubelic-fail-closed-boundaries.sql`,
+   `020-cubelic-phase3-publication.sql`, then
+   `021-cubelic-publication-reconciliation.sql` to staging D1, then run
+   `STAGING_WORKER_URL=... STAGING_API_KEY=... pnpm smoke:staging` from an
+   approved secret-bearing shell.
 2. Import redacted master fixtures, then ingest a redacted real GAS setlist and confirm exactly one Content Item plus no more than three drafts; an unknown id/title must be rejected.
 3. Ingest a redacted real Resolve sidecar and verify duplicate hash, rights and privacy failures.
 4. Confirm Hermes cannot edit, approve, reject, stop/resume, schedule or publish.
@@ -43,7 +48,9 @@
 
 Phase 3 is default-disabled. Do not combine its first enablement with unrelated migrations or UI changes.
 
-1. Apply migration `020-cubelic-phase3-publication.sql` to staging and keep both stops active.
+1. Apply migrations `020-cubelic-phase3-publication.sql` and
+   `021-cubelic-publication-reconciliation.sql` to staging and keep both stops
+   active.
 2. Configure `CUBELIC_PHASE3_DELIVERY_MODE=staging_fake` only on the dedicated staging Worker, then configure exact reviewed `category:template_id` pairs in `CUBELIC_PHASE3_SCHEDULE_POLICIES`. Only `event_notice`, `event_reminder`, and `youtube_notice` may be allowlisted.
 3. Set `CUBELIC_PHASE3_ENABLED=true` and `GLOBAL_PUBLISHING_DISABLED=false` in staging, then use the human approval key to resume the D1 stop.
 4. Create a named admin/editor staff credential and sign in with that staff API key. The shared environment `API_KEY` may inspect the system but cannot attest manual production input, approve a Phase 3 draft, or publish immediately.
@@ -52,5 +59,6 @@ Phase 3 is default-disabled. Do not combine its first enablement with unrelated 
 7. Schedule one allowlisted fixture through Hermes and verify Cron claims it once. Stop the system before another due run and verify no X call occurs. Simulate an X timeout and verify the job remains `publishing` with `publication.outcome_unknown`, never an automatic retry.
 8. Set `STAGING_PHASE3_SMOKE_VERIFIED=true` only after the preceding checks pass.
 9. Run production preflight with `CUBELIC_PHASE3_ENABLED=true`, `CUBELIC_PHASE3_DELIVERY_MODE=x`, `GLOBAL_PUBLISHING_DISABLED=false`, `PHASE3_RELEASE_APPROVED=true`, the reviewed policies, and `STAGING_PHASE3_SMOKE_VERIFIED=true`. Production must reject `staging_fake`.
-10. Back up D1, apply migration 020, deploy Worker, verify Cron and `/api/cubelic/admin/status`, then deploy the operator UI.
+10. Back up D1, apply migrations 020 and 021, deploy Worker, verify Cron and
+    `/api/cubelic/admin/status`, then deploy the operator UI.
 11. Resume the D1 stop only when a named operator is present. Publish one human-approved text draft, verify the returned X post manually, and keep the emergency-stop control visible throughout.

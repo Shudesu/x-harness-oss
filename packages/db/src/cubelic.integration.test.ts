@@ -32,6 +32,8 @@ import {
   listCubelicDrafts,
   reserveCubelicDraftApproval,
   recordCubelicRejections,
+  reconcileCubelicPublicationNotPublished,
+  reconcileCubelicPublicationPublished,
   setCubelicDraftDecision,
   setCubelicEmergencyStop,
   setCubelicOperationWindow,
@@ -46,6 +48,7 @@ const migrationPaths = [
   fileURLToPath(new URL('../migrations/018-cubelic-content-os.sql', import.meta.url)),
   fileURLToPath(new URL('../migrations/019-cubelic-fail-closed-boundaries.sql', import.meta.url)),
   fileURLToPath(new URL('../migrations/020-cubelic-phase3-publication.sql', import.meta.url)),
+  fileURLToPath(new URL('../migrations/021-cubelic-publication-reconciliation.sql', import.meta.url)),
 ];
 
 function audit(action: string, entityId: string): AuditInput {
@@ -111,6 +114,46 @@ const mediaFixture: MediaAsset = {
   quality: { video_ok: true, audio_ok: true, sync_ok: true, score: 90 },
   status: 'approved_for_draft',
 };
+
+async function createOutcomeUnknownPublicationFixture(db: D1Database) {
+  await setCubelicEmergencyStop(db, false, 'integration-operator', audit('system.emergency_resume', 'reconciliation_fixture'));
+  await createCubelicEvent(db, eventFixture, audit('event.created', eventFixture.event_id));
+  await createCubelicContent(db, contentFixture, audit('content.created', contentFixture.content_id));
+  await upsertCubelicSongMaster(db, {
+    schema_version: 'cubelic.song-master.v1',
+    generated_at: '2026-07-21T18:00:00+09:00',
+    songs: [{ song_id: 'song_d1_1', title: 'Integration Song', aliases: [], active: true }],
+  }, [audit('song_master.upserted', 'song_d1_1')]);
+  const generated = await generateSetlistDrafts({
+    setlist: setlistFixture,
+    content: contentFixture,
+    event: eventFixture,
+    now: '2026-07-21T20:45:00+09:00',
+  });
+  const drafts = await createCubelicDrafts(
+    db,
+    generated,
+    generated.map((draft) => audit('draft.created', draft.draft_id)),
+  );
+  const draft = drafts[0]!;
+  await reserveCubelicDraftApproval(
+    db,
+    draft.draft_id,
+    'integration-operator',
+    audit('draft.approval_reserved', draft.draft_id),
+  );
+  const job = await createCubelicPublicationJob(db, {
+    draftId: draft.draft_id,
+    operation: 'publish',
+    authorizationKind: 'human_individual',
+    authorizedBy: 'integration-operator',
+    authorizedAt: '2026-07-23T01:04:00.000Z',
+    idempotencyKey: `${draft.idempotency_key}:publish`,
+  }, audit('publication.started', draft.draft_id));
+  await setCubelicEmergencyStop(db, true, 'integration-operator', audit('system.emergency_stop', 'reconciliation_fixture'));
+  return { draft, job };
+}
+
 describe('CUBΣLIC D1 integration', () => {
   let miniflare: Miniflare;
   let db: D1Database;
@@ -368,6 +411,186 @@ describe('CUBΣLIC D1 integration', () => {
       scheduledAt: '2026-07-26T01:00:00.000Z',
       idempotencyKey: `${draft.idempotency_key}:schedule`,
     }, audit('publication.scheduled', draft.draft_id))).rejects.toThrow(/emergency stop active/);
+  });
+
+  it('rolls back reconciliation state when its append-only audit cannot be committed', async () => {
+    const { draft, job } = await createOutcomeUnknownPublicationFixture(db);
+    const retryIdempotencyKey = `${draft.idempotency_key}:retry:atomicity-test`;
+    const invalidAudit = {
+      actor: 'invalid' as 'human',
+      action: 'publication.reconciled_failed',
+      entityType: 'publication_job',
+      entityId: job.jobId,
+      before: { status: 'publishing' },
+      after: { status: 'failed' },
+      correlationId: 'corr_reconciliation_atomicity',
+    };
+
+    await expect(reconcileCubelicPublicationNotPublished(db, {
+      jobId: job.jobId,
+      actor: 'integration-operator',
+      retryIdempotencyKey,
+      failureCode: 'reconciled_no_matching_post',
+      evidence: {
+        recentPostsChecked: 10,
+        postIdMatchFound: false,
+        fixedTextPrefixMatchFound: false,
+      },
+    }, {
+      publication: invalidAudit,
+      draft: audit('draft.retry_idempotency_issued', draft.draft_id),
+      stop: audit('system.reconciliation_stop_preserved', 'publishing'),
+    })).rejects.toThrow();
+
+    await expect(getCubelicPublicationJob(db, job.jobId)).resolves.toMatchObject({
+      status: 'publishing',
+      postId: null,
+      failureCode: null,
+    });
+    await expect(getCubelicEmergencyStop(db)).resolves.toBe(true);
+    await expect(listCubelicDrafts(db)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        draft_id: draft.draft_id,
+        idempotency_key: draft.idempotency_key,
+      }),
+    ]));
+  });
+
+  it('allows only one atomic reconciliation and never changes the stop flag', async () => {
+    const { draft, job } = await createOutcomeUnknownPublicationFixture(db);
+    const stopBefore = await db.prepare(
+      "SELECT value, updated_at, updated_by FROM cubelic_system_flags WHERE key = 'emergency_stop'",
+    ).first<{ value: string; updated_at: string; updated_by: string }>();
+    const reconcile = (suffix: string) => reconcileCubelicPublicationNotPublished(db, {
+      jobId: job.jobId,
+      actor: `integration-operator-${suffix}`,
+      retryIdempotencyKey: `${draft.idempotency_key}:retry:${suffix}`,
+      failureCode: 'reconciled_no_matching_post',
+      evidence: {
+        recentPostsChecked: 10,
+        postIdMatchFound: false,
+        fixedTextPrefixMatchFound: false,
+      },
+    }, {
+      publication: { ...audit('publication.reconciled_failed', job.jobId), correlationId: `corr_reconcile_${suffix}` },
+      draft: { ...audit('draft.retry_idempotency_issued', draft.draft_id), correlationId: `corr_reconcile_${suffix}` },
+      stop: { ...audit('system.reconciliation_stop_preserved', 'publishing'), correlationId: `corr_reconcile_${suffix}` },
+    });
+
+    await expect(reconcile('a')).resolves.toMatchObject({
+      job: { status: 'failed' },
+    });
+    await expect(reconcile('b')).rejects.toThrow(/outcome-unknown publishing job/);
+    expect((await db.prepare(
+      'SELECT COUNT(*) AS count FROM cubelic_publication_reconciliations',
+    ).first<{ count: number }>())?.count).toBe(1);
+    expect((await db.prepare(
+      "SELECT COUNT(*) AS count FROM cubelic_audit_logs WHERE action = 'publication.reconciliation_started'",
+    ).first<{ count: number }>())?.count).toBe(1);
+    expect((await db.prepare(
+      "SELECT COUNT(*) AS count FROM cubelic_audit_logs WHERE action = 'publication.reconciliation_completed'",
+    ).first<{ count: number }>())?.count).toBe(1);
+    await expect(db.prepare(
+      "SELECT value, updated_at, updated_by FROM cubelic_system_flags WHERE key = 'emergency_stop'",
+    ).first()).resolves.toEqual(stopBefore);
+  });
+
+  it('normalizes a directly reconciled published timestamp to UTC', async () => {
+    const { job } = await createOutcomeUnknownPublicationFixture(db);
+    await expect(reconcileCubelicPublicationPublished(db, {
+      jobId: job.jobId,
+      actor: 'staff_integration_operator',
+      postId: '2080209283598487956',
+      publishedAt: '2026-07-23T17:31:56+09:00',
+    }, {
+      publication: audit('publication.reconciled_published', job.jobId),
+      stop: audit('system.reconciliation_stop_preserved', 'publishing'),
+    })).resolves.toMatchObject({
+      status: 'published',
+      publishedAt: '2026-07-23T08:31:56.000Z',
+    });
+    await expect(db.prepare(
+      'SELECT published_at FROM cubelic_publication_reconciliations WHERE job_id = ?',
+    ).bind(job.jobId).first()).resolves.toEqual({
+      published_at: '2026-07-23T08:31:56.000Z',
+    });
+  });
+
+  it('rejects reconciliation when the D1 stop row is missing or invalid', async () => {
+    const { draft, job } = await createOutcomeUnknownPublicationFixture(db);
+    const notPublished = () => reconcileCubelicPublicationNotPublished(db, {
+      jobId: job.jobId,
+      actor: 'integration-operator',
+      retryIdempotencyKey: `${draft.idempotency_key}:retry:invalid-stop`,
+      failureCode: 'reconciled_no_matching_post',
+      evidence: {
+        recentPostsChecked: 10,
+        postIdMatchFound: false,
+        fixedTextPrefixMatchFound: false,
+      },
+    }, {
+      publication: audit('publication.reconciled_failed', job.jobId),
+      draft: audit('draft.retry_idempotency_issued', draft.draft_id),
+      stop: audit('system.reconciliation_stop_preserved', 'publishing'),
+    });
+    const published = () => reconcileCubelicPublicationPublished(db, {
+      jobId: job.jobId,
+      actor: 'integration-operator',
+      postId: '2080209283598487956',
+      publishedAt: '2026-07-23T08:31:56.000Z',
+    }, {
+      publication: audit('publication.reconciled_published', job.jobId),
+      stop: audit('system.reconciliation_stop_preserved', 'publishing'),
+    });
+
+    await db.prepare("DELETE FROM cubelic_system_flags WHERE key = 'emergency_stop'").run();
+    await expect(notPublished()).rejects.toThrow(/requires the emergency stop/);
+    await expect(published()).rejects.toThrow(/requires the emergency stop/);
+    await db.prepare(
+      `INSERT INTO cubelic_system_flags (key, value, updated_at, updated_by)
+       VALUES ('emergency_stop', 'invalid', ?, ?)`,
+    ).bind(new Date().toISOString(), 'integration-operator').run();
+    await expect(notPublished()).rejects.toThrow(/requires the emergency stop/);
+    await expect(published()).rejects.toThrow(/requires the emergency stop/);
+    expect((await db.prepare(
+      'SELECT COUNT(*) AS count FROM cubelic_publication_reconciliations',
+    ).first<{ count: number }>())?.count).toBe(0);
+  });
+
+  it('rolls back a stopped draft transition that does not match the recorded retry identity', async () => {
+    const { draft, job } = await createOutcomeUnknownPublicationFixture(db);
+    const timestamp = new Date().toISOString();
+    await expect(db.batch([
+      db.prepare(
+        `INSERT INTO cubelic_publication_reconciliations (
+           reconciliation_id, job_id, outcome, status, actor,
+           recent_posts_checked, post_id_match_found, fixed_text_prefix_match_found,
+           retry_idempotency_key, post_id, published_at, created_at, completed_at
+         ) VALUES (?, ?, 'not_published', 'pending', ?, 10, 0, 0, ?, NULL, NULL, ?, NULL)`,
+      ).bind(
+        'rec_wrong_retry',
+        job.jobId,
+        'staff_integration_operator',
+        `${draft.idempotency_key}:retry:expected`,
+        timestamp,
+      ),
+      db.prepare(
+        `UPDATE cubelic_publication_jobs
+         SET status = 'failed', failure_code = 'reconciled_no_matching_post', updated_at = ?
+         WHERE job_id = ?`,
+      ).bind(timestamp, job.jobId),
+      db.prepare(
+        'UPDATE cubelic_draft_posts SET idempotency_key = ?, updated_at = ? WHERE draft_id = ?',
+      ).bind(`${draft.idempotency_key}:retry:wrong`, timestamp, draft.draft_id),
+    ])).rejects.toThrow(/emergency stop active/);
+
+    await expect(getCubelicPublicationJob(db, job.jobId)).resolves.toMatchObject({
+      status: 'publishing',
+      failureCode: null,
+    });
+    expect((await db.prepare(
+      'SELECT COUNT(*) AS count FROM cubelic_publication_reconciliations',
+    ).first<{ count: number }>())?.count).toBe(0);
   });
 
   it('persists only canonical drafts and makes adapter handoff idempotent', async () => {

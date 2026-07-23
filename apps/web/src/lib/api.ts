@@ -477,6 +477,36 @@ export interface CubelicSystemStatus {
   schedulingEnabled: boolean;
 }
 
+export type CubelicPublicationReconciliationInput =
+  | {
+    outcome: 'not_published';
+    evidence: {
+      recentPostsChecked: number;
+      postIdMatchFound: false;
+      fixedTextPrefixMatchFound: false;
+    };
+  }
+  | {
+    outcome: 'published';
+    postId: string;
+    publishedAt: string;
+  };
+
+export type CubelicPublicationReconciliationResult =
+  | {
+    jobId: string;
+    outcome: 'not_published';
+    status: 'failed';
+    retryIdempotencyKey: string;
+  }
+  | {
+    jobId: string;
+    outcome: 'published';
+    status: 'published';
+    postId: string;
+    publishedAt: string;
+  };
+
 export const cubelicApi = {
   manualDrafts: {
     create: (
@@ -530,5 +560,19 @@ export const cubelicApi = {
     resume: (humanApprovalKey: string) => fetchApi<ApiResponse<{ stopped: false }>>('/api/cubelic/admin/emergency-resume', {
       method: 'POST', headers: { 'X-Human-Approval-Key': humanApprovalKey }, body: '{}',
     }),
+  },
+  publications: {
+    reconcile: (
+      jobId: string,
+      input: CubelicPublicationReconciliationInput,
+      humanApprovalKey: string,
+    ) => fetchApi<ApiResponse<CubelicPublicationReconciliationResult>>(
+      `/api/cubelic/admin/publications/${encodeURIComponent(jobId)}/reconcile`,
+      {
+        method: 'POST',
+        headers: { 'X-Human-Approval-Key': humanApprovalKey },
+        body: JSON.stringify(input),
+      },
+    ),
   },
 };

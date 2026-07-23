@@ -43,6 +43,7 @@ import {
   getCubelicOperationWindow,
   getCubelicMemberMasterEntry,
   getCubelicPublishedPostMapping,
+  getCubelicPublicationJob,
   getCubelicRejectionSummary,
   getCubelicSongMasterEntry,
   getCubelicSetlistForEvent,
@@ -50,8 +51,11 @@ import {
   listCubelicContent,
   listCubelicDrafts,
   listCubelicEvents,
+  normalizeCubelicIso8601Timestamp,
   saveCubelicMetrics,
   recordCubelicRejections,
+  reconcileCubelicPublicationNotPublished,
+  reconcileCubelicPublicationPublished,
   reserveCubelicDraftApproval,
   setCubelicDraftDecision,
   setCubelicEmergencyStop,
@@ -288,7 +292,8 @@ function isEmergencyAdmin(path: string): boolean {
   return path === '/api/cubelic/admin/emergency-stop'
     || path === '/api/cubelic/admin/emergency-resume'
     || path === '/api/cubelic/admin/operation-window'
-    || path === '/api/cubelic/admin/operator-bootstrap';
+    || path === '/api/cubelic/admin/operator-bootstrap'
+    || /^\/api\/cubelic\/admin\/publications\/[^/]+\/reconcile$/.test(path);
 }
 
 const OPERATION_WINDOW_UNSCOPED_WRITES = new Set([
@@ -1204,6 +1209,179 @@ cubelic.get('/api/cubelic/admin/status', async (c) => c.json({
       && !(await getCubelicEmergencyStop(c.env.DB)),
   },
 }));
+
+cubelic.post('/api/cubelic/admin/publications/:jobId/reconcile', async (c) => {
+  try {
+    const denied = await requireNamedHumanApproval(c);
+    if (denied) return denied;
+    const stopState = await c.env.DB.prepare(
+      "SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'",
+    ).first<{ value: string }>();
+    if (!stopState || !['true', 'false'].includes(stopState.value)) {
+      return c.json({
+        success: false,
+        error: 'Publication reconciliation requires a valid database emergency-stop state',
+        code: 'reconciliation_emergency_stop_state_invalid',
+      }, 423);
+    }
+    if (stopState.value !== 'true') {
+      return c.json({
+        success: false,
+        error: 'Publication reconciliation requires the database emergency stop',
+        code: 'reconciliation_requires_emergency_stop',
+      }, 423);
+    }
+    const body = await c.req.json<{
+      outcome?: string;
+      postId?: string;
+      publishedAt?: string;
+      evidence?: {
+        recentPostsChecked?: number;
+        postIdMatchFound?: boolean;
+        fixedTextPrefixMatchFound?: boolean;
+      };
+    }>();
+    if (!['not_published', 'published'].includes(body.outcome ?? '')) {
+      throw new PublicationPolicyError('reconciliation_outcome_invalid', 'A supported reconciliation outcome is required');
+    }
+    if (body.outcome === 'not_published' && (
+      !Number.isInteger(body.evidence?.recentPostsChecked)
+      || body.evidence!.recentPostsChecked! < 10
+      || body.evidence?.postIdMatchFound !== false
+      || body.evidence?.fixedTextPrefixMatchFound !== false
+    )) {
+      throw new PublicationPolicyError(
+        'reconciliation_evidence_insufficient',
+        'At least ten checked posts and explicit no-match evidence are required',
+      );
+    }
+    const jobId = c.req.param('jobId');
+    const existingJob = await getCubelicPublicationJob(c.env.DB, jobId);
+    if (!existingJob) return c.json({ success: false, error: 'Publication job not found' }, 404);
+    if (existingJob.status !== 'publishing' || existingJob.postId !== null) {
+      return c.json({
+        success: false,
+        error: 'Only an outcome-unknown publishing job can be reconciled',
+        code: 'publication_not_reconcilable',
+      }, 409);
+    }
+    const existingDraft = await getCubelicDraft(c.env.DB, existingJob.draftId);
+    if (!existingDraft || existingDraft.approval_status !== 'approved') {
+      return c.json({
+        success: false,
+        error: 'Publication reconciliation requires an approved draft',
+        code: 'publication_draft_not_reconcilable',
+      }, 409);
+    }
+    if (body.outcome === 'published') {
+      const publishedAt = body.publishedAt
+        ? normalizeCubelicIso8601Timestamp(body.publishedAt)
+        : null;
+      if (
+        !body.postId
+        || !/^[1-9][0-9]*$/.test(body.postId)
+        || !publishedAt
+        || Date.parse(publishedAt) > Date.now() + 5 * 60_000
+      ) {
+        throw new PublicationPolicyError(
+          'reconciliation_published_evidence_invalid',
+          'A numeric X post id and valid ISO 8601 publication timestamp are required',
+        );
+      }
+      const result = await reconcileCubelicPublicationPublished(c.env.DB, {
+        jobId,
+        actor: namedHumanId(c),
+        postId: body.postId,
+        publishedAt,
+      }, {
+        publication: {
+          actor: 'human',
+          action: 'publication.reconciled_published',
+          entityType: 'publication_job',
+          entityId: jobId,
+          before: { status: 'publishing', postId: null },
+          after: { status: 'published', postId: body.postId, publishedAt },
+          correlationId: correlationId(c),
+        },
+        stop: {
+          actor: 'human',
+          action: 'system.reconciliation_stop_preserved',
+          entityType: 'system',
+          entityId: 'publishing',
+          before: { stopped: true },
+          after: { stopped: true },
+          correlationId: correlationId(c),
+        },
+      });
+      return c.json({
+        success: true,
+        data: {
+          jobId: result.jobId,
+          outcome: 'published',
+          status: result.status,
+          postId: result.postId,
+          publishedAt: result.publishedAt,
+        },
+      });
+    }
+    const evidence = {
+      recentPostsChecked: body.evidence!.recentPostsChecked!,
+      postIdMatchFound: false as const,
+      fixedTextPrefixMatchFound: false as const,
+    };
+    const retryIdempotencyKey = `${existingDraft.idempotency_key}:retry:${crypto.randomUUID()}`;
+    const result = await reconcileCubelicPublicationNotPublished(c.env.DB, {
+      jobId,
+      actor: namedHumanId(c),
+      retryIdempotencyKey,
+      failureCode: 'reconciled_no_matching_post',
+      evidence,
+    }, {
+      publication: {
+        actor: 'human',
+        action: 'publication.reconciled_failed',
+        entityType: 'publication_job',
+        entityId: jobId,
+        before: { status: 'publishing', postId: null },
+        after: {
+          status: 'failed',
+          failureCode: 'reconciled_no_matching_post',
+          recentPostsChecked: evidence.recentPostsChecked,
+          postIdMatchFound: false,
+          fixedTextPrefixMatchFound: false,
+        },
+        correlationId: correlationId(c),
+      },
+      draft: {
+        actor: 'human',
+        action: 'draft.retry_idempotency_issued',
+        entityType: 'draft',
+        entityId: existingDraft.draft_id,
+        before: { idempotencyKey: existingDraft.idempotency_key },
+        after: { idempotencyKey: retryIdempotencyKey },
+        correlationId: correlationId(c),
+      },
+      stop: {
+        actor: 'human',
+        action: 'system.reconciliation_stop_preserved',
+        entityType: 'system',
+        entityId: 'publishing',
+        before: { stopped: true },
+        after: { stopped: true },
+        correlationId: correlationId(c),
+      },
+    });
+    return c.json({
+      success: true,
+      data: {
+        jobId: result.job.jobId,
+        outcome: 'not_published',
+        status: result.job.status,
+        retryIdempotencyKey: result.retryIdempotencyKey,
+      },
+    });
+  } catch (error) { return apiError(c, error); }
+});
 
 cubelic.post('/api/cubelic/admin/operator-bootstrap', async (c) => {
   try {
