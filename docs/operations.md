@@ -17,6 +17,7 @@ Phase 1 creates, reviews and measures content. It does not publish, schedule, de
 ## Daily flow
 
 1. Import the human-approved song/member masters, then ingest an event and its setlist/media metadata through the versioned contracts. Unknown/inactive song ids and title mismatches fail closed.
+   Run `pnpm validate:production-inputs` first. Configure `RESOLVE_EXPORT_ALLOWED_ROOTS` with the approved absolute parent directories; test fixtures, known fixture placeholders, nonexistent roots, allowlist escapes and symlink escapes are rejected without printing local paths.
 2. Validate media and rights evidence. Unknown or expired evidence blocks generation/approval.
 3. Generate up to three deterministic drafts. Inspect quality, freshness, privacy and similarity flags.
 4. An admin/editor reviews `/cubelic`, edits if needed, then approves with the human approval key.
