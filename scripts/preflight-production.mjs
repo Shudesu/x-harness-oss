@@ -83,6 +83,8 @@ if (corsOrigins.includes('https://cubelic-fan.com')) {
 }
 
 const wrangler = await readFile(join(root, 'apps/worker/wrangler.toml'), 'utf8');
+const productionVars = wrangler.match(/\[env\.production\.vars\]([\s\S]*?)(?=\n\[|$)/)?.[1] ?? '';
+const productionVar = (name) => productionVars.match(new RegExp(`^${name}\\s*=\\s*"([^"]*)"$`, 'm'))?.[1];
 if (/YOUR_D1_DATABASE_ID/.test(wrangler)) errors.push('wrangler.toml still contains the D1 database-id placeholder');
 if (/your-subdomain\.workers\.dev/.test(wrangler)) errors.push('wrangler.toml still contains the Worker URL placeholder');
 if (/X_HARNESS_ACCOUNT_ID\s*=\s*"SET_AFTER_ACCOUNT_SETUP"/.test(wrangler)) errors.push('wrangler.toml still contains the X account placeholder');
@@ -91,10 +93,21 @@ if (!/CORS_ALLOWED_ORIGINS\s*=\s*"https:\/\/ops\.cubelic-fan\.com"/.test(wrangle
   errors.push('wrangler.toml does not bind production CORS to the approved operator UI origin');
 }
 if (!/^CUBELIC_SAFE_MODE\s*=\s*"true"$/m.test(wrangler)) errors.push('wrangler.toml does not default CUBELIC_SAFE_MODE to true');
-if (!/^CUBELIC_PHASE3_ENABLED\s*=\s*"false"$/m.test(wrangler)) errors.push('wrangler.toml does not default CUBELIC_PHASE3_ENABLED to false');
-if (!/^PHASE3_RELEASE_APPROVED\s*=\s*"false"$/m.test(wrangler)) errors.push('wrangler.toml does not default PHASE3_RELEASE_APPROVED to false');
-if (!/^STAGING_PHASE3_SMOKE_VERIFIED\s*=\s*"false"$/m.test(wrangler)) errors.push('wrangler.toml does not default STAGING_PHASE3_SMOKE_VERIFIED to false');
-if (!/^GLOBAL_PUBLISHING_DISABLED\s*=\s*"true"$/m.test(wrangler)) errors.push('wrangler.toml does not default GLOBAL_PUBLISHING_DISABLED to true');
+if (phase3Enabled) {
+  const expectedProductionVars = {
+    CUBELIC_PHASE3_ENABLED: 'true',
+    CUBELIC_PHASE3_DELIVERY_MODE: 'x',
+    CUBELIC_PHASE3_SCHEDULE_POLICIES: process.env.CUBELIC_PHASE3_SCHEDULE_POLICIES,
+    PHASE3_RELEASE_APPROVED: 'true',
+    STAGING_PHASE3_SMOKE_VERIFIED: 'true',
+    GLOBAL_PUBLISHING_DISABLED: 'false',
+  };
+  for (const [name, expected] of Object.entries(expectedProductionVars)) {
+    if (productionVar(name) !== expected) {
+      errors.push(`wrangler production ${name} does not match the approved Phase 3 release value`);
+    }
+  }
+}
 
 if (errors.length) {
   console.error(`Production preflight is blocked (${errors.length}):\n- ${errors.join('\n- ')}`);

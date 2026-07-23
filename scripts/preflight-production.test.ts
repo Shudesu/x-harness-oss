@@ -87,10 +87,23 @@ describe('production preflight phase boundaries', () => {
       GLOBAL_PUBLISHING_DISABLED: 'false',
       PHASE3_RELEASE_APPROVED: 'true',
       STAGING_PHASE3_SMOKE_VERIFIED: 'true',
-      CUBELIC_PHASE3_SCHEDULE_POLICIES: 'event_notice:event_notice_v1,event_reminder:event_reminder_v1',
+      CUBELIC_PHASE3_SCHEDULE_POLICIES: 'event_notice:event_notice_manual_v1',
     });
     expect(approved.status).toBe(0);
     expect(approved.stdout).toContain('Phase 3 publication capability');
+
+    const mismatchedDeployment = preflight({
+      CUBELIC_PHASE3_ENABLED: 'true',
+      CUBELIC_PHASE3_DELIVERY_MODE: 'x',
+      GLOBAL_PUBLISHING_DISABLED: 'false',
+      PHASE3_RELEASE_APPROVED: 'true',
+      STAGING_PHASE3_SMOKE_VERIFIED: 'true',
+      CUBELIC_PHASE3_SCHEDULE_POLICIES: 'youtube_notice:youtube_notice_manual_v1',
+    });
+    expect(mismatchedDeployment.status).toBe(1);
+    expect(mismatchedDeployment.stderr).toContain(
+      'wrangler production CUBELIC_PHASE3_SCHEDULE_POLICIES does not match',
+    );
 
     const fakeProduction = preflight({
       CUBELIC_PHASE3_ENABLED: 'true',
