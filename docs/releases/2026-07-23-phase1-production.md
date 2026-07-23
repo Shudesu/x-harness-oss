@@ -15,7 +15,7 @@
 - Worker version: `639d6d2b-3caa-4940-b1fb-0e5a941e38d8`
 - D1: `x-harness-production` (`ef612e3b-60bf-425f-9dc3-ad0e11d13798`)
 - Pages project: `cubelic-ops-production`
-- Pages production deployment: `caac19ac-83b7-4c66-a5bd-58fedfc43781` (Next.js security refresh)
+- Pages production deployment: `e286d141-c49a-45a5-9fcb-7a4046998ca7` (Next.js security refresh, source `2cf191c`)
 - Operator origin: `https://ops.cubelic-fan.com`
 - Public fan site: unchanged
 
@@ -37,6 +37,7 @@ The D1 export contains credentials and production data. Keep it local with mode 
 - `pnpm test:cubelic`: 37 passed
 - Production dependency audit: no known vulnerabilities
 - Operator UI framework: Next.js `15.5.21`
+- GitHub Actions `CUBΣLIC CI`: passed for security commit `2cf191c`
 - Standard tests: 180 passed
 - D1 integration tests: 7 passed
 - Staging Worker smoke after rotating all three staging secrets: passed
