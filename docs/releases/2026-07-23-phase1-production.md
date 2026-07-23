@@ -79,3 +79,34 @@ Do not disable the D1 emergency stop or enable production content ingestion unti
 - The staging API key was rotated and stored in macOS Keychain without printing or committing its value.
 - The audited human emergency-stop endpoint restored the staging D1 flag to `true`.
 - Staging smoke passed after all changes. The boundary checker now rejects either environment lock unless every configured environment sets it to `true`.
+
+## Production operation-readiness update
+
+- Source commit deployed: `e8e25bfa2462acd0929f14fe95721c97091abfd1`
+- Release tag: `cubelic-phase1-ops1`
+- Fork main: `Y-Fukiya/x-harness-oss@e8e25bf`
+- Worker version: `778334f2-62b2-41ea-9a06-e060fe2663ad`
+- Pages deployment: `e530337c-699a-4073-8054-6a8d7212dde1`
+- Pages deployment URL: `https://e530337c.cubelic-ops-production.pages.dev`
+- Database migration: none; operation-window state uses the existing audited `cubelic_system_flags` store.
+- Standard tests: 206 passed.
+- D1 integration tests: 11 passed.
+- Focused CUBΣLIC tests: 38 passed.
+- JSON Schema audit: 18 schemas, 0 reported issues.
+- Independent standards review: 0 actionable findings.
+- Independent specification review: 0 actionable findings.
+
+The production input bundle now requires a complete LP event contract and an event-specific LP mapping approval bound to the GAS `event_id` and `lp_url`. The first-run operator command reads both production credentials from macOS Keychain, refuses stale attestations, and never approves or publishes a draft.
+
+Production mutation remains closed by both controls until real inputs are supplied. A reviewed run temporarily sets the environment stop to exact `false`, then opens a human-authenticated server window bound to one event for at most 30 minutes. Missing, malformed, expired or cross-event state fails closed. Ingestion failure re-engages and verifies the D1 stop. The first successful inert handoff atomically updates the draft, deletes the operation window and re-engages the D1 stop in one batch.
+
+Post-deploy verification:
+
+- `https://ops.cubelic-fan.com/login`: Cloudflare Access redirect (`302`)
+- unauthenticated `/api/capabilities`: `401`
+- authenticated status: `safeMode=true`, `environmentStop=true`, `emergencyStop=true`, `operationWindow=null`, publishing and scheduling both false
+- operation-window open attempt while the environment stop was active: `423 environment_stop_active`
+- production secrets: `API_KEY` and `HUMAN_APPROVAL_KEY` only; no Hermes credential
+- D1 flags: exact `emergency_stop=true`; no operation-window keys
+
+No production content was imported because the six human-approved production contracts are not yet present in the ignored `production-inputs/` handoff directory.
