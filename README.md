@@ -64,6 +64,15 @@ Xステップ・SocialDog の代替として、無料（または低コスト）
 | MCP Server | Model Context Protocol, `@x-harness/sdk` ベース |
 | X連携 | X API v2 + OAuth 1.0a |
 
+## 本番運用前の安全確認
+
+X Harness は投稿、DM、フォローなど、X アカウントに直接影響する操作を自動化できます。
+インターネットへ公開する前に、管理 API キー、X アプリ権限、公開エンドポイント、
+MCP / Cron の実行権限、バックアップと停止手順を確認してください。
+
+本番向けのチェックリストは
+[運用セキュリティガイド](docs/operational-security.md) を参照してください。
+
 ## アーキテクチャ
 
 ```
