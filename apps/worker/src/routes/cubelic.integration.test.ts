@@ -129,6 +129,17 @@ describe('CUBΣLIC Worker API integration', () => {
   }
 
   it('bootstraps one named operator with the global and human keys while stopped', async () => {
+    const bootstrap = () => request('/api/cubelic/admin/operator-bootstrap', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+        'X-Test-Global': 'true',
+      },
+      body: JSON.stringify({ name: 'Y-Fukiya' }),
+    });
+    expect((await bootstrap()).status).toBe(423);
+
     bindings.GLOBAL_PUBLISHING_DISABLED = 'true';
     await setCubelicEmergencyStop(db, true, 'integration-operator', {
       actor: 'human',
@@ -139,15 +150,6 @@ describe('CUBΣLIC Worker API integration', () => {
       after: { stopped: true },
       correlationId: 'corr_bootstrap_stop',
     });
-    const bootstrap = () => request('/api/cubelic/admin/operator-bootstrap', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'X-Human-Approval-Key': 'integration-human-key',
-        'X-Test-Global': 'true',
-      },
-      body: JSON.stringify({ name: 'Y-Fukiya' }),
-    });
     const first = await bootstrap();
     expect(first.status).toBe(201);
     await expect(first.json()).resolves.toMatchObject({
@@ -157,6 +159,10 @@ describe('CUBΣLIC Worker API integration', () => {
         apiKey: expect.stringMatching(/^xh_staff_/),
       },
     });
+    expect((await bootstrap()).status).toBe(409);
+    await db.prepare("UPDATE staff_members SET is_active = 0 WHERE name = 'Y-Fukiya'").run();
+    expect((await bootstrap()).status).toBe(409);
+    await db.prepare("DELETE FROM staff_members WHERE name = 'Y-Fukiya'").run();
     expect((await bootstrap()).status).toBe(409);
     expect((await db.prepare(
       "SELECT COUNT(*) AS count FROM cubelic_audit_logs WHERE action = 'staff.operator_bootstrapped'",
@@ -215,7 +221,7 @@ describe('CUBΣLIC Worker API integration', () => {
     bindings.STAGING_PHASE3_SMOKE_VERIFIED = 'true';
     bindings.CUBELIC_PHASE3_SCHEDULE_POLICIES = 'event_notice:event_notice_manual_v1';
     bindings.CUBELIC_PHASE3_DELIVERY_MODE = 'staging_fake';
-    bindings.WORKER_URL = 'https://x-harness-worker-staging.example.workers.dev';
+    bindings.WORKER_URL = 'https://x-harness-worker-staging.yoshihiro-fukiya.workers.dev';
     const manual = await request('/api/cubelic/manual-drafts', {
       method: 'POST',
       headers: {

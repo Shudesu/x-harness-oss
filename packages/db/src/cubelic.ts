@@ -67,12 +67,24 @@ export async function bootstrapCubelicOperator(
   audit: AuditInput,
 ): Promise<{ id: string; name: string; role: 'admin'; apiKey: string } | null> {
   const id = crypto.randomUUID();
+  const bootstrapToken = `consumed_${crypto.randomUUID()}`;
   const timestamp = nowIso();
+  const reserveBootstrap = db.prepare(
+    `INSERT INTO cubelic_system_flags (key, value, updated_at, updated_by)
+     SELECT 'operator_bootstrap_consumed', ?, ?, ?
+     WHERE NOT EXISTS (
+       SELECT 1 FROM cubelic_system_flags WHERE key = 'operator_bootstrap_consumed'
+     )
+     AND NOT EXISTS (SELECT 1 FROM staff_members WHERE is_active = 1)`,
+  ).bind(bootstrapToken, timestamp, input.name);
   const insert = db.prepare(
     `INSERT INTO staff_members (id, name, role, api_key, created_at, updated_at)
      SELECT ?, ?, 'admin', ?, ?, ?
-     WHERE NOT EXISTS (SELECT 1 FROM staff_members WHERE is_active = 1)`,
-  ).bind(id, input.name, input.apiKey, timestamp, timestamp);
+     WHERE EXISTS (
+       SELECT 1 FROM cubelic_system_flags
+       WHERE key = 'operator_bootstrap_consumed' AND value = ?
+     )`,
+  ).bind(id, input.name, input.apiKey, timestamp, timestamp, bootstrapToken);
   const conditionalAudit = db.prepare(
     `INSERT INTO cubelic_audit_logs (
       audit_id, actor, action, entity_type, entity_id, before_json, after_json,
@@ -92,7 +104,7 @@ export async function bootstrapCubelicOperator(
     audit.correlationId,
     id,
   );
-  await db.batch([insert, conditionalAudit]);
+  await db.batch([reserveBootstrap, insert, conditionalAudit]);
   const created = await db.prepare(
     'SELECT id FROM staff_members WHERE id = ?',
   ).bind(id).first<{ id: string }>();

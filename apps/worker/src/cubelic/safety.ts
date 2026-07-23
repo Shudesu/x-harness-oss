@@ -22,7 +22,7 @@ export function isPublishingGloballyDisabled(env: Env['Bindings']): boolean {
 export function isStagingFakeDelivery(env: Env['Bindings']): boolean {
   if (env.CUBELIC_PHASE3_DELIVERY_MODE !== 'staging_fake' || !env.WORKER_URL) return false;
   try {
-    return new URL(env.WORKER_URL).hostname.startsWith('x-harness-worker-staging.');
+    return new URL(env.WORKER_URL).hostname === 'x-harness-worker-staging.yoshihiro-fukiya.workers.dev';
   } catch {
     return false;
   }

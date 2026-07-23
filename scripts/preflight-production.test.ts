@@ -11,6 +11,7 @@ const phase1Environment = {
   CLOUDFLARE_AUTH_VERIFIED: 'true',
   X_HARNESS_ACCOUNT_ID: '89f9bfc0-428c-480b-9cb3-9ba1698c30da',
   CUBELIC_SAFE_MODE: 'true',
+  CUBELIC_PHASE3_DELIVERY_MODE: 'x',
   GLOBAL_PUBLISHING_DISABLED: 'true',
   STAGING_SMOKE_VERIFIED: 'true',
   CORS_ALLOWED_ORIGINS: 'https://ops.cubelic-fan.com',
@@ -101,6 +102,12 @@ describe('production preflight phase boundaries', () => {
     });
     expect(fakeProduction.status).toBe(1);
     expect(fakeProduction.stderr).toContain('CUBELIC_PHASE3_DELIVERY_MODE must be x');
+  });
+
+  it('rejects the staging fake delivery mode in every production phase', () => {
+    const result = preflight({ CUBELIC_PHASE3_DELIVERY_MODE: 'staging_fake' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('CUBELIC_PHASE3_DELIVERY_MODE must be x');
   });
 
   it('requires either verified Wrangler auth or a least-privilege API token', () => {

@@ -1209,6 +1209,16 @@ cubelic.post('/api/cubelic/admin/operator-bootstrap', async (c) => {
   try {
     const denied = await requireHumanApproval(c);
     if (denied) return denied;
+    if (
+      c.env.GLOBAL_PUBLISHING_DISABLED !== 'true'
+      || !(await getCubelicEmergencyStop(c.env.DB))
+    ) {
+      return c.json({
+        success: false,
+        error: 'Both the environment and database emergency stops must be active',
+        code: 'operator_bootstrap_requires_full_stop',
+      }, 423);
+    }
     if (c.get('staffId') || c.get('staffName')) {
       return c.json({
         success: false,
