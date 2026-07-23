@@ -209,3 +209,13 @@
 - Safest current behavior: Treat the four JSON files, export root and referenced media as one fail-closed production bundle without logging identifiers, payloads or paths.
 - Needed answer: None for Phase 1.
 - Resolution: For the supplied local contracts, the production validator requires matching event ids, consecutive setlist positions, active canonical song id/title-or-alias matches, unique song/member ids, a realpath-confined media file, and an exact streaming SHA-256 match. Contract tests cover each rejection and one complete accepted bundle. This does not establish LP publication/update state; production preflight separately requires `PRODUCTION_LP_MAPPING_VALIDATED=true`, backed by the human-approved authoritative mapping required in DG-009.
+
+## DG-022 — Upstream merge availability
+
+- Status: RESOLVED
+- Evidence: Upstream PR `Shudesu/x-harness-oss#9` is mergeable but requires an upstream maintainer; the user directed work to continue without relying on that merge.
+- Conflict/gap: Treating upstream merge as a release prerequisite would block independent safety work and production operations even though the fork and deployed Cloudflare resources are controlled separately.
+- Impact: Release provenance, patch publication, rollback references and future upstream synchronization.
+- Safest current behavior: Use the exact commit on `Y-Fukiya/x-harness-oss:agent/cubelic-phase1-release` as the operational source of truth, retain the upstream PR for optional later integration, and never claim that upstream contains the fork changes.
+- Needed answer: None for the current Phase 1 operation.
+- Resolution: Upstream merge is deferred and is not a Phase 1 operational gate. All releases and checks must record the fork commit SHA until an upstream maintainer merges or supersedes PR #9.

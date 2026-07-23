@@ -2,6 +2,8 @@
 
 Provide these items through the approved secret/file-transfer channel. Do not paste credentials into issues, commits or chat logs.
 
+The repository reserves the ignored local directory `production-inputs/` for operator handoff. Its contents are excluded by `.gitignore`; do not force-add them. A local README and environment template in that directory describe the expected filenames and validation command.
+
 ## Structured payloads
 
 - One redacted real GAS payload matching `packages/test-fixtures/contracts/gas-setlist-v1.json`.
