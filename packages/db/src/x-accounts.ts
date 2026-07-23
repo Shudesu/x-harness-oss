@@ -15,6 +15,16 @@ export interface DbXAccount {
   updated_at: string;
 }
 
+export interface XAccountAuditInput {
+  actor: 'human' | 'hermes' | 'system' | 'codex';
+  action: string;
+  entityType: string;
+  entityId: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  correlationId: string;
+}
+
 export async function createXAccount(
   db: D1Database,
   input: {
@@ -72,12 +82,12 @@ export async function updateXAccount(
     accessTokenSecret?: string;
     isActive?: boolean;
   },
+  audit: XAccountAuditInput,
 ): Promise<void> {
   const now = jstNow();
   const existing = await getXAccountById(db, id);
   if (!existing) return;
-  await db
-    .prepare(
+  const update = db.prepare(
       `UPDATE x_accounts SET access_token = ?, refresh_token = ?, consumer_key = ?, consumer_secret = ?, access_token_secret = ?, is_active = ?, updated_at = ? WHERE id = ?`,
     )
     .bind(
@@ -89,6 +99,21 @@ export async function updateXAccount(
       updates.isActive !== undefined ? (updates.isActive ? 1 : 0) : existing.is_active,
       now,
       id,
-    )
-    .run();
+    );
+  const appendAudit = db.prepare(
+    `INSERT INTO cubelic_audit_logs
+      (audit_id, actor, action, entity_type, entity_id, before_json, after_json, timestamp, correlation_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    `aud_${crypto.randomUUID()}`,
+    audit.actor,
+    audit.action,
+    audit.entityType,
+    audit.entityId,
+    JSON.stringify(audit.before),
+    JSON.stringify(audit.after),
+    now,
+    audit.correlationId,
+  );
+  await db.batch([update, appendAudit]);
 }

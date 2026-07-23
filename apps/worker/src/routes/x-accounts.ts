@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { createXAccount, getXAccounts, getXAccountById, updateXAccount, getEngagementGates, getSnapshots, hasSnapshotForToday, recordSnapshot } from '@x-harness/db';
 import { XClient } from '@x-harness/x-sdk';
 import type { Env } from '../index.js';
+import { requireRole } from '../middleware/auth.js';
 
 const xAccounts = new Hono<Env>();
 
@@ -60,6 +61,8 @@ xAccounts.get('/api/x-accounts', async (c) => {
 });
 
 xAccounts.put('/api/x-accounts/:id', async (c) => {
+  const denied = requireRole(c, 'admin');
+  if (denied) return denied;
   const body = await c.req.json<{
     accessToken?: string;
     refreshToken?: string;
@@ -70,7 +73,28 @@ xAccounts.put('/api/x-accounts/:id', async (c) => {
   }>();
   const existing = await getXAccountById(c.env.DB, c.req.param('id'));
   if (!existing) return c.json({ success: false, error: 'Not found' }, 404);
-  await updateXAccount(c.env.DB, c.req.param('id'), body);
+  const nextConsumerKey = body.consumerKey ?? existing.consumer_key;
+  const nextConsumerSecret = body.consumerSecret ?? existing.consumer_secret;
+  const nextAccessTokenSecret = body.accessTokenSecret ?? existing.access_token_secret;
+  await updateXAccount(c.env.DB, c.req.param('id'), body, {
+    actor: 'human',
+    action: 'x_account.credentials_updated',
+    entityType: 'x_account',
+    entityId: existing.id,
+    before: {
+      authMode: existing.consumer_key && existing.consumer_secret && existing.access_token_secret
+        ? 'oauth1_user_context'
+        : 'bearer',
+      active: !!existing.is_active,
+    },
+    after: {
+      authMode: nextConsumerKey && nextConsumerSecret && nextAccessTokenSecret
+        ? 'oauth1_user_context'
+        : 'bearer',
+      active: body.isActive ?? !!existing.is_active,
+    },
+    correlationId: c.req.header('X-Correlation-Id') ?? `x-account-credentials:${crypto.randomUUID()}`,
+  });
   return c.json({ success: true });
 });
 
