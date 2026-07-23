@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cubelic } from './cubelic.js';
 import type { Env } from '../index.js';
 import { compileMigrationForD1Exec } from '../../../../packages/db/src/d1-test-utils.js';
-import { processDueCubelicPublications } from '../cubelic/adapter.js';
+import { isCubelicPublicationStopped, processDueCubelicPublications } from '../cubelic/adapter.js';
 
 const migrationPaths = [
   fileURLToPath(new URL('../../../../packages/db/migrations/008-staff-members.sql', import.meta.url)),
@@ -95,7 +95,7 @@ describe('CUBΣLIC Worker API integration', () => {
           { category: 'setlist_flash', templateId: 'setlist_flash_v1' },
           { category: 'event_notice', templateId: 'event_notice_manual_v1' },
         ],
-        isEmergencyStopped: () => getCubelicEmergencyStop(db),
+        isEmergencyStopped: () => isCubelicPublicationStopped(db),
         checkRateLimit: async () => ({ allowed: true }),
         scheduleWriter: schedulePost,
         publishWriter: publishPost,
@@ -263,6 +263,38 @@ describe('CUBΣLIC Worker API integration', () => {
       data: { publicationReady: true, draft: { approval_status: 'approved' } },
     });
 
+    await openWindow('evt_content_ingestion');
+    const blockedPublication = await request(`/api/cubelic/drafts/${manualBody.data.draft_id}/publish`, {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': 'integration-human-key' },
+      body: '{}',
+    });
+    expect(blockedPublication.status).toBe(423);
+    const blockedSchedule = await request(`/api/cubelic/drafts/${manualBody.data.draft_id}/schedule`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Test-Actor': 'hermes',
+      },
+      body: JSON.stringify({
+        scheduledAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+        policyId: 'event_notice_manual_v1',
+      }),
+    });
+    expect(blockedSchedule.status).toBe(423);
+    expect(publishPost).not.toHaveBeenCalled();
+    expect(schedulePost).not.toHaveBeenCalled();
+    await expect((await request('/api/cubelic/admin/status')).json()).resolves.toMatchObject({
+      data: {
+        operationWindow: { active: true },
+        publishingEnabled: false,
+        schedulingEnabled: false,
+      },
+    });
+    await db.prepare(
+      "DELETE FROM cubelic_system_flags WHERE key IN ('operation_window_event_id', 'operation_window_expires_at')",
+    ).run();
+
     const publication = await request(`/api/cubelic/drafts/${manualBody.data.draft_id}/publish`, {
       method: 'POST',
       headers: { 'X-Human-Approval-Key': 'integration-human-key' },
@@ -302,6 +334,14 @@ describe('CUBΣLIC Worker API integration', () => {
       after: { scheduledAt: dueAt },
       correlationId: 'corr_cron_success',
     });
+    await openWindow('evt_cron_block');
+    await processDueCubelicPublications(bindings, new Date());
+    await expect(getCubelicPublicationJob(db, dueJob.jobId)).resolves.toMatchObject({
+      status: 'scheduled',
+    });
+    await db.prepare(
+      "DELETE FROM cubelic_system_flags WHERE key IN ('operation_window_event_id', 'operation_window_expires_at')",
+    ).run();
     await processDueCubelicPublications(bindings, new Date());
     await processDueCubelicPublications(bindings, new Date());
     await expect(getCubelicPublicationJob(db, dueJob.jobId)).resolves.toMatchObject({

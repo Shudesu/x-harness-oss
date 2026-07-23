@@ -13,6 +13,12 @@ follows and engagement automation remain unavailable. The current production
 D1 emergency stop is active, so both Phase 3 publication and scheduling are
 disabled until a separate human resume decision.
 
+The event-bound content-ingestion operation window is also an X-publication
+stop. While that window is active, immediate publication, new scheduling, and
+Cron delivery remain disabled even if the D1 emergency stop is temporarily
+resumed for approved event/master ingestion. Closing the window re-engages the
+D1 stop.
+
 ## Initial setup
 
 1. Copy the variable names from `.env.example` into the deployment secret store. Never commit values.

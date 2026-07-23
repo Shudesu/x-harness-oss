@@ -1201,7 +1201,8 @@ cubelic.get('/api/cubelic/admin/status', async (c) => {
   ]);
   const operational = isPhase3PublicationEnabled(c.env)
     && c.env.GLOBAL_PUBLISHING_DISABLED === 'false'
-    && !stopState.stopped;
+    && !stopState.stopped
+    && operationWindow?.active !== true;
   return c.json({
     success: true,
     data: {

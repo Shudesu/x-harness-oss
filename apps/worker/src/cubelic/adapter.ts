@@ -14,6 +14,7 @@ import {
   failCubelicPublicationJob,
   getCubelicDraft,
   getCubelicEmergencyStop,
+  getCubelicOperationWindow,
   getCubelicPublicationJobByIdempotencyKey,
   getXAccountById,
   incrementApiUsage,
@@ -31,6 +32,14 @@ export type CubelicXAdapterFactory = (
 export const buildCubelicXAdapter: CubelicXAdapterFactory = (db, xHarnessAccountId) => {
   return new Phase1XPublishingAdapter((input) => createCubelicInertDraft(db, xHarnessAccountId, input));
 };
+
+export async function isCubelicPublicationStopped(db: D1Database, at = Date.now()): Promise<boolean> {
+  const [emergencyStop, operationWindow] = await Promise.all([
+    getCubelicEmergencyStop(db),
+    getCubelicOperationWindow(db, at),
+  ]);
+  return emergencyStop || operationWindow?.active === true;
+}
 
 export type CubelicPhase3AdapterFactory = (
   env: Env['Bindings'],
@@ -74,7 +83,7 @@ export const buildCubelicPhase3XAdapter: CubelicPhase3AdapterFactory = (env, ope
   return new Phase3XPublishingAdapter({
     enabled: isPhase3PublicationEnabled(env),
     allowedSchedulePolicies: schedulePolicies(env.CUBELIC_PHASE3_SCHEDULE_POLICIES),
-    isEmergencyStopped: () => getCubelicEmergencyStop(env.DB),
+    isEmergencyStopped: () => isCubelicPublicationStopped(env.DB),
     checkRateLimit: (input, operation) => checkCubelicPublicationRate(env.DB, {
       effectiveAt: operation === 'schedule' && 'scheduledAt' in input
         ? input.scheduledAt
@@ -194,7 +203,7 @@ export async function processDueCubelicPublications(
   if (
     !isPhase3PublicationEnabled(env)
     || env.GLOBAL_PUBLISHING_DISABLED !== 'false'
-    || await getCubelicEmergencyStop(env.DB)
+    || await isCubelicPublicationStopped(env.DB, at.getTime())
   ) return;
   const accountId = env.X_HARNESS_ACCOUNT_ID;
   if (!accountId || accountId === 'SET_AFTER_ACCOUNT_SETUP') return;
@@ -228,7 +237,7 @@ export async function processDueCubelicPublications(
     if (!claimed) continue;
     let draft;
     try {
-      if (await getCubelicEmergencyStop(env.DB)) {
+      if (await isCubelicPublicationStopped(env.DB)) {
         throw new PublicationPolicyError('emergency_stop_active', 'Emergency stop became active');
       }
       draft = await getCubelicDraft(env.DB, job.draftId);
@@ -242,7 +251,7 @@ export async function processDueCubelicPublications(
         );
       }
     } catch (error) {
-      if (!(await getCubelicEmergencyStop(env.DB))) {
+      if (!(await isCubelicPublicationStopped(env.DB))) {
         await failCubelicPublicationJob(env.DB, {
           jobId: job.jobId,
           failureCode: error instanceof PublicationPolicyError ? error.code : 'publication_validation_failed',
