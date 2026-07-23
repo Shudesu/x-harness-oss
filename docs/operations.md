@@ -25,7 +25,8 @@ D1 stop.
 2. Apply `packages/db/migrations/018-cubelic-content-os.sql`,
    `019-cubelic-fail-closed-boundaries.sql`,
    `020-cubelic-phase3-publication.sql`, then
-   `021-cubelic-publication-reconciliation.sql` to a backed-up D1 environment.
+   `021-cubelic-publication-reconciliation.sql`, then
+   `022-cubelic-operation-window-publication-lock.sql` to a backed-up D1 environment.
 3. Set `X_HARNESS_ACCOUNT_ID` to the selected `x_accounts.id`; do not use the public username.
 4. Keep `HERMES_RUNTIME_ENABLED=false` in Phase 1 and do not provision Hermes runtime credentials. If a later reviewed release enables it, give Hermes only `HERMES_ACCESS_TOKEN` (the MCP process prefers it over `X_HARNESS_API_KEY`). Give approval UI operators `HUMAN_APPROVAL_KEY`; never expose it to Hermes.
 5. Set `CORS_ALLOWED_ORIGINS` to the exact HTTPS approval-UI origin(s), comma-separated; wildcard origins fail closed.

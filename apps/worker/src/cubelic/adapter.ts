@@ -12,6 +12,7 @@ import {
   createCubelicInertDraft,
   createCubelicPublicationJob,
   failCubelicPublicationJob,
+  expireCubelicOperationWindowAndStop,
   getCubelicDraft,
   getCubelicEmergencyStop,
   getCubelicOperationWindow,
@@ -34,11 +35,12 @@ export const buildCubelicXAdapter: CubelicXAdapterFactory = (db, xHarnessAccount
 };
 
 export async function isCubelicPublicationStopped(db: D1Database, at = Date.now()): Promise<boolean> {
-  const [emergencyStop, operationWindow] = await Promise.all([
-    getCubelicEmergencyStop(db),
-    getCubelicOperationWindow(db, at),
-  ]);
-  return emergencyStop || operationWindow?.active === true;
+  const operationWindow = await getCubelicOperationWindow(db, at);
+  if (operationWindow) {
+    if (!operationWindow.active) await expireCubelicOperationWindowAndStop(db, at);
+    return true;
+  }
+  return getCubelicEmergencyStop(db);
 }
 
 export type CubelicPhase3AdapterFactory = (
@@ -73,6 +75,10 @@ function schedulePolicies(value: string | undefined): Array<{ category: ContentC
   });
 }
 
+function isOperationWindowPublicationLockError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('operation window blocks publication');
+}
+
 export const buildCubelicPhase3XAdapter: CubelicPhase3AdapterFactory = (env, operatorId) => {
   const now = () => new Date();
   const accountId = env.X_HARNESS_ACCOUNT_ID;
@@ -90,30 +96,38 @@ export const buildCubelicPhase3XAdapter: CubelicPhase3AdapterFactory = (env, ope
         : now().toISOString(),
     }),
     scheduleWriter: async (input) => {
-      const job = await createCubelicPublicationJob(env.DB, {
-        draftId: input.draftId,
-        operation: 'schedule',
-        authorizationKind: input.authorization.kind,
-        policyId: input.authorization.policyId,
-        authorizedBy: input.approvedBy,
-        authorizedAt: input.authorization.approvedAt,
-        scheduledAt: input.scheduledAt,
-        idempotencyKey: `${input.idempotencyKey}:schedule:${input.scheduledAt}`,
-      }, {
-        actor: 'human',
-        action: 'publication.scheduled',
-        entityType: 'publication_job',
-        entityId: input.draftId,
-        before: {},
-        after: {
+      let job: Awaited<ReturnType<typeof createCubelicPublicationJob>>;
+      try {
+        job = await createCubelicPublicationJob(env.DB, {
           draftId: input.draftId,
-          category: input.category,
-          templateId: input.templateId,
-          scheduledAt: input.scheduledAt,
+          operation: 'schedule',
+          authorizationKind: input.authorization.kind,
           policyId: input.authorization.policyId,
-        },
-        correlationId: `publication:${input.idempotencyKey}`,
-      });
+          authorizedBy: input.approvedBy,
+          authorizedAt: input.authorization.approvedAt,
+          scheduledAt: input.scheduledAt,
+          idempotencyKey: `${input.idempotencyKey}:schedule:${input.scheduledAt}`,
+        }, {
+          actor: 'human',
+          action: 'publication.scheduled',
+          entityType: 'publication_job',
+          entityId: input.draftId,
+          before: {},
+          after: {
+            draftId: input.draftId,
+            category: input.category,
+            templateId: input.templateId,
+            scheduledAt: input.scheduledAt,
+            policyId: input.authorization.policyId,
+          },
+          correlationId: `publication:${input.idempotencyKey}`,
+        });
+      } catch (error) {
+        if (isOperationWindowPublicationLockError(error)) {
+          throw new PublicationPolicyError('emergency_stop_active', 'Content ingestion operation window blocks X scheduling');
+        }
+        throw error;
+      }
       return { jobId: job.jobId, status: 'scheduled', scheduledAt: input.scheduledAt };
     },
     publishWriter: async (input) => {
@@ -137,24 +151,32 @@ export const buildCubelicPhase3XAdapter: CubelicPhase3AdapterFactory = (env, ope
       if (!isStagingFakeDelivery(env) && !(await getXAccountById(env.DB, accountId))) {
         throw new PublicationPolicyError('x_account_not_found', 'Configured X account was not found');
       }
-      const job = await createCubelicPublicationJob(env.DB, {
-        draftId: input.draftId,
-        operation: 'publish',
-        authorizationKind: 'human_individual',
-        authorizedBy: operatorId,
-        authorizedAt: input.authorization.kind === 'human_individual'
-          ? input.authorization.authorizedAt
-          : input.approvedAt,
-        idempotencyKey,
-      }, {
-        actor: 'human',
-        action: 'publication.started',
-        entityType: 'publication_job',
-        entityId: input.draftId,
-        before: {},
-        after: { draftId: input.draftId, category: input.category },
-        correlationId: `publication:${input.idempotencyKey}`,
-      });
+      let job: Awaited<ReturnType<typeof createCubelicPublicationJob>>;
+      try {
+        job = await createCubelicPublicationJob(env.DB, {
+          draftId: input.draftId,
+          operation: 'publish',
+          authorizationKind: 'human_individual',
+          authorizedBy: operatorId,
+          authorizedAt: input.authorization.kind === 'human_individual'
+            ? input.authorization.authorizedAt
+            : input.approvedAt,
+          idempotencyKey,
+        }, {
+          actor: 'human',
+          action: 'publication.started',
+          entityType: 'publication_job',
+          entityId: input.draftId,
+          before: {},
+          after: { draftId: input.draftId, category: input.category },
+          correlationId: `publication:${input.idempotencyKey}`,
+        });
+      } catch (error) {
+        if (isOperationWindowPublicationLockError(error)) {
+          throw new PublicationPolicyError('emergency_stop_active', 'Content ingestion operation window blocks X publication');
+        }
+        throw error;
+      }
       try {
         const tweet = await deliverTextForRuntime(env, accountId, input.text);
         const publishedAt = now().toISOString();
@@ -225,15 +247,21 @@ export async function processDueCubelicPublications(
       || job.policyId !== currentDraft.template_id
       || !allowedPolicies.has(`${currentDraft.category}:${currentDraft.template_id}`)
     ) continue;
-    const claimed = await claimCubelicPublicationJob(env.DB, job.jobId, {
-      actor: 'system',
-      action: 'publication.claimed',
-      entityType: 'publication_job',
-      entityId: job.jobId,
-      before: { status: 'scheduled' },
-      after: { status: 'publishing' },
-      correlationId,
-    }, at.toISOString());
+    let claimed;
+    try {
+      claimed = await claimCubelicPublicationJob(env.DB, job.jobId, {
+        actor: 'system',
+        action: 'publication.claimed',
+        entityType: 'publication_job',
+        entityId: job.jobId,
+        before: { status: 'scheduled' },
+        after: { status: 'publishing' },
+        correlationId,
+      }, at.toISOString());
+    } catch (error) {
+      if (isOperationWindowPublicationLockError(error)) return;
+      throw error;
+    }
     if (!claimed) continue;
     let draft;
     try {

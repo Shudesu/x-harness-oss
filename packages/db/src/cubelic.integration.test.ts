@@ -22,7 +22,7 @@ import {
   createCubelicMedia,
   createCubelicPublicationJob,
   createCubelicPublishedPostMapping,
-  closeCubelicOperationWindowAndStop,
+  expireCubelicOperationWindowAndStop,
   getCubelicEmergencyStop,
   getCubelicOperationWindow,
   getCubelicPublicationJob,
@@ -49,6 +49,7 @@ const migrationPaths = [
   fileURLToPath(new URL('../migrations/019-cubelic-fail-closed-boundaries.sql', import.meta.url)),
   fileURLToPath(new URL('../migrations/020-cubelic-phase3-publication.sql', import.meta.url)),
   fileURLToPath(new URL('../migrations/021-cubelic-publication-reconciliation.sql', import.meta.url)),
+  fileURLToPath(new URL('../migrations/022-cubelic-operation-window-publication-lock.sql', import.meta.url)),
 ];
 
 function audit(action: string, entityId: string): AuditInput {
@@ -190,13 +191,55 @@ describe('CUBΣLIC D1 integration', () => {
     });
     await expect(getCubelicOperationWindow(db, Date.parse(expiresAt) + 1)).resolves.toMatchObject({ active: false });
 
-    await closeCubelicOperationWindowAndStop(
-      db,
-      'integration-operator',
-      audit('system.operation_window_closed', 'operation_window'),
-    );
+    await setCubelicEmergencyStop(db, false, 'integration-operator', audit('system.emergency_resume', 'operation_window'));
+    await expect(expireCubelicOperationWindowAndStop(db, Date.parse(expiresAt) + 1)).resolves.toBe(true);
+    await expect(expireCubelicOperationWindowAndStop(db, Date.parse(expiresAt) + 1)).resolves.toBe(false);
     await expect(getCubelicOperationWindow(db)).resolves.toBeNull();
     await expect(getCubelicEmergencyStop(db)).resolves.toBe(true);
+    expect((await db.prepare(
+      "SELECT COUNT(*) AS count FROM cubelic_audit_logs WHERE action = 'system.operation_window_expired'",
+    ).first<{ count: number }>())?.count).toBe(1);
+  });
+
+  it('keeps operation windows and publishing jobs mutually exclusive in D1', async () => {
+    const first = await createOutcomeUnknownPublicationFixture(db);
+    await expect(setCubelicOperationWindow(db, {
+      eventId: eventFixture.event_id,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      actor: 'integration-operator',
+    }, audit('system.operation_window_opened', 'publishing_race'))).rejects.toThrow(/publication in progress/);
+    await expect(getCubelicOperationWindow(db)).resolves.toBeNull();
+
+    const retryIdempotencyKey = `${first.draft.idempotency_key}:retry:window-lock`;
+    await reconcileCubelicPublicationNotPublished(db, {
+      jobId: first.job.jobId,
+      actor: 'integration-operator',
+      retryIdempotencyKey,
+      failureCode: 'reconciled_no_matching_post',
+      evidence: {
+        recentPostsChecked: 10,
+        postIdMatchFound: false,
+        fixedTextPrefixMatchFound: false,
+      },
+    }, {
+      publication: audit('publication.reconciled_failed', first.job.jobId),
+      draft: audit('draft.retry_idempotency_issued', first.draft.draft_id),
+      stop: audit('system.reconciliation_stop_preserved', 'publishing'),
+    });
+    await setCubelicOperationWindow(db, {
+      eventId: eventFixture.event_id,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      actor: 'integration-operator',
+    }, audit('system.operation_window_opened', 'publication_race'));
+    await setCubelicEmergencyStop(db, false, 'integration-operator', audit('system.emergency_resume', 'publication_race'));
+    await expect(createCubelicPublicationJob(db, {
+      draftId: first.draft.draft_id,
+      operation: 'publish',
+      authorizationKind: 'human_individual',
+      authorizedBy: 'integration-operator',
+      authorizedAt: new Date().toISOString(),
+      idempotencyKey: `${retryIdempotencyKey}:publish`,
+    }, audit('publication.started', first.draft.draft_id))).rejects.toThrow(/operation window blocks publication/);
   });
 
   it('persists human-attested manual authority and audited Phase 3 publication jobs', async () => {

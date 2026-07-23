@@ -30,6 +30,7 @@ import {
   createCubelicManualAuthority,
   createCubelicPublishedPostMapping,
   createCubelicSetlist,
+  expireCubelicOperationWindowAndStop,
   findCubelicMediaByHash,
   getCubelicContent,
   getCubelicDraft,
@@ -297,6 +298,13 @@ function isEmergencyAdmin(path: string): boolean {
     || /^\/api\/cubelic\/admin\/publications\/[^/]+\/reconcile$/.test(path);
 }
 
+function isPhase3OperationalWrite(path: string): boolean {
+  return path === '/api/cubelic/manual-drafts'
+    || path === '/api/cubelic/metrics/post-mappings'
+    || /^\/api\/cubelic\/content\/[^/]+\/manual-authority$/.test(path)
+    || /^\/api\/cubelic\/drafts\/[^/]+(?:\/(?:approve|reject|publish|schedule))?$/.test(path);
+}
+
 const OPERATION_WINDOW_UNSCOPED_WRITES = new Set([
   '/api/cubelic/masters/songs/ingest',
   '/api/cubelic/masters/members/ingest',
@@ -389,14 +397,18 @@ function namedHumanId(c: Context<Env>): string {
 
 cubelic.use('/api/cubelic/*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
+  const expiredWindowClosed = await expireCubelicOperationWindowAndStop(c.env.DB);
   const write = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method);
   if (!write || isMetricsWrite(path) || isEmergencyAdmin(path)) return next();
+  if (expiredWindowClosed) {
+    return c.json({ success: false, error: 'The production operation window expired', code: 'operation_window_expired' }, 423);
+  }
   const envStopped = c.env.GLOBAL_PUBLISHING_DISABLED !== 'false';
   const dbStopped = await getCubelicEmergencyStop(c.env.DB);
   if (envStopped || dbStopped) {
     return c.json({ success: false, error: 'Emergency stop is active', code: 'emergency_stop_active', source: envStopped ? 'environment' : 'database' }, 423);
   }
-  if (isPhase3PublicationEnabled(c.env)) return next();
+  if (isPhase3PublicationEnabled(c.env) && isPhase3OperationalWrite(path)) return next();
   const operationWindow = await getCubelicOperationWindow(c.env.DB);
   if (operationWindow && !operationWindow.active) {
     await closeCubelicOperationWindowAndStop(c.env.DB, 'system', { actor: 'system', action: 'system.operation_window_expired', entityType: 'system', entityId: 'operation_window', before: { eventId: operationWindow.eventId, expiresAt: operationWindow.expiresAt }, after: { stopped: true }, correlationId: correlationId(c) });
@@ -1453,6 +1465,10 @@ cubelic.post('/api/cubelic/admin/operation-window', async (c) => {
     if (c.env.GLOBAL_PUBLISHING_DISABLED !== 'false') {
       return c.json({ success: false, error: 'Environment lock must be explicitly false before opening an operation window', code: 'environment_stop_active' }, 423);
     }
+    const stopState = await getCubelicEmergencyStopState(c.env.DB);
+    if (!stopState.valid || !stopState.stopped) {
+      return c.json({ success: false, error: 'A valid active D1 emergency stop is required before opening an operation window', code: 'operation_window_requires_stop' }, 423);
+    }
     const body = await c.req.json<{ eventId?: string; durationMinutes?: number }>();
     if (!body.eventId || !/^evt_[A-Za-z0-9_-]+$/.test(body.eventId) || !Number.isInteger(body.durationMinutes) || body.durationMinutes! < 1 || body.durationMinutes! > 30) {
       throw new ContentPolicyError('invalid_request', 'eventId and durationMinutes from 1 to 30 are required', ['incorrect_metadata']);
@@ -1467,7 +1483,12 @@ cubelic.post('/api/cubelic/admin/operation-window', async (c) => {
     const expiresAt = new Date(Date.now() + body.durationMinutes! * 60_000).toISOString();
     await setCubelicOperationWindow(c.env.DB, { eventId: body.eventId, expiresAt, actor: actorName(c) }, { actor: 'human', action: 'system.operation_window_opened', entityType: 'system', entityId: 'operation_window', before: existingWindow ? { eventId: existingWindow.eventId, expiresAt: existingWindow.expiresAt, active: false } : {}, after: { eventId: body.eventId, expiresAt }, correlationId: correlationId(c) });
     return c.json({ success: true, data: { eventId: body.eventId, expiresAt } }, 201);
-  } catch (error) { return apiError(c, error); }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('publication in progress blocks operation window')) {
+      return c.json({ success: false, error: 'A publication is still in progress', code: 'publication_in_progress' }, 409);
+    }
+    return apiError(c, error);
+  }
 });
 
 cubelic.post('/api/cubelic/admin/emergency-resume', async (c) => {

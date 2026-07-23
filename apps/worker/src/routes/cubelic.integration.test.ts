@@ -23,6 +23,7 @@ const migrationPaths = [
   fileURLToPath(new URL('../../../../packages/db/migrations/019-cubelic-fail-closed-boundaries.sql', import.meta.url)),
   fileURLToPath(new URL('../../../../packages/db/migrations/020-cubelic-phase3-publication.sql', import.meta.url)),
   fileURLToPath(new URL('../../../../packages/db/migrations/021-cubelic-publication-reconciliation.sql', import.meta.url)),
+  fileURLToPath(new URL('../../../../packages/db/migrations/022-cubelic-operation-window-publication-lock.sql', import.meta.url)),
 ];
 
 describe('CUBΣLIC Worker API integration', () => {
@@ -200,6 +201,11 @@ describe('CUBΣLIC Worker API integration', () => {
   });
 
   it('opens an event window only with an explicit environment resume and rejects replacement', async () => {
+    bindings.CUBELIC_PHASE3_ENABLED = 'true';
+    bindings.PHASE3_RELEASE_APPROVED = 'true';
+    bindings.STAGING_PHASE3_SMOKE_VERIFIED = 'true';
+    bindings.CUBELIC_PHASE3_DELIVERY_MODE = 'staging_fake';
+    bindings.WORKER_URL = 'https://x-harness-worker-staging.yoshihiro-fukiya.workers.dev';
     bindings.GLOBAL_PUBLISHING_DISABLED = undefined;
     const requestWindow = () => request('/api/cubelic/admin/operation-window', {
       method: 'POST',
@@ -209,6 +215,24 @@ describe('CUBΣLIC Worker API integration', () => {
     expect((await requestWindow()).status).toBe(423);
 
     bindings.GLOBAL_PUBLISHING_DISABLED = 'false';
+    const unscopedIngestion = await request('/api/cubelic/events', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(unscopedIngestion.status).toBe(423);
+    await expect(unscopedIngestion.json()).resolves.toMatchObject({
+      code: 'operation_window_inactive',
+    });
+    await setCubelicEmergencyStop(db, true, 'integration-operator', {
+      actor: 'human',
+      action: 'system.emergency_stop',
+      entityType: 'system',
+      entityId: 'operation_window',
+      before: { stopped: false },
+      after: { stopped: true },
+      correlationId: 'corr_operation_window_stop',
+    });
     expect((await requestWindow()).status).toBe(201);
     expect((await requestWindow()).status).toBe(409);
     await expect((await request('/api/cubelic/admin/status')).json()).resolves.toMatchObject({
@@ -216,6 +240,22 @@ describe('CUBΣLIC Worker API integration', () => {
         operationWindow: { eventId: 'evt_window_api', active: true },
       },
     });
+    await db.prepare(
+      "UPDATE cubelic_system_flags SET value = ? WHERE key = 'operation_window_expires_at'",
+    ).bind(new Date(Date.now() - 60_000).toISOString()).run();
+    await processDueCubelicPublications(bindings, new Date());
+    await expect((await request('/api/cubelic/admin/status')).json()).resolves.toMatchObject({
+      data: {
+        emergencyStop: true,
+        emergencyStopValid: true,
+        operationWindow: null,
+        publishingEnabled: false,
+        schedulingEnabled: false,
+      },
+    });
+    expect((await db.prepare(
+      "SELECT COUNT(*) AS count FROM cubelic_audit_logs WHERE action = 'system.operation_window_expired'",
+    ).first<{ count: number }>())?.count).toBe(1);
   });
 
   it('creates, approves, and publishes a human-attested manual Phase 3 draft without an input bundle', async () => {

@@ -778,6 +778,83 @@ export async function getCubelicOperationWindow(db: D1Database, at = Date.now())
   return { eventId, expiresAt, active: Date.parse(expiresAt) > at };
 }
 
+export async function expireCubelicOperationWindowAndStop(
+  db: D1Database,
+  at = Date.now(),
+): Promise<boolean> {
+  const window = await getCubelicOperationWindow(db, at);
+  if (!window || window.active) return false;
+  const timestamp = new Date(at).toISOString();
+  const exactExpiredWindow = `
+    EXISTS (
+      SELECT 1 FROM cubelic_system_flags
+      WHERE key = 'operation_window_event_id' AND value = ?
+    )
+    AND EXISTS (
+      SELECT 1 FROM cubelic_system_flags
+      WHERE key = 'operation_window_expires_at'
+        AND value = ?
+        AND julianday(value) <= julianday(?)
+    )`;
+  const conditionalAudit = db.prepare(
+    `INSERT INTO cubelic_audit_logs (
+      audit_id, actor, action, entity_type, entity_id, before_json, after_json,
+      timestamp, correlation_id
+    )
+    SELECT ?, 'system', 'system.operation_window_expired', 'system',
+      'operation_window', ?, ?, ?, ?
+    WHERE ${exactExpiredWindow}`,
+  ).bind(
+    `aud_${crypto.randomUUID()}`,
+    JSON.stringify({ eventId: window.eventId, expiresAt: window.expiresAt }),
+    JSON.stringify({ stopped: true }),
+    timestamp,
+    `operation-window-expiry:${window.expiresAt}`,
+    window.eventId,
+    window.expiresAt,
+    timestamp,
+  );
+  const stopExisting = db.prepare(
+    `UPDATE cubelic_system_flags
+     SET value = 'true', updated_at = ?, updated_by = 'system'
+     WHERE key = 'emergency_stop' AND ${exactExpiredWindow}`,
+  ).bind(
+    timestamp,
+    window.eventId,
+    window.expiresAt,
+    timestamp,
+  );
+  const insertMissingStop = db.prepare(
+    `INSERT INTO cubelic_system_flags (key, value, updated_at, updated_by)
+     SELECT 'emergency_stop', 'true', ?, 'system'
+     WHERE ${exactExpiredWindow}
+       AND NOT EXISTS (
+         SELECT 1 FROM cubelic_system_flags WHERE key = 'emergency_stop'
+       )`,
+  ).bind(
+    timestamp,
+    window.eventId,
+    window.expiresAt,
+    timestamp,
+  );
+  const deleteWindow = db.prepare(
+    `DELETE FROM cubelic_system_flags
+     WHERE key IN ('operation_window_event_id', 'operation_window_expires_at')
+       AND ${exactExpiredWindow}`,
+  ).bind(
+    window.eventId,
+    window.expiresAt,
+    timestamp,
+  );
+  const [auditResult] = await db.batch([
+    conditionalAudit,
+    stopExisting,
+    insertMissingStop,
+    deleteWindow,
+  ]);
+  return (auditResult.meta?.changes ?? 0) > 0;
+}
+
 export async function setCubelicOperationWindow(
   db: D1Database,
   input: { eventId: string; expiresAt: string; actor: string },
