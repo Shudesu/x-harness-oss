@@ -67,3 +67,15 @@ The D1 export contains credentials and production data. Keep it local with mode 
 ## Remaining manual gate
 
 Do not disable the D1 emergency stop or enable production content ingestion until the human-approved production masters and source contracts are available. The first run must remain fully manual: one reviewed source, one reviewed draft, one human approval and one inert inbox handoff, with no automated X action.
+
+## Post-release staging hardening
+
+- Source commit: `3fe0bba8439f79cc21f8f0090b577c813bba68bf`
+- Fork CI run `29973397872`: passed
+- Staging Worker code deployment: `f1b31de1-d2d9-4bd3-8210-d86d129377bf`
+- Current staging binding version after secret rotation: `a2d49199-e674-4800-b4c9-e6d938326ef3`
+- `CUBELIC_SAFE_MODE=true` and `GLOBAL_PUBLISHING_DISABLED=true` are active in staging.
+- The obsolete staging `HERMES_ACCESS_TOKEN` was deleted; only the API and human-approval secret names remain.
+- The staging API key was rotated and stored in macOS Keychain without printing or committing its value.
+- The audited human emergency-stop endpoint restored the staging D1 flag to `true`.
+- Staging smoke passed after all changes. The boundary checker now rejects either environment lock unless every configured environment sets it to `true`.
