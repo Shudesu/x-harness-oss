@@ -242,10 +242,10 @@
 
 ## DG-025 — Production X credential requires User Context
 
-- Status: BLOCKING
+- Status: RESOLVED
 - Evidence: `apps/worker/src/cubelic/adapter.ts` uses the configured X account for `POST /2/tweets`; the 2026-07-23 production ceremony returned `publication_outcome_unknown`; the subsequent read-only `GET /2/users/me` check returned X `Unsupported Authentication` and stated that OAuth 2.0 Application-Only is forbidden; the latest ten account posts contained no matching fixed text.
 - Conflict/gap: The production account contains an application-only Bearer Token, while X publishing requires OAuth 1.0a User Context or OAuth 2.0 User Context.
 - Impact: Immediate publication and scheduled Cron delivery cannot safely call X; every attempt would create an unresolved publication job and risk an unsafe retry.
 - Safest current behavior: Keep the production D1 emergency stop active, retain the first job as `publishing` for reconciliation, and never retry automatically. Do not expose or copy credentials through logs or Git.
 - Needed answer: Configure the production X account through the approved secret channel with either OAuth 1.0a Consumer Key, Consumer Secret, Access Token and Access Token Secret, or an OAuth 2.0 User Context token authorized for tweet read/write and user read.
-- Resolution: Pending
+- Resolution: On 2026-07-23 the operator stored OAuth 1.0a User Context credentials through macOS Keychain. A secret-free `/2/users/me` verification returned X user `1556917966587166720` (`tubelic_cube`), and production D1 was updated with an append-only `x_account.credentials_updated` audit. After a second explicit human authorization, the unresolved job was marked `failed` with `reconciled_no_matching_post`, the approved draft received a new audited retry idempotency key, and a single new publication job completed as X post `2080209283598487956`. A read-only timeline check confirmed that post ID and the approved fixed-text prefix; X URL normalization explains why the stored timeline text does not exactly equal the original URL-bearing input. The D1 emergency stop was reactivated after the ceremony.
