@@ -38,6 +38,9 @@ if (!process.env.X_HARNESS_ACCOUNT_ID || process.env.X_HARNESS_ACCOUNT_ID === 'S
 }
 if (process.env.CUBELIC_SAFE_MODE !== 'true') errors.push('CUBELIC_SAFE_MODE must be explicitly true');
 if (phase3Enabled) {
+  if (process.env.CUBELIC_PHASE3_DELIVERY_MODE !== 'x') {
+    errors.push('CUBELIC_PHASE3_DELIVERY_MODE must be x for a production Phase 3 release');
+  }
   if (process.env.GLOBAL_PUBLISHING_DISABLED !== 'false') {
     errors.push('GLOBAL_PUBLISHING_DISABLED must be explicitly false for an approved Phase 3 release');
   }

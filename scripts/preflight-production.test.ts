@@ -82,6 +82,7 @@ describe('production preflight phase boundaries', () => {
 
     const approved = preflight({
       CUBELIC_PHASE3_ENABLED: 'true',
+      CUBELIC_PHASE3_DELIVERY_MODE: 'x',
       GLOBAL_PUBLISHING_DISABLED: 'false',
       PHASE3_RELEASE_APPROVED: 'true',
       STAGING_PHASE3_SMOKE_VERIFIED: 'true',
@@ -89,6 +90,17 @@ describe('production preflight phase boundaries', () => {
     });
     expect(approved.status).toBe(0);
     expect(approved.stdout).toContain('Phase 3 publication capability');
+
+    const fakeProduction = preflight({
+      CUBELIC_PHASE3_ENABLED: 'true',
+      CUBELIC_PHASE3_DELIVERY_MODE: 'staging_fake',
+      GLOBAL_PUBLISHING_DISABLED: 'false',
+      PHASE3_RELEASE_APPROVED: 'true',
+      STAGING_PHASE3_SMOKE_VERIFIED: 'true',
+      CUBELIC_PHASE3_SCHEDULE_POLICIES: 'event_notice:event_notice_v1',
+    });
+    expect(fakeProduction.status).toBe(1);
+    expect(fakeProduction.stderr).toContain('CUBELIC_PHASE3_DELIVERY_MODE must be x');
   });
 
   it('requires either verified Wrangler auth or a least-privilege API token', () => {

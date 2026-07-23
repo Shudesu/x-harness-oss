@@ -61,6 +61,44 @@ export async function appendCubelicAudit(db: D1Database, input: AuditInput): Pro
   await cubelicAuditStatement(db, input).run();
 }
 
+export async function bootstrapCubelicOperator(
+  db: D1Database,
+  input: { name: string; apiKey: string },
+  audit: AuditInput,
+): Promise<{ id: string; name: string; role: 'admin'; apiKey: string } | null> {
+  const id = crypto.randomUUID();
+  const timestamp = nowIso();
+  const insert = db.prepare(
+    `INSERT INTO staff_members (id, name, role, api_key, created_at, updated_at)
+     SELECT ?, ?, 'admin', ?, ?, ?
+     WHERE NOT EXISTS (SELECT 1 FROM staff_members WHERE is_active = 1)`,
+  ).bind(id, input.name, input.apiKey, timestamp, timestamp);
+  const conditionalAudit = db.prepare(
+    `INSERT INTO cubelic_audit_logs (
+      audit_id, actor, action, entity_type, entity_id, before_json, after_json,
+      timestamp, correlation_id
+    )
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+    WHERE EXISTS (SELECT 1 FROM staff_members WHERE id = ?)`,
+  ).bind(
+    `aud_${crypto.randomUUID()}`,
+    audit.actor,
+    audit.action,
+    audit.entityType,
+    audit.entityId,
+    JSON.stringify(audit.before),
+    JSON.stringify(audit.after),
+    timestamp,
+    audit.correlationId,
+    id,
+  );
+  await db.batch([insert, conditionalAudit]);
+  const created = await db.prepare(
+    'SELECT id FROM staff_members WHERE id = ?',
+  ).bind(id).first<{ id: string }>();
+  return created ? { id, name: input.name, role: 'admin', apiKey: input.apiKey } : null;
+}
+
 export interface RejectionInput {
   actor: AuditActor;
   reasons: RejectReason[];

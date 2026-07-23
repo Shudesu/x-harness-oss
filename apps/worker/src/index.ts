@@ -42,6 +42,7 @@ export type Env = {
     GROWTH_IMAGES?: R2Bucket;
     CUBELIC_SAFE_MODE?: string;
     CUBELIC_PHASE3_ENABLED?: string;
+    CUBELIC_PHASE3_DELIVERY_MODE?: string;
     CUBELIC_PHASE3_SCHEDULE_POLICIES?: string;
     PHASE3_RELEASE_APPROVED?: string;
     STAGING_PHASE3_SMOKE_VERIFIED?: string;

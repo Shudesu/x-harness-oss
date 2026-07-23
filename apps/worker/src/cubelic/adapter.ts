@@ -21,6 +21,7 @@ import {
 } from '@x-harness/db';
 import { XClient } from '@x-harness/x-sdk';
 import type { Env } from '../index.js';
+import { isPhase3PublicationEnabled, isStagingFakeDelivery } from './safety.js';
 
 export type CubelicXAdapterFactory = (
   db: D1Database,
@@ -71,9 +72,7 @@ export const buildCubelicPhase3XAdapter: CubelicPhase3AdapterFactory = (env, ope
   }
 
   return new Phase3XPublishingAdapter({
-    enabled: env.CUBELIC_PHASE3_ENABLED === 'true'
-      && env.PHASE3_RELEASE_APPROVED === 'true'
-      && env.STAGING_PHASE3_SMOKE_VERIFIED === 'true',
+    enabled: isPhase3PublicationEnabled(env),
     allowedSchedulePolicies: schedulePolicies(env.CUBELIC_PHASE3_SCHEDULE_POLICIES),
     isEmergencyStopped: () => getCubelicEmergencyStop(env.DB),
     checkRateLimit: (input, operation) => checkCubelicPublicationRate(env.DB, {
@@ -126,8 +125,9 @@ export const buildCubelicPhase3XAdapter: CubelicPhase3AdapterFactory = (env, ope
           'A previous publication attempt exists and requires human reconciliation',
         );
       }
-      const account = await getXAccountById(env.DB, accountId);
-      if (!account) throw new PublicationPolicyError('x_account_not_found', 'Configured X account was not found');
+      if (!isStagingFakeDelivery(env) && !(await getXAccountById(env.DB, accountId))) {
+        throw new PublicationPolicyError('x_account_not_found', 'Configured X account was not found');
+      }
       const job = await createCubelicPublicationJob(env.DB, {
         draftId: input.draftId,
         operation: 'publish',
@@ -147,12 +147,11 @@ export const buildCubelicPhase3XAdapter: CubelicPhase3AdapterFactory = (env, ope
         correlationId: `publication:${input.idempotencyKey}`,
       });
       try {
-        const tweet = await buildXClient(account).createTweet({ text: input.text });
-        await incrementApiUsage(env.DB, account.id, 'create_tweet');
+        const tweet = await deliverTextForRuntime(env, accountId, input.text);
         const publishedAt = now().toISOString();
         await completeCubelicPublicationJob(env.DB, {
           jobId: job.jobId,
-          postId: tweet.id,
+          postId: tweet.postId,
           publishedAt,
         }, {
           actor: 'human',
@@ -160,10 +159,10 @@ export const buildCubelicPhase3XAdapter: CubelicPhase3AdapterFactory = (env, ope
           entityType: 'publication_job',
           entityId: job.jobId,
           before: { status: 'publishing' },
-          after: { status: 'published', postId: tweet.id, publishedAt },
+          after: { status: 'published', postId: tweet.postId, publishedAt },
           correlationId: `publication:${input.idempotencyKey}`,
         });
-        return { postId: tweet.id, status: 'published', publishedAt };
+        return { postId: tweet.postId, status: 'published', publishedAt };
       } catch {
         await appendCubelicAudit(env.DB, {
           actor: 'human',
@@ -190,12 +189,10 @@ export async function processDueCubelicPublications(
     env: Env['Bindings'],
     accountId: string,
     text: string,
-  ) => Promise<{ postId: string }> = deliverTextToX,
+  ) => Promise<{ postId: string }> = deliverTextForRuntime,
 ): Promise<void> {
   if (
-    env.CUBELIC_PHASE3_ENABLED !== 'true'
-    || env.PHASE3_RELEASE_APPROVED !== 'true'
-    || env.STAGING_PHASE3_SMOKE_VERIFIED !== 'true'
+    !isPhase3PublicationEnabled(env)
     || env.GLOBAL_PUBLISHING_DISABLED !== 'false'
     || await getCubelicEmergencyStop(env.DB)
   ) return;
@@ -298,6 +295,17 @@ export async function processDueCubelicPublications(
       });
     }
   }
+}
+
+async function deliverTextForRuntime(
+  env: Env['Bindings'],
+  accountId: string,
+  text: string,
+): Promise<{ postId: string }> {
+  if (isStagingFakeDelivery(env)) {
+    return { postId: `staging_fake_${crypto.randomUUID()}` };
+  }
+  return deliverTextToX(env, accountId, text);
 }
 
 async function deliverTextToX(

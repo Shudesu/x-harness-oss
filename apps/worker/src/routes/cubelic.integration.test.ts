@@ -18,6 +18,7 @@ import { compileMigrationForD1Exec } from '../../../../packages/db/src/d1-test-u
 import { processDueCubelicPublications } from '../cubelic/adapter.js';
 
 const migrationPaths = [
+  fileURLToPath(new URL('../../../../packages/db/migrations/008-staff-members.sql', import.meta.url)),
   fileURLToPath(new URL('../../../../packages/db/migrations/018-cubelic-content-os.sql', import.meta.url)),
   fileURLToPath(new URL('../../../../packages/db/migrations/019-cubelic-fail-closed-boundaries.sql', import.meta.url)),
   fileURLToPath(new URL('../../../../packages/db/migrations/020-cubelic-phase3-publication.sql', import.meta.url)),
@@ -80,8 +81,10 @@ describe('CUBΣLIC Worker API integration', () => {
       const requestActor = c.req.header('X-Test-Actor') === 'hermes' ? 'hermes' : 'human';
       if (requestActor === 'human') {
         c.set('staffRole', 'admin');
-        c.set('staffId', 'staff_integration_operator');
-        c.set('staffName', 'Integration Operator');
+        if (c.req.header('X-Test-Global') !== 'true') {
+          c.set('staffId', 'staff_integration_operator');
+          c.set('staffName', 'Integration Operator');
+        }
       }
       c.set('requestActor', requestActor);
       c.set('cubelicAdapterFactory', () => new Phase1XPublishingAdapter(createDraft));
@@ -124,6 +127,41 @@ describe('CUBΣLIC Worker API integration', () => {
       correlationId: `corr_window_${eventId}`,
     });
   }
+
+  it('bootstraps one named operator with the global and human keys while stopped', async () => {
+    bindings.GLOBAL_PUBLISHING_DISABLED = 'true';
+    await setCubelicEmergencyStop(db, true, 'integration-operator', {
+      actor: 'human',
+      action: 'system.emergency_stop',
+      entityType: 'system',
+      entityId: 'publishing',
+      before: { stopped: false },
+      after: { stopped: true },
+      correlationId: 'corr_bootstrap_stop',
+    });
+    const bootstrap = () => request('/api/cubelic/admin/operator-bootstrap', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+        'X-Test-Global': 'true',
+      },
+      body: JSON.stringify({ name: 'Y-Fukiya' }),
+    });
+    const first = await bootstrap();
+    expect(first.status).toBe(201);
+    await expect(first.json()).resolves.toMatchObject({
+      data: {
+        name: 'Y-Fukiya',
+        role: 'admin',
+        apiKey: expect.stringMatching(/^xh_staff_/),
+      },
+    });
+    expect((await bootstrap()).status).toBe(409);
+    expect((await db.prepare(
+      "SELECT COUNT(*) AS count FROM cubelic_audit_logs WHERE action = 'staff.operator_bootstrapped'",
+    ).first<{ count: number }>())?.count).toBe(1);
+  });
 
   it('keeps every non-metrics write stopped while the environment emergency stop is active', async () => {
     bindings.GLOBAL_PUBLISHING_DISABLED = 'true';
@@ -176,6 +214,8 @@ describe('CUBΣLIC Worker API integration', () => {
     bindings.PHASE3_RELEASE_APPROVED = 'true';
     bindings.STAGING_PHASE3_SMOKE_VERIFIED = 'true';
     bindings.CUBELIC_PHASE3_SCHEDULE_POLICIES = 'event_notice:event_notice_manual_v1';
+    bindings.CUBELIC_PHASE3_DELIVERY_MODE = 'staging_fake';
+    bindings.WORKER_URL = 'https://x-harness-worker-staging.example.workers.dev';
     const manual = await request('/api/cubelic/manual-drafts', {
       method: 'POST',
       headers: {
@@ -246,13 +286,11 @@ describe('CUBΣLIC Worker API integration', () => {
       after: { scheduledAt: dueAt },
       correlationId: 'corr_cron_success',
     });
-    const deliver = vi.fn(async () => ({ postId: '1888888888888888888' }));
-    await processDueCubelicPublications(bindings, new Date(), deliver);
-    await processDueCubelicPublications(bindings, new Date(), deliver);
-    expect(deliver).toHaveBeenCalledOnce();
+    await processDueCubelicPublications(bindings, new Date());
+    await processDueCubelicPublications(bindings, new Date());
     await expect(getCubelicPublicationJob(db, dueJob.jobId)).resolves.toMatchObject({
       status: 'published',
-      postId: '1888888888888888888',
+      postId: expect.stringMatching(/^staging_fake_/),
     });
 
     const revokedAt = new Date(Date.now() + 48 * 60 * 60_000);
@@ -275,14 +313,12 @@ describe('CUBΣLIC Worker API integration', () => {
       correlationId: 'corr_cron_revoked',
     });
     bindings.CUBELIC_PHASE3_SCHEDULE_POLICIES = '';
-    await processDueCubelicPublications(bindings, revokedAt, deliver);
-    expect(deliver).toHaveBeenCalledOnce();
+    await processDueCubelicPublications(bindings, revokedAt);
     await expect(getCubelicPublicationJob(db, revokedJob.jobId)).resolves.toMatchObject({
       status: 'scheduled',
     });
     bindings.CUBELIC_PHASE3_SCHEDULE_POLICIES = 'malformed-policy';
-    await processDueCubelicPublications(bindings, revokedAt, deliver);
-    expect(deliver).toHaveBeenCalledOnce();
+    await processDueCubelicPublications(bindings, revokedAt);
     await expect(getCubelicPublicationJob(db, revokedJob.jobId)).resolves.toMatchObject({
       status: 'scheduled',
     });

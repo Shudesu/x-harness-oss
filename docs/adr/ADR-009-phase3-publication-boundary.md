@@ -19,6 +19,12 @@ Persist publication intent before calling X. An unresolved `publishing` job is n
 
 The first release supports text-only X delivery. CUBΣLIC media identifiers are not X media identifiers, so media publication remains blocked until a reviewed R2-to-X upload and reconciliation contract exists.
 
+Staging may use `CUBELIC_PHASE3_DELIVERY_MODE=staging_fake` only when
+`WORKER_URL` identifies the dedicated staging Worker. It records synthetic
+post identifiers without calling X. Production preflight accepts only
+`CUBELIC_PHASE3_DELIVERY_MODE=x`; missing, malformed, or cross-environment
+delivery modes disable Phase 3.
+
 ## Consequences
 
 - Phase 1 production behavior remains unchanged by default.

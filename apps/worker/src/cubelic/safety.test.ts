@@ -61,6 +61,27 @@ describe('CUBΣLIC centralized Phase 1 route boundary', () => {
       CUBELIC_PHASE3_ENABLED: 'true',
       PHASE3_RELEASE_APPROVED: 'true',
       STAGING_PHASE3_SMOKE_VERIFIED: 'true',
+    }))).toBe(false);
+    expect(isPhase3PublicationEnabled(env({
+      WORKER_URL: 'https://x-harness-worker-production.example.workers.dev',
+      CUBELIC_PHASE3_ENABLED: 'true',
+      CUBELIC_PHASE3_DELIVERY_MODE: 'staging_fake',
+      PHASE3_RELEASE_APPROVED: 'true',
+      STAGING_PHASE3_SMOKE_VERIFIED: 'true',
+    }))).toBe(false);
+    expect(isPhase3PublicationEnabled(env({
+      WORKER_URL: 'https://x-harness-worker-staging.example.workers.dev',
+      CUBELIC_PHASE3_ENABLED: 'true',
+      CUBELIC_PHASE3_DELIVERY_MODE: 'staging_fake',
+      PHASE3_RELEASE_APPROVED: 'true',
+      STAGING_PHASE3_SMOKE_VERIFIED: 'true',
+    }))).toBe(true);
+    expect(isPhase3PublicationEnabled(env({
+      WORKER_URL: 'https://x-harness-worker-production.example.workers.dev',
+      CUBELIC_PHASE3_ENABLED: 'true',
+      CUBELIC_PHASE3_DELIVERY_MODE: 'x',
+      PHASE3_RELEASE_APPROVED: 'true',
+      STAGING_PHASE3_SMOKE_VERIFIED: 'true',
     }))).toBe(true);
     expect(isPhase1RouteBlocked(
       'POST',

@@ -44,13 +44,13 @@
 Phase 3 is default-disabled. Do not combine its first enablement with unrelated migrations or UI changes.
 
 1. Apply migration `020-cubelic-phase3-publication.sql` to staging and keep both stops active.
-2. Configure exact reviewed `category:template_id` pairs in `CUBELIC_PHASE3_SCHEDULE_POLICIES`. Only `event_notice`, `event_reminder`, and `youtube_notice` may be allowlisted.
+2. Configure `CUBELIC_PHASE3_DELIVERY_MODE=staging_fake` only on the dedicated staging Worker, then configure exact reviewed `category:template_id` pairs in `CUBELIC_PHASE3_SCHEDULE_POLICIES`. Only `event_notice`, `event_reminder`, and `youtube_notice` may be allowlisted.
 3. Set `CUBELIC_PHASE3_ENABLED=true` and `GLOBAL_PUBLISHING_DISABLED=false` in staging, then use the human approval key to resume the D1 stop.
 4. Create a named admin/editor staff credential and sign in with that staff API key. The shared environment `API_KEY` may inspect the system but cannot attest manual production input, approve a Phase 3 draft, or publish immediately.
 5. Verify an unapproved draft, mismatched operator, missing rights/privacy/link proof, non-allowlisted policy pair, past schedule time, daily/weekly limit, and minimum interval are rejected.
 6. Publish one text-only staging fixture through the fake/staging X destination and verify one `publication.started` plus one `publication.completed` audit. A request with CUBΣLIC media must fail with `media_delivery_not_configured` until the media-delivery boundary is separately approved.
 7. Schedule one allowlisted fixture through Hermes and verify Cron claims it once. Stop the system before another due run and verify no X call occurs. Simulate an X timeout and verify the job remains `publishing` with `publication.outcome_unknown`, never an automatic retry.
 8. Set `STAGING_PHASE3_SMOKE_VERIFIED=true` only after the preceding checks pass.
-9. Run production preflight with `CUBELIC_PHASE3_ENABLED=true`, `GLOBAL_PUBLISHING_DISABLED=false`, `PHASE3_RELEASE_APPROVED=true`, the reviewed policies, and `STAGING_PHASE3_SMOKE_VERIFIED=true`.
+9. Run production preflight with `CUBELIC_PHASE3_ENABLED=true`, `CUBELIC_PHASE3_DELIVERY_MODE=x`, `GLOBAL_PUBLISHING_DISABLED=false`, `PHASE3_RELEASE_APPROVED=true`, the reviewed policies, and `STAGING_PHASE3_SMOKE_VERIFIED=true`. Production must reject `staging_fake`.
 10. Back up D1, apply migration 020, deploy Worker, verify Cron and `/api/cubelic/admin/status`, then deploy the operator UI.
 11. Resume the D1 stop only when a named operator is present. Publish one human-approved text draft, verify the returned X post manually, and keep the emergency-stop control visible throughout.

@@ -19,8 +19,22 @@ export function isPublishingGloballyDisabled(env: Env['Bindings']): boolean {
   return env.GLOBAL_PUBLISHING_DISABLED !== 'false';
 }
 
+export function isStagingFakeDelivery(env: Env['Bindings']): boolean {
+  if (env.CUBELIC_PHASE3_DELIVERY_MODE !== 'staging_fake' || !env.WORKER_URL) return false;
+  try {
+    return new URL(env.WORKER_URL).hostname.startsWith('x-harness-worker-staging.');
+  } catch {
+    return false;
+  }
+}
+
+export function isPhase3DeliveryConfigured(env: Env['Bindings']): boolean {
+  return env.CUBELIC_PHASE3_DELIVERY_MODE === 'x' || isStagingFakeDelivery(env);
+}
+
 export function isPhase3PublicationEnabled(env: Env['Bindings']): boolean {
   return env.CUBELIC_PHASE3_ENABLED === 'true'
+    && isPhase3DeliveryConfigured(env)
     && env.PHASE3_RELEASE_APPROVED === 'true'
     && env.STAGING_PHASE3_SMOKE_VERIFIED === 'true';
 }

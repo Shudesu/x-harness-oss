@@ -21,6 +21,7 @@ import {
 } from '@x-harness/content-os';
 import {
   appendCubelicAudit,
+  bootstrapCubelicOperator,
   closeCubelicOperationWindowAndStop,
   createCubelicContent,
   createCubelicDrafts,
@@ -286,7 +287,8 @@ function isMetricsWrite(path: string): boolean {
 function isEmergencyAdmin(path: string): boolean {
   return path === '/api/cubelic/admin/emergency-stop'
     || path === '/api/cubelic/admin/emergency-resume'
-    || path === '/api/cubelic/admin/operation-window';
+    || path === '/api/cubelic/admin/operation-window'
+    || path === '/api/cubelic/admin/operator-bootstrap';
 }
 
 const OPERATION_WINDOW_UNSCOPED_WRITES = new Set([
@@ -1202,6 +1204,43 @@ cubelic.get('/api/cubelic/admin/status', async (c) => c.json({
       && !(await getCubelicEmergencyStop(c.env.DB)),
   },
 }));
+
+cubelic.post('/api/cubelic/admin/operator-bootstrap', async (c) => {
+  try {
+    const denied = await requireHumanApproval(c);
+    if (denied) return denied;
+    if (c.get('staffId') || c.get('staffName')) {
+      return c.json({
+        success: false,
+        error: 'Operator bootstrap requires the global administration credential',
+        code: 'operator_bootstrap_global_key_required',
+      }, 403);
+    }
+    const body = await c.req.json<{ name?: string }>();
+    const name = body.name?.trim();
+    if (!name || name.length < 2 || name.length > 80) {
+      throw new PublicationPolicyError('operator_name_invalid', 'A named operator from 2 to 80 characters is required');
+    }
+    const apiKey = `xh_staff_${crypto.randomUUID().replaceAll('-', '')}${crypto.randomUUID().replaceAll('-', '')}`;
+    const created = await bootstrapCubelicOperator(c.env.DB, { name, apiKey }, {
+      actor: 'human',
+      action: 'staff.operator_bootstrapped',
+      entityType: 'staff',
+      entityId: 'initial_phase3_operator',
+      before: {},
+      after: { name, role: 'admin', active: true },
+      correlationId: correlationId(c),
+    });
+    if (!created) {
+      return c.json({
+        success: false,
+        error: 'An active named operator already exists',
+        code: 'operator_already_bootstrapped',
+      }, 409);
+    }
+    return c.json({ success: true, data: created }, 201);
+  } catch (error) { return apiError(c, error); }
+});
 
 cubelic.post('/api/cubelic/admin/emergency-stop', async (c) => {
   const denied = await requireHumanApproval(c);
