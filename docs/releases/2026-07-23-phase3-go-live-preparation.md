@@ -81,3 +81,32 @@ The first named admin operator is `Y-Fukiya`.
 - DG-026 outcome-unknown recovery is implemented as a named-human-only
   reconciliation API. It requires the D1 emergency stop, performs no X write,
   and preserves the stop; any later retry still requires separate approval.
+
+## DG-026 production release
+
+- Source commit: `bdb85117baa274f75d0c09c340e6e0cd70e82c8c`
+- Independent standards review: 0 P0/P1/P2 findings
+- Independent specification review: 0 P0/P1/P2 findings
+- Final `pnpm check`: 225 standard tests and 23 D1 integration tests passed;
+  boundary, config, secret, type and build checks also passed
+- Staging D1 bookmark after migration 021:
+  `00000030-00000008-000050b1-556bdae076fc4c7fa9dfea0e61846217`
+- Production D1 bookmark after migration 021:
+  `00000041-00000008-000050b1-c1a74a090e6b13d1007d257e3e67bf70`
+- Staging Worker version:
+  `49f68e3f-461b-4991-98fd-69424b76b1a6`
+- Production Worker version:
+  `c2767fe4-868e-4d91-8bce-5928b5dbb3ce`
+- Production Pages deployment:
+  `https://07dcfaf0.cubelic-ops-production.pages.dev`
+- Both pre-migration D1 exports are retained locally under
+  `/private/tmp/cubelic-dg026-backup.ux23QS/` with mode `0600`
+- Staging smoke passed after restoring the audited D1 emergency stop
+- Production preflight passed using Keychain-backed credentials
+- Production migration table exists, the exact D1 stop remains `true`, and no
+  reconciliation record was created by release verification
+- Staging and production returned HTTP 404 for a fully authenticated
+  reconciliation request against a nonexistent job, confirming route presence
+  without a state mutation
+- `ops.cubelic-fan.com` and the direct Pages deployment both redirect
+  unauthenticated requests to Cloudflare Access
