@@ -189,6 +189,7 @@ describe('CUBΣLIC Worker API integration', () => {
     expect(response.status).toBe(423);
     await expect((await request('/api/cubelic/admin/status')).json()).resolves.toMatchObject({
       data: {
+        safeMode: true,
         environmentStop: true,
         emergencyStop: false,
         emergencyStopValid: true,
@@ -224,6 +225,12 @@ describe('CUBΣLIC Worker API integration', () => {
     bindings.CUBELIC_PHASE3_SCHEDULE_POLICIES = 'event_notice:event_notice_manual_v1';
     bindings.CUBELIC_PHASE3_DELIVERY_MODE = 'staging_fake';
     bindings.WORKER_URL = 'https://x-harness-worker-staging.yoshihiro-fukiya.workers.dev';
+    await expect((await request('/api/cubelic/admin/status')).json()).resolves.toMatchObject({
+      data: {
+        safeMode: true,
+        phase3Enabled: true,
+      },
+    });
     const manual = await request('/api/cubelic/manual-drafts', {
       method: 'POST',
       headers: {

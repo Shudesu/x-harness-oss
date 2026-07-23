@@ -49,6 +49,9 @@ if (!status.response.ok) {
   if (status.body?.data?.emergencyStopValid !== true) {
     failures.push('CUBΣLIC emergency-stop state is missing or invalid');
   }
+  if (status.body?.data?.emergencyStop !== true) {
+    failures.push('CUBΣLIC D1 emergency stop is not active');
+  }
   if (status.body?.data?.publishingEnabled !== false || status.body?.data?.schedulingEnabled !== false) {
     failures.push('CUBΣLIC status exposed publishing or scheduling');
   }

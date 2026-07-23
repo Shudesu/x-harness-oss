@@ -1205,7 +1205,7 @@ cubelic.get('/api/cubelic/admin/status', async (c) => {
   return c.json({
     success: true,
     data: {
-      safeMode: !isPhase3PublicationEnabled(c.env),
+      safeMode: c.env.CUBELIC_SAFE_MODE === 'true',
       phase3Enabled: isPhase3PublicationEnabled(c.env),
       environmentStop: c.env.GLOBAL_PUBLISHING_DISABLED !== 'false',
       emergencyStop: stopState.stopped,

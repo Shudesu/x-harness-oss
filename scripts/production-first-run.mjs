@@ -116,9 +116,12 @@ export async function runProductionFirstRun({
   const humanKey = required(environment, 'PRODUCTION_HUMAN_APPROVAL_KEY');
   const initialStatus = await request(fetchImpl, workerOrigin, apiKey, '/api/cubelic/admin/status', { label: 'status check' });
   assertSafeStatus(initialStatus);
+  if (initialStatus.emergencyStop !== true) {
+    throw new Error('Production first-run requires the D1 emergency stop to be active before opening an operation window');
+  }
 
   if (!execute) {
-    if (initialStatus.environmentStop !== true || initialStatus.emergencyStop !== true) {
+    if (initialStatus.environmentStop !== true) {
       throw new Error('Readiness check requires both emergency stops to be active');
     }
     log('Production safety boundary verified.');

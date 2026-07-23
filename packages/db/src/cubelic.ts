@@ -13,6 +13,7 @@ import type {
   XDraftResult,
   XHarnessInertDraftV1,
 } from '@x-harness/content-os';
+import { isValidCalendarDateTime } from '@x-harness/content-os';
 
 type AuditActor = 'human' | 'hermes' | 'system' | 'codex';
 
@@ -36,17 +37,7 @@ export function normalizeCubelicIso8601Timestamp(value: string): string | null {
   const hour = Number(hourText);
   const minute = Number(minuteText);
   const second = Number(secondText);
-  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1] ?? 0;
-  if (
-    month < 1
-    || month > 12
-    || day < 1
-    || day > daysInMonth
-    || hour > 23
-    || minute > 59
-    || second > 59
-  ) return null;
+  if (!isValidCalendarDateTime({ year, month, day, hour, minute, second })) return null;
   if (zone !== 'Z') {
     const offsetHour = Number(offsetHourText);
     const offsetMinute = Number(offsetMinuteText);

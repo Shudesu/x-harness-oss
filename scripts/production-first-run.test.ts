@@ -232,6 +232,28 @@ describe('production first-run operation', () => {
     });
   });
 
+  it('rejects a valid but resumed D1 emergency stop before any operation', async () => {
+    await withInputFiles(async (environment) => {
+      await expect(runProductionFirstRun({
+        environment,
+        execute: true,
+        validateInputs: () => undefined,
+        log: () => undefined,
+        fetchImpl: async () => response(200, {
+          success: true,
+          data: {
+            safeMode: true,
+            environmentStop: false,
+            emergencyStop: false,
+            emergencyStopValid: true,
+            publishingEnabled: false,
+            schedulingEnabled: false,
+          },
+        }),
+      })).rejects.toThrow('D1 emergency stop');
+    });
+  });
+
   it('re-engages the D1 emergency stop when ingestion fails', async () => {
     await withInputFiles(async (environment) => {
       const paths: string[] = [];
