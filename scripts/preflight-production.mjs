@@ -7,10 +7,11 @@ const errors = [];
 const hermesRuntimeEnabled = process.env.HERMES_RUNTIME_ENABLED === 'true';
 const productionContentIngestEnabled = process.env.PRODUCTION_CONTENT_INGEST_ENABLED === 'true';
 const cloudflareAuthVerified = process.env.CLOUDFLARE_AUTH_VERIFIED === 'true';
+const phase3Enabled = process.env.CUBELIC_PHASE3_ENABLED === 'true';
 const requiredSecrets = ['API_KEY', 'HUMAN_APPROVAL_KEY'];
 if (hermesRuntimeEnabled) requiredSecrets.push('HERMES_ACCESS_TOKEN');
 
-for (const name of ['HERMES_RUNTIME_ENABLED', 'PRODUCTION_CONTENT_INGEST_ENABLED', 'PRODUCTION_INPUTS_VALIDATED', 'PRODUCTION_LP_MAPPING_VALIDATED', 'CLOUDFLARE_AUTH_VERIFIED']) {
+for (const name of ['HERMES_RUNTIME_ENABLED', 'PRODUCTION_CONTENT_INGEST_ENABLED', 'PRODUCTION_INPUTS_VALIDATED', 'PRODUCTION_LP_MAPPING_VALIDATED', 'CLOUDFLARE_AUTH_VERIFIED', 'CUBELIC_PHASE3_ENABLED', 'PHASE3_RELEASE_APPROVED', 'STAGING_PHASE3_SMOKE_VERIFIED']) {
   if (process.env[name] && !['true', 'false'].includes(process.env[name])) {
     errors.push(`${name} must be true or false when set`);
   }
@@ -36,7 +37,29 @@ if (!process.env.X_HARNESS_ACCOUNT_ID || process.env.X_HARNESS_ACCOUNT_ID === 'S
   errors.push('missing production X_HARNESS_ACCOUNT_ID mapping');
 }
 if (process.env.CUBELIC_SAFE_MODE !== 'true') errors.push('CUBELIC_SAFE_MODE must be explicitly true');
-if (process.env.GLOBAL_PUBLISHING_DISABLED !== 'true') errors.push('GLOBAL_PUBLISHING_DISABLED must be explicitly true');
+if (phase3Enabled) {
+  if (process.env.GLOBAL_PUBLISHING_DISABLED !== 'false') {
+    errors.push('GLOBAL_PUBLISHING_DISABLED must be explicitly false for an approved Phase 3 release');
+  }
+  if (process.env.PHASE3_RELEASE_APPROVED !== 'true') {
+    errors.push('PHASE3_RELEASE_APPROVED must be true for a Phase 3 publication release');
+  }
+  if (process.env.STAGING_PHASE3_SMOKE_VERIFIED !== 'true') {
+    errors.push('STAGING_PHASE3_SMOKE_VERIFIED must be true after Phase 3 staging smoke succeeds');
+  }
+  const allowedCategories = new Set(['event_notice', 'event_reminder', 'youtube_notice']);
+  const policies = (process.env.CUBELIC_PHASE3_SCHEDULE_POLICIES ?? '').split(',').map((value) => value.trim()).filter(Boolean);
+  if (policies.length === 0 || policies.some((policy) => {
+    const [category, templateId, ...rest] = policy.split(':');
+    return rest.length > 0
+      || !allowedCategories.has(category)
+      || !/^[a-z0-9][a-z0-9_-]{2,80}$/.test(templateId ?? '');
+  })) {
+    errors.push('CUBELIC_PHASE3_SCHEDULE_POLICIES must contain reviewed category:template_id pairs');
+  }
+} else if (process.env.GLOBAL_PUBLISHING_DISABLED !== 'true') {
+  errors.push('GLOBAL_PUBLISHING_DISABLED must be explicitly true');
+}
 if (productionContentIngestEnabled && process.env.PRODUCTION_INPUTS_VALIDATED !== 'true') {
   errors.push('PRODUCTION_INPUTS_VALIDATED must be true before production content ingestion is enabled');
 }
@@ -65,6 +88,9 @@ if (!/CORS_ALLOWED_ORIGINS\s*=\s*"https:\/\/ops\.cubelic-fan\.com"/.test(wrangle
   errors.push('wrangler.toml does not bind production CORS to the approved operator UI origin');
 }
 if (!/^CUBELIC_SAFE_MODE\s*=\s*"true"$/m.test(wrangler)) errors.push('wrangler.toml does not default CUBELIC_SAFE_MODE to true');
+if (!/^CUBELIC_PHASE3_ENABLED\s*=\s*"false"$/m.test(wrangler)) errors.push('wrangler.toml does not default CUBELIC_PHASE3_ENABLED to false');
+if (!/^PHASE3_RELEASE_APPROVED\s*=\s*"false"$/m.test(wrangler)) errors.push('wrangler.toml does not default PHASE3_RELEASE_APPROVED to false');
+if (!/^STAGING_PHASE3_SMOKE_VERIFIED\s*=\s*"false"$/m.test(wrangler)) errors.push('wrangler.toml does not default STAGING_PHASE3_SMOKE_VERIFIED to false');
 if (!/^GLOBAL_PUBLISHING_DISABLED\s*=\s*"true"$/m.test(wrangler)) errors.push('wrangler.toml does not default GLOBAL_PUBLISHING_DISABLED to true');
 
 if (errors.length) {
@@ -72,5 +98,7 @@ if (errors.length) {
   console.error('No secret values were printed. Resolve the named inputs, then rerun pnpm preflight:production.');
   process.exitCode = 1;
 } else {
-  console.log('Production preflight passed for the Phase 1 runtime. Run the staging checklist before any production deployment.');
+  console.log(phase3Enabled
+    ? 'Production preflight passed for the approved Phase 3 publication capability. Run the Phase 3 staging checklist before deployment.'
+    : 'Production preflight passed for the Phase 1 runtime. Run the staging checklist before any production deployment.');
 }

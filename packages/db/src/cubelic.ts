@@ -4,6 +4,7 @@ import type {
   EventRecord,
   GasSetlistV1,
   MemberMasterV1,
+  ManualProductionAuthorityV1,
   MediaAsset,
   PostMetrics,
   RejectReason,
@@ -437,6 +438,9 @@ interface DraftRow {
   freshness_score: number;
   rights_gate: DraftCandidate['rights_gate'];
   approval_status: DraftCandidate['approval_status'];
+  approved_by: string | null;
+  approved_at: string | null;
+  x_harness_inbox_id: string | null;
   risks: string;
   human_review_required: string;
   idempotency_key: string;
@@ -465,6 +469,9 @@ function mapDraft(row: DraftRow): DraftCandidate {
     freshness_score: row.freshness_score,
     rights_gate: row.rights_gate,
     approval_status: row.approval_status,
+    approved_by: row.approved_by,
+    approved_at: row.approved_at,
+    x_harness_inbox_id: row.x_harness_inbox_id,
     risks: json<string[]>(row.risks),
     human_review_required: json<string[]>(row.human_review_required),
     idempotency_key: row.idempotency_key,
@@ -715,6 +722,399 @@ export async function closeCubelicOperationWindowAndStop(
     ),
   ];
   await runCubelicMutation(db, statements, [audit]);
+}
+
+export async function createCubelicManualAuthority(
+  db: D1Database,
+  authority: ManualProductionAuthorityV1,
+  audit: AuditInput,
+): Promise<{ authorityId: string; createdAt: string }> {
+  const authorityId = `auth_${crypto.randomUUID()}`;
+  const createdAt = nowIso();
+  const statement = db.prepare(
+    `INSERT INTO cubelic_manual_authorities (
+      authority_id, content_id, schema_version, attested_by, attested_at,
+      rights_confirmed, privacy_review_completed, destination_url, link_validated, created_at
+    ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, 1, ?)`,
+  ).bind(
+    authorityId,
+    authority.content_id,
+    authority.schema_version,
+    authority.attested_by,
+    authority.attested_at,
+    authority.destination_url,
+    createdAt,
+  );
+  await runCubelicMutation(db, [statement], [audit]);
+  return { authorityId, createdAt };
+}
+
+export async function getCubelicManualAuthority(
+  db: D1Database,
+  contentId: string,
+): Promise<ManualProductionAuthorityV1 | null> {
+  const row = await db.prepare(
+    `SELECT schema_version, content_id, attested_by, attested_at, destination_url
+     FROM cubelic_manual_authorities WHERE content_id = ?`,
+  ).bind(contentId).first<{
+    schema_version: 'cubelic.manual-production-authority.v1';
+    content_id: string;
+    attested_by: string;
+    attested_at: string;
+    destination_url: string;
+  }>();
+  return row ? {
+    schema_version: row.schema_version,
+    content_id: row.content_id,
+    source_type: 'manual',
+    attested_by: row.attested_by,
+    attested_at: row.attested_at,
+    rights_confirmed: true,
+    privacy_review_completed: true,
+    destination_url: row.destination_url,
+    link_validated: true,
+  } : null;
+}
+
+export interface CubelicPublicationJob {
+  jobId: string;
+  draftId: string;
+  operation: 'schedule' | 'publish';
+  status: 'scheduled' | 'publishing' | 'published' | 'failed' | 'cancelled';
+  authorizationKind: 'human_individual' | 'preapproved_template';
+  policyId: string | null;
+  authorizedBy: string;
+  authorizedAt: string;
+  scheduledAt: string | null;
+  publishedAt: string | null;
+  postId: string | null;
+  idempotencyKey: string;
+  failureCode: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PublicationJobRow {
+  job_id: string;
+  draft_id: string;
+  operation: CubelicPublicationJob['operation'];
+  status: CubelicPublicationJob['status'];
+  authorization_kind: CubelicPublicationJob['authorizationKind'];
+  policy_id: string | null;
+  authorized_by: string;
+  authorized_at: string;
+  scheduled_at: string | null;
+  published_at: string | null;
+  post_id: string | null;
+  idempotency_key: string;
+  failure_code: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function mapPublicationJob(row: PublicationJobRow): CubelicPublicationJob {
+  return {
+    jobId: row.job_id,
+    draftId: row.draft_id,
+    operation: row.operation,
+    status: row.status,
+    authorizationKind: row.authorization_kind,
+    policyId: row.policy_id,
+    authorizedBy: row.authorized_by,
+    authorizedAt: row.authorized_at,
+    scheduledAt: row.scheduled_at,
+    publishedAt: row.published_at,
+    postId: row.post_id,
+    idempotencyKey: row.idempotency_key,
+    failureCode: row.failure_code,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function createCubelicPublicationJob(
+  db: D1Database,
+  input: {
+    draftId: string;
+    operation: 'schedule' | 'publish';
+    authorizationKind: 'human_individual' | 'preapproved_template';
+    policyId?: string;
+    authorizedBy: string;
+    authorizedAt: string;
+    scheduledAt?: string;
+    idempotencyKey: string;
+  },
+  audit: AuditInput,
+): Promise<CubelicPublicationJob> {
+  const existing = await getCubelicPublicationJobByIdempotencyKey(db, input.idempotencyKey);
+  if (existing) return existing;
+  const jobId = `pub_${crypto.randomUUID()}`;
+  const timestamp = nowIso();
+  const status = input.operation === 'schedule' ? 'scheduled' : 'publishing';
+  const statement = db.prepare(
+    `INSERT INTO cubelic_publication_jobs (
+      job_id, draft_id, operation, status, authorization_kind, policy_id,
+      authorized_by, authorized_at, scheduled_at, published_at, post_id,
+      idempotency_key, failure_code, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?, ?)`,
+  ).bind(
+    jobId,
+    input.draftId,
+    input.operation,
+    status,
+    input.authorizationKind,
+    input.policyId ?? null,
+    input.authorizedBy,
+    input.authorizedAt,
+    input.scheduledAt ?? null,
+    input.idempotencyKey,
+    timestamp,
+    timestamp,
+  );
+  await runCubelicMutation(db, [statement], [audit]);
+  const created = await getCubelicPublicationJob(db, jobId);
+  if (!created) throw new Error('Publication job was not persisted');
+  return created;
+}
+
+export async function getCubelicPublicationJob(
+  db: D1Database,
+  jobId: string,
+): Promise<CubelicPublicationJob | null> {
+  const row = await db.prepare('SELECT * FROM cubelic_publication_jobs WHERE job_id = ?')
+    .bind(jobId).first<PublicationJobRow>();
+  return row ? mapPublicationJob(row) : null;
+}
+
+export async function getCubelicPublicationJobByIdempotencyKey(
+  db: D1Database,
+  idempotencyKey: string,
+): Promise<CubelicPublicationJob | null> {
+  const row = await db.prepare('SELECT * FROM cubelic_publication_jobs WHERE idempotency_key = ?')
+    .bind(idempotencyKey).first<PublicationJobRow>();
+  return row ? mapPublicationJob(row) : null;
+}
+
+export async function completeCubelicPublicationJob(
+  db: D1Database,
+  input: { jobId: string; postId: string; publishedAt: string },
+  audit: AuditInput,
+): Promise<CubelicPublicationJob> {
+  const statement = db.prepare(
+    "UPDATE cubelic_publication_jobs SET status = 'published', post_id = ?, published_at = ?, updated_at = ? WHERE job_id = ? AND status IN ('publishing','scheduled')",
+  ).bind(input.postId, input.publishedAt, nowIso(), input.jobId);
+  await runCubelicMutation(db, [statement], [audit]);
+  const updated = await getCubelicPublicationJob(db, input.jobId);
+  if (!updated || updated.status !== 'published') throw new Error('Publication job could not be completed');
+  return updated;
+}
+
+export async function checkCubelicPublicationRate(
+  db: D1Database,
+  input: { effectiveAt: string; excludeJobId?: string },
+): Promise<{ allowed: true } | { allowed: false; reason: 'daily_limit' | 'weekly_limit' | 'minimum_interval' }> {
+  const exclude = input.excludeJobId ?? '';
+  const [day, week, interval] = await Promise.all([
+    db.prepare(
+      `SELECT COUNT(*) AS count FROM cubelic_publication_jobs
+       WHERE status IN ('scheduled','publishing','published') AND job_id <> ?
+         AND date(CASE status
+           WHEN 'published' THEN published_at
+           WHEN 'publishing' THEN updated_at
+           ELSE scheduled_at
+         END, '+9 hours') = date(?, '+9 hours')`,
+    ).bind(exclude, input.effectiveAt).first<{ count: number }>(),
+    db.prepare(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM (
+           SELECT CASE status
+             WHEN 'published' THEN published_at
+             WHEN 'publishing' THEN updated_at
+             ELSE scheduled_at
+           END AS window_start
+           FROM cubelic_publication_jobs
+           WHERE status IN ('scheduled','publishing','published') AND job_id <> ?
+             AND julianday(CASE status
+               WHEN 'published' THEN published_at
+               WHEN 'publishing' THEN updated_at
+               ELSE scheduled_at
+             END) > julianday(?, '-7 days')
+             AND julianday(CASE status
+               WHEN 'published' THEN published_at
+               WHEN 'publishing' THEN updated_at
+               ELSE scheduled_at
+             END) <= julianday(?)
+           UNION
+           SELECT ?
+         ) AS candidate_starts
+         WHERE (
+           SELECT COUNT(*) FROM cubelic_publication_jobs AS counted
+           WHERE counted.status IN ('scheduled','publishing','published')
+             AND counted.job_id <> ?
+             AND julianday(CASE counted.status
+               WHEN 'published' THEN counted.published_at
+               WHEN 'publishing' THEN counted.updated_at
+               ELSE counted.scheduled_at
+             END) >= julianday(candidate_starts.window_start)
+             AND julianday(CASE counted.status
+               WHEN 'published' THEN counted.published_at
+               WHEN 'publishing' THEN counted.updated_at
+               ELSE counted.scheduled_at
+             END) < julianday(candidate_starts.window_start, '+7 days')
+         ) >= 10
+       ) AS blocked`,
+    ).bind(
+      exclude,
+      input.effectiveAt,
+      input.effectiveAt,
+      input.effectiveAt,
+      exclude,
+    ).first<{ blocked: number }>(),
+    db.prepare(
+      `SELECT COUNT(*) AS count FROM cubelic_publication_jobs
+       WHERE status IN ('scheduled','publishing','published') AND job_id <> ?
+         AND ABS((julianday(CASE status
+           WHEN 'published' THEN published_at
+           WHEN 'publishing' THEN updated_at
+           ELSE scheduled_at
+         END) - julianday(?)) * 1440) < 240`,
+    ).bind(exclude, input.effectiveAt).first<{ count: number }>(),
+  ]);
+  if (Number(day?.count ?? 0) >= 2) return { allowed: false, reason: 'daily_limit' };
+  if (Number(week?.blocked ?? 0) === 1) return { allowed: false, reason: 'weekly_limit' };
+  if (Number(interval?.count ?? 0) > 0) return { allowed: false, reason: 'minimum_interval' };
+  return { allowed: true };
+}
+
+export async function listDueCubelicPublicationJobs(
+  db: D1Database,
+  at: string,
+  limit = 10,
+): Promise<CubelicPublicationJob[]> {
+  const result = await db.prepare(
+    `SELECT * FROM cubelic_publication_jobs
+     WHERE operation = 'schedule' AND status = 'scheduled' AND datetime(scheduled_at) <= datetime(?)
+     ORDER BY datetime(scheduled_at) ASC
+     LIMIT ?`,
+  ).bind(at, limit).all<PublicationJobRow>();
+  return result.results.map(mapPublicationJob);
+}
+
+export async function claimCubelicPublicationJob(
+  db: D1Database,
+  jobId: string,
+  audit: AuditInput,
+  at = nowIso(),
+): Promise<boolean> {
+  const claimToken = `claim_${crypto.randomUUID()}`;
+  const timestamp = at;
+  const statement = db.prepare(
+    `UPDATE cubelic_publication_jobs
+     SET status = 'publishing', claim_token = ?, updated_at = ?
+     WHERE job_id = ? AND status = 'scheduled'
+       AND (
+         SELECT COUNT(*) FROM cubelic_publication_jobs AS existing
+         WHERE existing.status IN ('publishing','published') AND existing.job_id <> ?
+           AND date(CASE existing.status
+             WHEN 'published' THEN existing.published_at
+             ELSE existing.updated_at
+           END, '+9 hours') = date(?, '+9 hours')
+       ) < 2
+       AND NOT EXISTS (
+         SELECT 1
+         FROM (
+           SELECT CASE existing.status
+             WHEN 'published' THEN existing.published_at
+             ELSE existing.updated_at
+           END AS window_start
+           FROM cubelic_publication_jobs AS existing
+           WHERE existing.status IN ('publishing','published') AND existing.job_id <> ?
+             AND julianday(CASE existing.status
+               WHEN 'published' THEN existing.published_at
+               ELSE existing.updated_at
+             END) > julianday(?, '-7 days')
+             AND julianday(CASE existing.status
+               WHEN 'published' THEN existing.published_at
+               ELSE existing.updated_at
+             END) <= julianday(?)
+           UNION
+           SELECT ?
+         ) AS candidate_starts
+         WHERE (
+           SELECT COUNT(*) FROM cubelic_publication_jobs AS counted
+           WHERE counted.status IN ('publishing','published') AND counted.job_id <> ?
+             AND julianday(CASE counted.status
+               WHEN 'published' THEN counted.published_at
+               ELSE counted.updated_at
+             END) >= julianday(candidate_starts.window_start)
+             AND julianday(CASE counted.status
+               WHEN 'published' THEN counted.published_at
+               ELSE counted.updated_at
+             END) < julianday(candidate_starts.window_start, '+7 days')
+         ) >= 10
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM cubelic_publication_jobs AS existing
+         WHERE existing.status IN ('publishing','published') AND existing.job_id <> ?
+           AND ABS((julianday(CASE existing.status
+             WHEN 'published' THEN existing.published_at
+             ELSE existing.updated_at
+           END) - julianday(?)) * 1440) < 240
+       )`,
+  ).bind(
+    claimToken,
+    timestamp,
+    jobId,
+    jobId,
+    at,
+    jobId,
+    at,
+    at,
+    at,
+    jobId,
+    jobId,
+    at,
+  );
+  const conditionalAudit = db.prepare(
+    `INSERT INTO cubelic_audit_logs (
+      audit_id, actor, action, entity_type, entity_id, before_json, after_json,
+      timestamp, correlation_id
+    )
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+    WHERE EXISTS (
+      SELECT 1 FROM cubelic_publication_jobs
+      WHERE job_id = ? AND claim_token = ?
+    )`,
+  ).bind(
+    `aud_${crypto.randomUUID()}`,
+    audit.actor,
+    audit.action,
+    audit.entityType,
+    audit.entityId,
+    JSON.stringify(audit.before),
+    JSON.stringify(audit.after),
+    timestamp,
+    audit.correlationId,
+    jobId,
+    claimToken,
+  );
+  await db.batch([statement, conditionalAudit]);
+  const row = await db.prepare(
+    'SELECT claim_token FROM cubelic_publication_jobs WHERE job_id = ?',
+  ).bind(jobId).first<{ claim_token: string | null }>();
+  return row?.claim_token === claimToken;
+}
+
+export async function failCubelicPublicationJob(
+  db: D1Database,
+  input: { jobId: string; failureCode: string },
+  audit: AuditInput,
+): Promise<void> {
+  const statement = db.prepare(
+    "UPDATE cubelic_publication_jobs SET status = 'failed', failure_code = ?, updated_at = ? WHERE job_id = ? AND status = 'publishing'",
+  ).bind(input.failureCode, nowIso(), input.jobId);
+  await runCubelicMutation(db, [statement], [audit]);
 }
 
 export interface PublishedPostMapping {

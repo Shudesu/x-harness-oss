@@ -11,12 +11,18 @@ function badgeClass(status: CubelicDraft['approval_status']): string {
   return 'bg-gray-50 text-gray-700 border-gray-200'
 }
 
-function DraftCard({ draft, humanKey, refresh }: { draft: CubelicDraft; humanKey: string; refresh: () => Promise<void> }) {
+function DraftCard({ draft, humanKey, status, refresh }: { draft: CubelicDraft; humanKey: string; status: CubelicSystemStatus | null; refresh: () => Promise<void> }) {
   const [text, setText] = useState(draft.text)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [scheduledAt, setScheduledAt] = useState('')
+  const [policyId, setPolicyId] = useState('')
   const editable = draft.approval_status === 'pending_review' || draft.approval_status === 'needs_revision'
   const approvable = draft.approval_status === 'pending_review' && draft.quality_score >= 80
+  const publishable = (draft.approval_status === 'approved' || draft.approval_status === 'handed_off')
+    && status?.publishingEnabled === true
+  const schedulable = (draft.approval_status === 'approved' || draft.approval_status === 'handed_off')
+    && status?.schedulingEnabled === true
 
   const act = async (name: string, operation: () => Promise<unknown>) => {
     setBusy(name)
@@ -80,7 +86,120 @@ function DraftCard({ draft, humanKey, refresh }: { draft: CubelicDraft; humanKey
           <button disabled={Boolean(busy) || !humanKey || !approvable || text !== draft.text} onClick={() => act('approve', () => cubelicApi.drafts.approve(draft.draft_id, humanKey))} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-gray-300">{busy === 'approve' ? '承認中…' : '承認して下書き連携'}</button>
         </div>
       )}
+      {(publishable || schedulable) && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+          <p className="text-sm font-bold text-rose-900">X公開操作</p>
+          <p className="mt-1 text-xs text-rose-800">本文・権利・リンクを再確認してください。即時投稿は取り消せません。</p>
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            {schedulable && (
+              <>
+                <label className="text-xs font-semibold text-rose-900">
+                  予約日時
+                  <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} className="mt-1 block rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm" />
+                </label>
+                <label className="text-xs font-semibold text-rose-900">
+                  承認済みポリシーID
+                  <input value={policyId} onChange={(event) => setPolicyId(event.target.value)} placeholder="policy_..." className="mt-1 block rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm" />
+                </label>
+                <button
+                  disabled={Boolean(busy) || !humanKey || !scheduledAt || !policyId}
+                  onClick={() => act('schedule', () => cubelicApi.drafts.schedule(draft.draft_id, humanKey, new Date(scheduledAt).toISOString(), policyId))}
+                  className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-bold text-rose-800 disabled:opacity-40"
+                >{busy === 'schedule' ? '予約中…' : '予約を確定'}</button>
+              </>
+            )}
+            {publishable && (
+              <button
+                disabled={Boolean(busy) || !humanKey}
+                onClick={() => {
+                  if (window.confirm('この内容を今すぐXへ投稿します。よろしいですか？')) {
+                    void act('publish', () => cubelicApi.drafts.publish(draft.draft_id, humanKey))
+                  }
+                }}
+                className="ml-auto rounded-lg bg-rose-700 px-4 py-2 text-sm font-bold text-white disabled:bg-gray-300"
+              >{busy === 'publish' ? '投稿中…' : '今すぐXへ投稿'}</button>
+            )}
+          </div>
+        </div>
+      )}
     </article>
+  )
+}
+
+function ManualDraftForm({ humanKey, enabled, refresh }: { humanKey: string; enabled: boolean; refresh: () => Promise<void> }) {
+  const [text, setText] = useState('')
+  const [destinationUrl, setDestinationUrl] = useState('')
+  const [category, setCategory] = useState<'event_notice' | 'event_reminder' | 'youtube_notice'>('event_notice')
+  const [rightsConfirmed, setRightsConfirmed] = useState(false)
+  const [privacyReviewCompleted, setPrivacyReviewCompleted] = useState(false)
+  const [linkValidated, setLinkValidated] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  if (!enabled) return null
+
+  const submit = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await cubelicApi.manualDrafts.create({
+        text,
+        category,
+        destinationUrl,
+        rightsConfirmed,
+        privacyReviewCompleted,
+        linkValidated,
+      }, humanKey)
+      setText('')
+      setDestinationUrl('')
+      setRightsConfirmed(false)
+      setPrivacyReviewCompleted(false)
+      setLinkValidated(false)
+      await refresh()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '手入力下書きの作成に失敗しました')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const complete = Boolean(
+    humanKey && text && destinationUrl
+    && rightsConfirmed && privacyReviewCompleted && linkValidated,
+  )
+
+  return (
+    <section className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+      <h2 className="font-bold text-emerald-950">ファイルを使わず投稿候補を作成</h2>
+      <p className="mt-1 text-sm text-emerald-800">人間が入力内容・権利・プライバシー・リンクを証明した記録を監査ログへ残します。</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <label className="text-xs font-semibold text-emerald-900">
+          投稿カテゴリ
+          <select value={category} onChange={(event) => setCategory(event.target.value as typeof category)} className="mt-1 block w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm">
+            <option value="event_notice">ライブ予定</option>
+            <option value="event_reminder">ライブリマインド</option>
+            <option value="youtube_notice">YouTube公開通知</option>
+          </select>
+        </label>
+        <label className="text-xs font-semibold text-emerald-900">
+          HTTPSリンク
+          <input type="url" value={destinationUrl} onChange={(event) => setDestinationUrl(event.target.value)} placeholder="https://..." className="mt-1 block w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm" />
+        </label>
+      </div>
+      <label className="mt-3 block text-xs font-semibold text-emerald-900">
+        投稿本文
+        <textarea value={text} onChange={(event) => setText(event.target.value)} rows={5} className="mt-1 block w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm leading-6" />
+      </label>
+      <div className="mt-3 grid gap-2 text-sm text-emerald-950 md:grid-cols-3">
+        <label><input type="checkbox" checked={rightsConfirmed} onChange={(event) => setRightsConfirmed(event.target.checked)} className="mr-2" />公開権利を確認した</label>
+        <label><input type="checkbox" checked={privacyReviewCompleted} onChange={(event) => setPrivacyReviewCompleted(event.target.checked)} className="mr-2" />プライバシー確認済み</label>
+        <label><input type="checkbox" checked={linkValidated} onChange={(event) => setLinkValidated(event.target.checked)} className="mr-2" />リンク先を確認した</label>
+      </div>
+      {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      <div className="mt-4 flex justify-end">
+        <button disabled={!complete || busy} onClick={() => void submit()} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:bg-gray-300">{busy ? '作成中…' : '人間証明付き下書きを作成'}</button>
+      </div>
+    </section>
   )
 }
 
@@ -123,24 +242,25 @@ export default function CubelicApprovalPage() {
 
   return (
     <main>
-      <Header title="CUBΣLIC 下書き承認" description="権利・品質・文面を人間が確認し、X Harness の inert draft inbox へ渡します。Xへの投稿は行いません。" />
+      <Header title="CUBΣLIC 投稿運用" description="権利・品質・文面を人間が確認し、安全境界を通してX Harnessへ渡します。" />
       <section className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="font-bold text-blue-950">Phase 1 セーフモード</p>
-            <p className="mt-1 text-sm text-blue-800">即時投稿・予約投稿・削除・DM・自動返信・自動反応は無効です。</p>
+            <p className="font-bold text-blue-950">{status?.phase3Enabled ? 'Phase 3 限定公開モード' : 'Phase 1 セーフモード'}</p>
+            <p className="mt-1 text-sm text-blue-800">{status?.phase3Enabled ? '人間承認済みの即時投稿と、許可済みテンプレートの予約だけを利用できます。' : '即時投稿・予約投稿・削除・DM・自動返信・自動反応は無効です。'}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input type="password" autoComplete="off" value={humanKey} onChange={(event) => setHumanKey(event.target.value)} placeholder="人間承認キー（保存されません）" className="w-64 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm" />
-            <button disabled={!humanKey || systemBusy || status?.environmentStop} onClick={toggleStop} className={`rounded-lg px-4 py-2 text-sm font-bold text-white disabled:bg-gray-300 ${status?.emergencyStop ? 'bg-emerald-600' : 'bg-red-600'}`}>{systemBusy ? '処理中…' : status?.emergencyStop ? '下書き運用を再開' : '下書き運用を緊急停止'}</button>
+            <button disabled={!humanKey || systemBusy || status?.environmentStop} onClick={toggleStop} className={`rounded-lg px-4 py-2 text-sm font-bold text-white disabled:bg-gray-300 ${status?.emergencyStop ? 'bg-emerald-600' : 'bg-red-600'}`}>{systemBusy ? '処理中…' : status?.emergencyStop ? '運用を再開' : '緊急停止'}</button>
           </div>
         </div>
-        {status && <p className="mt-3 text-xs text-blue-700">environment_stop={String(status.environmentStop)} / emergency_stop={String(status.emergencyStop)} / operation_window_active={String(status.operationWindow?.active === true)} / publish=false / schedule=false</p>}
+        {status && <p className="mt-3 text-xs text-blue-700">environment_stop={String(status.environmentStop)} / emergency_stop={String(status.emergencyStop)} / operation_window_active={String(status.operationWindow?.active === true)} / publish={String(status.publishingEnabled)} / schedule={String(status.schedulingEnabled)}</p>}
       </section>
 
       {error && <p className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      <ManualDraftForm humanKey={humanKey} enabled={status?.phase3Enabled === true && status?.emergencyStop === false} refresh={refresh} />
       {loading ? <p className="text-sm text-gray-500">読み込み中…</p> : drafts.length === 0 ? <p className="rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">下書きはまだありません。</p> : (
-        <div className="space-y-4">{drafts.map((draft) => <DraftCard key={`${draft.draft_id}:${draft.updated_at}`} draft={draft} humanKey={humanKey} refresh={refresh} />)}</div>
+        <div className="space-y-4">{drafts.map((draft) => <DraftCard key={`${draft.draft_id}:${draft.updated_at}`} draft={draft} humanKey={humanKey} status={status} refresh={refresh} />)}</div>
       )}
     </main>
   )

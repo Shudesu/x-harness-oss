@@ -1,0 +1,11 @@
+{
+  "schema_version": "cubelic.manual-production-authority.v1",
+  "content_id": "cnt_manual_fixture_001",
+  "source_type": "manual",
+  "attested_by": "Fixture Operator",
+  "attested_at": "2026-07-23T01:00:00.000Z",
+  "rights_confirmed": true,
+  "privacy_review_completed": true,
+  "destination_url": "https://cubelic-fan.com/events/fixture-001",
+  "link_validated": true
+}

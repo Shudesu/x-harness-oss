@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/content-os/manual-production-authority.v1.json",
+  "title": "CUBΣLIC Manual Production Authority v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "content_id",
+    "source_type",
+    "attested_by",
+    "attested_at",
+    "rights_confirmed",
+    "privacy_review_completed",
+    "destination_url",
+    "link_validated"
+  ],
+  "properties": {
+    "schema_version": { "const": "cubelic.manual-production-authority.v1" },
+    "content_id": { "type": "string", "pattern": "^cnt_" },
+    "source_type": { "const": "manual" },
+    "attested_by": { "type": "string", "minLength": 1 },
+    "attested_at": { "type": "string", "format": "date-time" },
+    "rights_confirmed": { "const": true },
+    "privacy_review_completed": { "const": true },
+    "destination_url": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "link_validated": { "const": true }
+  }
+}

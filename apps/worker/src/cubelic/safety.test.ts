@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { isCubelicSafeMode, isPhase1RouteBlocked, isPublishingGloballyDisabled } from './safety.js';
+import {
+  isCubelicSafeMode,
+  isPhase1RouteBlocked,
+  isPhase3PublicationEnabled,
+  isPublishingGloballyDisabled,
+} from './safety.js';
 import type { Env } from '../index.js';
 
 function env(overrides: Partial<Env['Bindings']> = {}): Env['Bindings'] {
@@ -45,5 +50,22 @@ describe('CUBΣLIC centralized Phase 1 route boundary', () => {
     expect(isCubelicSafeMode(explicitlyEnabled)).toBe(true);
     expect(isPhase1RouteBlocked('POST', '/api/posts', explicitlyEnabled)).toBe(true);
     expect(isPhase1RouteBlocked('POST', '/api/dm/send', explicitlyEnabled)).toBe(true);
+  });
+
+  it('enables only the reviewed Phase 3 adapter boundary with an exact flag', () => {
+    expect(isPhase3PublicationEnabled(env())).toBe(false);
+    expect(isPhase3PublicationEnabled(env({ CUBELIC_PHASE3_ENABLED: 'false' }))).toBe(false);
+    expect(isPhase3PublicationEnabled(env({ CUBELIC_PHASE3_ENABLED: 'TRUE' }))).toBe(false);
+    expect(isPhase3PublicationEnabled(env({ CUBELIC_PHASE3_ENABLED: 'true' }))).toBe(false);
+    expect(isPhase3PublicationEnabled(env({
+      CUBELIC_PHASE3_ENABLED: 'true',
+      PHASE3_RELEASE_APPROVED: 'true',
+      STAGING_PHASE3_SMOKE_VERIFIED: 'true',
+    }))).toBe(true);
+    expect(isPhase1RouteBlocked(
+      'POST',
+      '/api/posts',
+      env({ CUBELIC_PHASE3_ENABLED: 'true' }),
+    )).toBe(true);
   });
 });

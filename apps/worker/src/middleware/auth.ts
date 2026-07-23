@@ -25,7 +25,14 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
         '/api/cubelic/setlists/ingest',
         '/api/cubelic/drafts/generate',
         '/api/cubelic/metrics/collect',
-      ].includes(path));
+      ].includes(path))
+      || (
+        c.env.CUBELIC_PHASE3_ENABLED === 'true'
+        && c.env.PHASE3_RELEASE_APPROVED === 'true'
+        && c.env.STAGING_PHASE3_SMOKE_VERIFIED === 'true'
+        && c.req.method === 'POST'
+        && /^\/api\/cubelic\/drafts\/[^/]+\/schedule$/.test(path)
+      );
     if (!hermesAllowed) return c.json({ success: false, error: 'Forbidden for Hermes credential' }, 403);
     c.set('requestActor', 'hermes');
     return next();

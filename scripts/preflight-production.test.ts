@@ -72,6 +72,25 @@ describe('production preflight phase boundaries', () => {
     expect(result.stderr).toContain('GLOBAL_PUBLISHING_DISABLED must be explicitly true');
   });
 
+  it('allows an explicitly approved Phase 3 release only with exact allowlists and resumed environment', () => {
+    const missingApproval = preflight({
+      CUBELIC_PHASE3_ENABLED: 'true',
+      GLOBAL_PUBLISHING_DISABLED: 'false',
+    });
+    expect(missingApproval.status).toBe(1);
+    expect(missingApproval.stderr).toContain('PHASE3_RELEASE_APPROVED must be true');
+
+    const approved = preflight({
+      CUBELIC_PHASE3_ENABLED: 'true',
+      GLOBAL_PUBLISHING_DISABLED: 'false',
+      PHASE3_RELEASE_APPROVED: 'true',
+      STAGING_PHASE3_SMOKE_VERIFIED: 'true',
+      CUBELIC_PHASE3_SCHEDULE_POLICIES: 'event_notice:event_notice_v1,event_reminder:event_reminder_v1',
+    });
+    expect(approved.status).toBe(0);
+    expect(approved.stdout).toContain('Phase 3 publication capability');
+  });
+
   it('requires either verified Wrangler auth or a least-privilege API token', () => {
     const missing = preflight({ CLOUDFLARE_AUTH_VERIFIED: 'false' });
     const token = preflight({

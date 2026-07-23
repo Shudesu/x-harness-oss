@@ -469,14 +469,32 @@ export interface CubelicDraft {
 
 export interface CubelicSystemStatus {
   safeMode: boolean;
+  phase3Enabled: boolean;
   environmentStop: boolean;
   emergencyStop: boolean;
   operationWindow: { eventId: string; expiresAt: string; active: boolean } | null;
-  publishingEnabled: false;
-  schedulingEnabled: false;
+  publishingEnabled: boolean;
+  schedulingEnabled: boolean;
 }
 
 export const cubelicApi = {
+  manualDrafts: {
+    create: (
+      input: {
+        text: string;
+        category: 'event_notice' | 'event_reminder' | 'youtube_notice';
+        destinationUrl: string;
+        rightsConfirmed: boolean;
+        privacyReviewCompleted: boolean;
+        linkValidated: boolean;
+      },
+      humanApprovalKey: string,
+    ) => fetchApi<ApiResponse<CubelicDraft>>('/api/cubelic/manual-drafts', {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': humanApprovalKey },
+      body: JSON.stringify(input),
+    }),
+  },
   drafts: {
     list: (status?: string) => fetchApi<ApiResponse<CubelicDraft[]>>(`/api/cubelic/drafts${status ? `?status=${encodeURIComponent(status)}` : ''}`),
     update: (id: string, text: string) => fetchApi<ApiResponse<CubelicDraft>>(`/api/cubelic/drafts/${encodeURIComponent(id)}`, {
@@ -492,6 +510,16 @@ export const cubelicApi = {
       method: 'POST',
       headers: { 'X-Human-Approval-Key': humanApprovalKey },
       body: JSON.stringify({ reason }),
+    }),
+    publish: (id: string, humanApprovalKey: string) => fetchApi<ApiResponse<{ postId: string; status: 'published'; publishedAt: string }>>(`/api/cubelic/drafts/${encodeURIComponent(id)}/publish`, {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': humanApprovalKey },
+      body: '{}',
+    }),
+    schedule: (id: string, humanApprovalKey: string, scheduledAt: string, policyId: string) => fetchApi<ApiResponse<{ jobId: string; status: 'scheduled'; scheduledAt: string }>>(`/api/cubelic/drafts/${encodeURIComponent(id)}/schedule`, {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': humanApprovalKey },
+      body: JSON.stringify({ scheduledAt, policyId }),
     }),
   },
   system: {

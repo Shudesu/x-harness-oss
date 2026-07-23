@@ -20,3 +20,10 @@ export class Phase1OperationDisabledError extends Error {
     this.name = 'Phase1OperationDisabledError';
   }
 }
+
+export class PublicationPolicyError extends Error {
+  constructor(readonly code: string, message: string) {
+    super(message);
+    this.name = 'PublicationPolicyError';
+  }
+}

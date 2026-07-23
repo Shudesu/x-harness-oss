@@ -12,15 +12,20 @@ import {
 } from '@x-harness/content-os';
 import {
   appendCubelicAudit,
+  claimCubelicPublicationJob,
+  completeCubelicPublicationJob,
   createCubelicContent,
   createCubelicDrafts,
   createCubelicEvent,
   createCubelicInertDraft,
+  createCubelicManualAuthority,
   createCubelicMedia,
+  createCubelicPublicationJob,
   createCubelicPublishedPostMapping,
   closeCubelicOperationWindowAndStop,
   getCubelicEmergencyStop,
   getCubelicOperationWindow,
+  getCubelicPublicationJob,
   getCubelicInertDraft,
   getCubelicMetricsSummary,
   handoffCubelicDraftAndStop,
@@ -40,6 +45,7 @@ import { compileMigrationForD1Exec } from './d1-test-utils.js';
 const migrationPaths = [
   fileURLToPath(new URL('../migrations/018-cubelic-content-os.sql', import.meta.url)),
   fileURLToPath(new URL('../migrations/019-cubelic-fail-closed-boundaries.sql', import.meta.url)),
+  fileURLToPath(new URL('../migrations/020-cubelic-phase3-publication.sql', import.meta.url)),
 ];
 
 function audit(action: string, entityId: string): AuditInput {
@@ -148,6 +154,220 @@ describe('CUBΣLIC D1 integration', () => {
     );
     await expect(getCubelicOperationWindow(db)).resolves.toBeNull();
     await expect(getCubelicEmergencyStop(db)).resolves.toBe(true);
+  });
+
+  it('persists human-attested manual authority and audited Phase 3 publication jobs', async () => {
+    await setCubelicEmergencyStop(db, false, 'integration-operator', audit('system.emergency_resume', 'phase3'));
+    await createCubelicEvent(db, eventFixture, audit('event.created', eventFixture.event_id));
+    const manualContent = {
+      ...contentFixture,
+      category: 'event_notice' as const,
+      source_type: 'manual' as const,
+      song_ids: [],
+      source_refs: ['manual:operator_1'],
+      destination: {
+        type: 'manual_https',
+        base_url: 'https://example.test/events/phase3',
+        tracked_url: 'https://example.test/events/phase3?utm_source=x&utm_medium=social',
+      },
+    };
+    await createCubelicContent(db, manualContent, audit('content.created', manualContent.content_id));
+    await createCubelicManualAuthority(db, {
+      schema_version: 'cubelic.manual-production-authority.v1',
+      content_id: manualContent.content_id,
+      source_type: 'manual',
+      attested_by: 'integration-operator',
+      attested_at: '2026-07-23T01:00:00.000Z',
+      rights_confirmed: true,
+      privacy_review_completed: true,
+      destination_url: 'https://example.test/events/phase3',
+      link_validated: true,
+    }, audit('manual_authority.created', manualContent.content_id));
+    const drafts = [{
+      draft_id: 'drf_manual_d1',
+      content_id: manualContent.content_id,
+      account_id: 'tubelic_cube',
+      text: '人間が確認したライブ予定です https://example.test/events/phase3',
+      media_asset_ids: [],
+      category: 'event_notice' as const,
+      template_id: 'event_notice_manual_v1',
+      template_version: '1.0.0',
+      variant: 'a' as const,
+      target_stage: 'interested' as const,
+      emotion_tags: ['informative'],
+      hashtags: [],
+      destination_url: 'https://example.test/events/phase3',
+      utm: { source: 'x' as const, medium: 'social' as const, campaign: 'manual_phase3', content: 'event_notice_manual_v1' },
+      quality_score: 80,
+      quality_breakdown: {
+        accuracy: 80,
+        freshness: 80,
+        rarity: 80,
+        newcomer_clarity: 80,
+        appeal: 80,
+        route_clarity: 80,
+        conversation_shareability: 80,
+      },
+      freshness_score: 80,
+      rights_gate: 'not_applicable' as const,
+      approval_status: 'pending_review' as const,
+      risks: ['manual_authority_attested'],
+      human_review_required: ['manual review'],
+      idempotency_key: 'manual:d1:phase3',
+      scheduled_at: null,
+      published_post_id: null,
+      created_at: '2026-07-23T01:01:00.000Z',
+      updated_at: '2026-07-23T01:01:00.000Z',
+    }];
+    const [draft] = await createCubelicDrafts(
+      db,
+      drafts,
+      drafts.map((item) => audit('draft.created', item.draft_id)),
+    );
+    await reserveCubelicDraftApproval(
+      db,
+      draft.draft_id,
+      'integration-operator',
+      audit('draft.approval_reserved', draft.draft_id),
+    );
+
+    const job = await createCubelicPublicationJob(db, {
+      draftId: draft.draft_id,
+      operation: 'publish',
+      authorizationKind: 'human_individual',
+      authorizedBy: 'integration-operator',
+      authorizedAt: '2026-07-23T01:02:00.000Z',
+      idempotencyKey: `${draft.idempotency_key}:publish`,
+    }, audit('publication.started', draft.draft_id));
+    expect(job).toMatchObject({ operation: 'publish', status: 'publishing' });
+
+    const completed = await completeCubelicPublicationJob(db, {
+      jobId: job.jobId,
+      postId: '1999999999999999999',
+      publishedAt: '2026-07-23T01:03:00.000Z',
+    }, audit('publication.completed', job.jobId));
+    expect(completed).toMatchObject({
+      status: 'published',
+      postId: '1999999999999999999',
+    });
+    await expect(getCubelicPublicationJob(db, job.jobId)).resolves.toMatchObject({ status: 'published' });
+
+    const scheduled = await createCubelicPublicationJob(db, {
+      draftId: draft.draft_id,
+      operation: 'schedule',
+      authorizationKind: 'preapproved_template',
+      policyId: 'policy_1',
+      authorizedBy: 'integration-operator',
+      authorizedAt: '2026-07-23T01:04:00.000Z',
+      scheduledAt: '2026-07-25T01:00:00.000Z',
+      idempotencyKey: `${draft.idempotency_key}:schedule:claim`,
+    }, audit('publication.scheduled', draft.draft_id));
+    await expect(createCubelicPublicationJob(db, {
+      draftId: draft.draft_id,
+      operation: 'schedule',
+      authorizationKind: 'preapproved_template',
+      policyId: 'policy_1',
+      authorizedBy: 'integration-operator',
+      authorizedAt: '2026-07-23T01:04:00.000Z',
+      scheduledAt: '2026-07-25T03:00:00.000Z',
+      idempotencyKey: `${draft.idempotency_key}:schedule:too-close`,
+    }, audit('publication.scheduled', `${draft.draft_id}:too-close`))).rejects.toThrow(/rate slot unavailable/);
+    const claims = await Promise.all([
+      claimCubelicPublicationJob(db, scheduled.jobId, audit('publication.claimed', `${scheduled.jobId}:a`)),
+      claimCubelicPublicationJob(db, scheduled.jobId, audit('publication.claimed', `${scheduled.jobId}:b`)),
+    ]);
+    expect(claims.sort()).toEqual([false, true]);
+    expect((await db.prepare(
+      "SELECT COUNT(*) AS count FROM cubelic_audit_logs WHERE action = 'publication.claimed'",
+    ).first<{ count: number }>())?.count).toBe(1);
+
+    const rollingDates = [
+      '2026-08-28T00:00:00.000Z', '2026-08-28T05:00:00.000Z',
+      '2026-08-29T00:00:00.000Z', '2026-08-29T05:00:00.000Z',
+      '2026-08-30T00:00:00.000Z', '2026-08-30T05:00:00.000Z',
+      '2026-08-31T00:00:00.000Z', '2026-08-31T05:00:00.000Z',
+      '2026-09-01T00:00:00.000Z', '2026-09-01T05:00:00.000Z',
+    ];
+    for (const [index, scheduledAt] of rollingDates.entries()) {
+      await createCubelicPublicationJob(db, {
+        draftId: draft.draft_id,
+        operation: 'schedule',
+        authorizationKind: 'preapproved_template',
+        policyId: 'policy_1',
+        authorizedBy: 'integration-operator',
+        authorizedAt: '2026-07-23T01:04:00.000Z',
+        scheduledAt,
+        idempotencyKey: `${draft.idempotency_key}:rolling:${index}`,
+      }, audit('publication.scheduled', `${draft.draft_id}:rolling:${index}`));
+    }
+    await expect(createCubelicPublicationJob(db, {
+      draftId: draft.draft_id,
+      operation: 'schedule',
+      authorizationKind: 'preapproved_template',
+      policyId: 'policy_1',
+      authorizedBy: 'integration-operator',
+      authorizedAt: '2026-07-23T01:04:00.000Z',
+      scheduledAt: '2026-09-02T00:00:00.000Z',
+      idempotencyKey: `${draft.idempotency_key}:rolling:blocked`,
+    }, audit('publication.scheduled', `${draft.draft_id}:rolling:blocked`))).rejects.toThrow(/rate slot unavailable/);
+
+    const delayedJobs = [];
+    for (const [index, scheduledAt] of [
+      '2026-10-01T00:00:00.000Z',
+      '2026-10-08T00:00:00.000Z',
+      '2026-10-15T00:00:00.000Z',
+    ].entries()) {
+      delayedJobs.push(await createCubelicPublicationJob(db, {
+        draftId: draft.draft_id,
+        operation: 'schedule',
+        authorizationKind: 'preapproved_template',
+        policyId: 'policy_1',
+        authorizedBy: 'integration-operator',
+        authorizedAt: '2026-07-23T01:04:00.000Z',
+        scheduledAt,
+        idempotencyKey: `${draft.idempotency_key}:delayed:${index}`,
+      }, audit('publication.scheduled', `${draft.draft_id}:delayed:${index}`)));
+    }
+    expect(await claimCubelicPublicationJob(
+      db,
+      delayedJobs[0]!.jobId,
+      audit('publication.claimed', `${delayedJobs[0]!.jobId}:actual`),
+      '2026-10-20T00:00:00.000Z',
+    )).toBe(true);
+    await completeCubelicPublicationJob(db, {
+      jobId: delayedJobs[0]!.jobId,
+      postId: '1999999999999999901',
+      publishedAt: '2026-10-20T00:01:00.000Z',
+    }, audit('publication.completed', delayedJobs[0]!.jobId));
+    expect(await claimCubelicPublicationJob(
+      db,
+      delayedJobs[1]!.jobId,
+      audit('publication.claimed', `${delayedJobs[1]!.jobId}:actual`),
+      '2026-10-20T05:00:00.000Z',
+    )).toBe(true);
+    await completeCubelicPublicationJob(db, {
+      jobId: delayedJobs[1]!.jobId,
+      postId: '1999999999999999902',
+      publishedAt: '2026-10-20T05:01:00.000Z',
+    }, audit('publication.completed', delayedJobs[1]!.jobId));
+    expect(await claimCubelicPublicationJob(
+      db,
+      delayedJobs[2]!.jobId,
+      audit('publication.claimed', `${delayedJobs[2]!.jobId}:actual`),
+      '2026-10-20T10:00:00.000Z',
+    )).toBe(false);
+
+    await setCubelicEmergencyStop(db, true, 'integration-operator', audit('system.emergency_stop', 'phase3'));
+    await expect(createCubelicPublicationJob(db, {
+      draftId: draft.draft_id,
+      operation: 'schedule',
+      authorizationKind: 'preapproved_template',
+      policyId: 'policy_1',
+      authorizedBy: 'integration-operator',
+      authorizedAt: '2026-07-23T01:04:00.000Z',
+      scheduledAt: '2026-07-26T01:00:00.000Z',
+      idempotencyKey: `${draft.idempotency_key}:schedule`,
+    }, audit('publication.scheduled', draft.draft_id))).rejects.toThrow(/emergency stop active/);
   });
 
   it('persists only canonical drafts and makes adapter handoff idempotent', async () => {

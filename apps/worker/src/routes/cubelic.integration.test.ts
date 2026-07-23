@@ -2,16 +2,25 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import { Miniflare } from 'miniflare';
-import { Phase1XPublishingAdapter, type XDraftInput } from '@x-harness/content-os';
-import { createCubelicInertDraft, getCubelicEmergencyStop, setCubelicEmergencyStop, setCubelicOperationWindow } from '@x-harness/db';
+import { Phase1XPublishingAdapter, Phase3XPublishingAdapter, type ScheduleInput, type XDraftInput } from '@x-harness/content-os';
+import {
+  createCubelicInertDraft,
+  createCubelicPublicationJob,
+  getCubelicEmergencyStop,
+  getCubelicPublicationJob,
+  setCubelicEmergencyStop,
+  setCubelicOperationWindow,
+} from '@x-harness/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cubelic } from './cubelic.js';
 import type { Env } from '../index.js';
 import { compileMigrationForD1Exec } from '../../../../packages/db/src/d1-test-utils.js';
+import { processDueCubelicPublications } from '../cubelic/adapter.js';
 
 const migrationPaths = [
   fileURLToPath(new URL('../../../../packages/db/migrations/018-cubelic-content-os.sql', import.meta.url)),
   fileURLToPath(new URL('../../../../packages/db/migrations/019-cubelic-fail-closed-boundaries.sql', import.meta.url)),
+  fileURLToPath(new URL('../../../../packages/db/migrations/020-cubelic-phase3-publication.sql', import.meta.url)),
 ];
 
 describe('CUBΣLIC Worker API integration', () => {
@@ -20,6 +29,8 @@ describe('CUBΣLIC Worker API integration', () => {
   let app: Hono<Env>;
   let bindings: Env['Bindings'];
   let createDraft: ReturnType<typeof vi.fn>;
+  let publishPost: ReturnType<typeof vi.fn>;
+  let schedulePost: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     miniflare = new Miniflare({
@@ -55,14 +66,36 @@ describe('CUBΣLIC Worker API integration', () => {
     };
     app = new Hono<Env>();
     createDraft = vi.fn(async (input: XDraftInput) => createCubelicInertDraft(db, bindings.X_HARNESS_ACCOUNT_ID!, input));
+    publishPost = vi.fn(async () => ({
+      postId: '1999999999999999999',
+      status: 'published' as const,
+      publishedAt: '2026-07-23T01:05:00.000Z',
+    }));
+    schedulePost = vi.fn(async (input: ScheduleInput) => ({
+      jobId: 'pub_scheduled',
+      status: 'scheduled' as const,
+      scheduledAt: input.scheduledAt,
+    }));
     app.use('*', async (c, next) => {
       const requestActor = c.req.header('X-Test-Actor') === 'hermes' ? 'hermes' : 'human';
       if (requestActor === 'human') {
         c.set('staffRole', 'admin');
+        c.set('staffId', 'staff_integration_operator');
         c.set('staffName', 'Integration Operator');
       }
       c.set('requestActor', requestActor);
       c.set('cubelicAdapterFactory', () => new Phase1XPublishingAdapter(createDraft));
+      c.set('cubelicPhase3AdapterFactory', () => new Phase3XPublishingAdapter({
+        enabled: bindings.CUBELIC_PHASE3_ENABLED === 'true',
+        allowedSchedulePolicies: [
+          { category: 'setlist_flash', templateId: 'setlist_flash_v1' },
+          { category: 'event_notice', templateId: 'event_notice_manual_v1' },
+        ],
+        isEmergencyStopped: () => getCubelicEmergencyStop(db),
+        checkRateLimit: async () => ({ allowed: true }),
+        scheduleWriter: schedulePost,
+        publishWriter: publishPost,
+      }));
       return next();
     });
     app.route('/', cubelic);
@@ -136,6 +169,157 @@ describe('CUBΣLIC Worker API integration', () => {
         operationWindow: { eventId: 'evt_window_api', active: true },
       },
     });
+  });
+
+  it('creates, approves, and publishes a human-attested manual Phase 3 draft without an input bundle', async () => {
+    bindings.CUBELIC_PHASE3_ENABLED = 'true';
+    bindings.PHASE3_RELEASE_APPROVED = 'true';
+    bindings.STAGING_PHASE3_SMOKE_VERIFIED = 'true';
+    bindings.CUBELIC_PHASE3_SCHEDULE_POLICIES = 'event_notice:event_notice_manual_v1';
+    const manual = await request('/api/cubelic/manual-drafts', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+      },
+      body: JSON.stringify({
+        text: '人間が確認したライブ予定です https://example.test/events/1',
+        category: 'event_notice',
+        destinationUrl: 'https://example.test/events/1',
+        rightsConfirmed: true,
+        privacyReviewCompleted: true,
+        linkValidated: true,
+      }),
+    });
+    expect(manual.status).toBe(201);
+    const manualBody = await manual.json() as { data: { draft_id: string } };
+
+    const approval = await request(`/api/cubelic/drafts/${manualBody.data.draft_id}/approve`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Human-Approval-Key': 'integration-human-key',
+      },
+      body: '{}',
+    });
+    expect(approval.status).toBe(200);
+    await expect(approval.json()).resolves.toMatchObject({
+      data: { publicationReady: true, draft: { approval_status: 'approved' } },
+    });
+
+    const publication = await request(`/api/cubelic/drafts/${manualBody.data.draft_id}/publish`, {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': 'integration-human-key' },
+      body: '{}',
+    });
+    expect(publication.status).toBe(201);
+    expect(publishPost).toHaveBeenCalledOnce();
+    const scheduled = await request(`/api/cubelic/drafts/${manualBody.data.draft_id}/schedule`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Test-Actor': 'hermes',
+      },
+      body: JSON.stringify({
+        scheduledAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+        policyId: 'event_notice_manual_v1',
+      }),
+    });
+    expect(scheduled.status).toBe(201);
+    expect(schedulePost).toHaveBeenCalledOnce();
+    const dueAt = new Date(Date.now() - 60_000).toISOString();
+    const dueJob = await createCubelicPublicationJob(db, {
+      draftId: manualBody.data.draft_id,
+      operation: 'schedule',
+      authorizationKind: 'preapproved_template',
+      policyId: 'event_notice_manual_v1',
+      authorizedBy: 'staff_integration_operator',
+      authorizedAt: new Date(Date.now() - 120_000).toISOString(),
+      scheduledAt: dueAt,
+      idempotencyKey: 'integration:cron:success',
+    }, {
+      actor: 'human',
+      action: 'publication.scheduled',
+      entityType: 'publication_job',
+      entityId: manualBody.data.draft_id,
+      before: {},
+      after: { scheduledAt: dueAt },
+      correlationId: 'corr_cron_success',
+    });
+    const deliver = vi.fn(async () => ({ postId: '1888888888888888888' }));
+    await processDueCubelicPublications(bindings, new Date(), deliver);
+    await processDueCubelicPublications(bindings, new Date(), deliver);
+    expect(deliver).toHaveBeenCalledOnce();
+    await expect(getCubelicPublicationJob(db, dueJob.jobId)).resolves.toMatchObject({
+      status: 'published',
+      postId: '1888888888888888888',
+    });
+
+    const revokedAt = new Date(Date.now() + 48 * 60 * 60_000);
+    const revokedJob = await createCubelicPublicationJob(db, {
+      draftId: manualBody.data.draft_id,
+      operation: 'schedule',
+      authorizationKind: 'preapproved_template',
+      policyId: 'event_notice_manual_v1',
+      authorizedBy: 'staff_integration_operator',
+      authorizedAt: new Date().toISOString(),
+      scheduledAt: revokedAt.toISOString(),
+      idempotencyKey: 'integration:cron:revoked',
+    }, {
+      actor: 'human',
+      action: 'publication.scheduled',
+      entityType: 'publication_job',
+      entityId: manualBody.data.draft_id,
+      before: {},
+      after: { scheduledAt: revokedAt.toISOString() },
+      correlationId: 'corr_cron_revoked',
+    });
+    bindings.CUBELIC_PHASE3_SCHEDULE_POLICIES = '';
+    await processDueCubelicPublications(bindings, revokedAt, deliver);
+    expect(deliver).toHaveBeenCalledOnce();
+    await expect(getCubelicPublicationJob(db, revokedJob.jobId)).resolves.toMatchObject({
+      status: 'scheduled',
+    });
+    bindings.CUBELIC_PHASE3_SCHEDULE_POLICIES = 'malformed-policy';
+    await processDueCubelicPublications(bindings, revokedAt, deliver);
+    expect(deliver).toHaveBeenCalledOnce();
+    await expect(getCubelicPublicationJob(db, revokedJob.jobId)).resolves.toMatchObject({
+      status: 'scheduled',
+    });
+    bindings.CUBELIC_PHASE3_SCHEDULE_POLICIES = 'event_notice:event_notice_manual_v1';
+
+    const unknownAt = new Date(Date.now() + 5 * 60 * 60_000);
+    const unknownJob = await createCubelicPublicationJob(db, {
+      draftId: manualBody.data.draft_id,
+      operation: 'schedule',
+      authorizationKind: 'preapproved_template',
+      policyId: 'event_notice_manual_v1',
+      authorizedBy: 'staff_integration_operator',
+      authorizedAt: new Date().toISOString(),
+      scheduledAt: unknownAt.toISOString(),
+      idempotencyKey: 'integration:cron:unknown',
+    }, {
+      actor: 'human',
+      action: 'publication.scheduled',
+      entityType: 'publication_job',
+      entityId: manualBody.data.draft_id,
+      before: {},
+      after: { scheduledAt: unknownAt.toISOString() },
+      correlationId: 'corr_cron_unknown',
+    });
+    const unknownDelivery = vi.fn(async () => {
+      throw new Error('timeout after request dispatch');
+    });
+    await processDueCubelicPublications(bindings, unknownAt, unknownDelivery);
+    await expect(getCubelicPublicationJob(db, unknownJob.jobId)).resolves.toMatchObject({
+      status: 'publishing',
+    });
+    expect((await db.prepare(
+      "SELECT COUNT(*) AS count FROM cubelic_audit_logs WHERE action = 'publication.outcome_unknown' AND entity_id = ?",
+    ).bind(unknownJob.jobId).first<{ count: number }>())?.count).toBe(1);
+    expect((await db.prepare(
+      "SELECT COUNT(*) AS count FROM cubelic_audit_logs WHERE action IN ('manual_authority.created','draft.manual_created')",
+    ).first<{ count: number }>())?.count).toBe(2);
   });
 
   it('rejects expired and cross-event operation-window writes', async () => {

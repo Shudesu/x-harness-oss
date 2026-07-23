@@ -19,6 +19,12 @@ export function isPublishingGloballyDisabled(env: Env['Bindings']): boolean {
   return env.GLOBAL_PUBLISHING_DISABLED !== 'false';
 }
 
+export function isPhase3PublicationEnabled(env: Env['Bindings']): boolean {
+  return env.CUBELIC_PHASE3_ENABLED === 'true'
+    && env.PHASE3_RELEASE_APPROVED === 'true'
+    && env.STAGING_PHASE3_SMOKE_VERIFIED === 'true';
+}
+
 export function isPhase1RouteBlocked(method: string, path: string, env: Env['Bindings']): boolean {
   void env;
   if (method === 'OPTIONS') return false;

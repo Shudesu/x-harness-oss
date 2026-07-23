@@ -185,6 +185,9 @@ export interface DraftCandidate {
   freshness_score: number;
   rights_gate: 'passed' | 'not_applicable';
   approval_status: ApprovalStatus;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  x_harness_inbox_id?: string | null;
   risks: string[];
   human_review_required: string[];
   idempotency_key: string;
@@ -249,6 +252,60 @@ export interface XDraftResult {
   idempotentReplay: boolean;
 }
 
+export interface PublicationCandidate {
+  draftId: string;
+  accountId: string;
+  text: string;
+  mediaAssetIds: string[];
+  category: ContentCategory;
+  templateId: string;
+  approvalStatus: 'approved';
+  approvedBy: string;
+  approvedAt: string;
+  rightsGate: 'passed' | 'not_applicable';
+  privacyReviewCompleted: true;
+  linkValidated: true;
+  idempotencyKey: string;
+}
+
+export interface HumanPublicationAuthorization {
+  kind: 'human_individual';
+  operatorId: string;
+  authorizedAt: string;
+}
+
+export interface PreapprovedTemplateAuthorization {
+  kind: 'preapproved_template';
+  policyId: string;
+  approvedBy: string;
+  approvedAt: string;
+}
+
+export type PublicationAuthorization =
+  | HumanPublicationAuthorization
+  | PreapprovedTemplateAuthorization;
+
+export interface ScheduleInput extends PublicationCandidate {
+  scheduledAt: string;
+  authorization: PreapprovedTemplateAuthorization;
+}
+
+export interface PublishInput extends PublicationCandidate {
+  authorization: PublicationAuthorization;
+}
+
+export interface ScheduleResult {
+  jobId: string;
+  status: 'scheduled';
+  scheduledAt: string;
+}
+
+export interface PublishResult {
+  postId: string;
+  status: 'published';
+  publishedAt: string;
+}
+
 export interface XHarnessInertDraftV1 {
   schema_version: 'cubelic.x-harness-inert-draft.v1';
   inbox_id: string;
@@ -282,8 +339,8 @@ export interface PostMetrics {
 
 export interface XPublishingAdapter {
   createDraft(input: XDraftInput): Promise<XDraftResult>;
-  schedulePost(): Promise<never>;
-  publishPost(): Promise<never>;
+  schedulePost(input: ScheduleInput): Promise<ScheduleResult> | Promise<never>;
+  publishPost(input: PublishInput): Promise<PublishResult> | Promise<never>;
   deletePost(): Promise<never>;
   getMetrics(postId: string): Promise<PostMetrics>;
 }

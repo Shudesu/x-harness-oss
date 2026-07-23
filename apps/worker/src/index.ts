@@ -25,7 +25,8 @@ import { growthArticles } from './routes/growth-articles.js';
 import { cubelic } from './routes/cubelic.js';
 import { cubelicPhase1RouteGuard } from './cubelic/safety.js';
 import { resolveCorsOrigin } from './cubelic/cors.js';
-import type { CubelicXAdapterFactory } from './cubelic/adapter.js';
+import type { CubelicPhase3AdapterFactory, CubelicXAdapterFactory } from './cubelic/adapter.js';
+import { processDueCubelicPublications } from './cubelic/adapter.js';
 
 export type Env = {
   Bindings: {
@@ -40,6 +41,10 @@ export type Env = {
     VERIFY_LOOKUP_DAILY_LIMIT?: string;
     GROWTH_IMAGES?: R2Bucket;
     CUBELIC_SAFE_MODE?: string;
+    CUBELIC_PHASE3_ENABLED?: string;
+    CUBELIC_PHASE3_SCHEDULE_POLICIES?: string;
+    PHASE3_RELEASE_APPROVED?: string;
+    STAGING_PHASE3_SMOKE_VERIFIED?: string;
     GLOBAL_PUBLISHING_DISABLED?: string;
     HUMAN_APPROVAL_KEY?: string;
     HERMES_ACCESS_TOKEN?: string;
@@ -52,6 +57,7 @@ export type Env = {
     staffName?: string;
     requestActor?: 'human' | 'hermes';
     cubelicAdapterFactory?: CubelicXAdapterFactory;
+    cubelicPhase3AdapterFactory?: CubelicPhase3AdapterFactory;
     correlationId?: string;
   };
 };
@@ -137,11 +143,10 @@ app.notFound((c) => c.json({ success: false, error: 'Not found' }, 404));
 
 async function scheduled(
   _event: ScheduledEvent,
-  _env: Env['Bindings'],
+  env: Env['Bindings'],
   _ctx: ExecutionContext,
 ): Promise<void> {
-  // Phase 1 has no continuous X polling. Read-only metric collection is
-  // initiated explicitly through XPublishingAdapter after a post mapping.
+  await processDueCubelicPublications(env);
 }
 
 export default {

@@ -1,6 +1,8 @@
 import { Hono, type Context } from 'hono';
 import {
   ContentPolicyError,
+  PublicationPolicyError,
+  authorizeManualProductionInput,
   assertDraftableEventState,
   assertDraftApprovalGates,
   assertEventTransition,
@@ -24,6 +26,7 @@ import {
   createCubelicDrafts,
   createCubelicEvent,
   createCubelicMedia,
+  createCubelicManualAuthority,
   createCubelicPublishedPostMapping,
   createCubelicSetlist,
   findCubelicMediaByHash,
@@ -33,6 +36,7 @@ import {
   getCubelicEvent,
   getCubelicInertDraft,
   getCubelicMedia,
+  getCubelicManualAuthority,
   getCubelicMetricsSummary,
   getCubelicMetricsSnapshot,
   getCubelicOperationWindow,
@@ -60,7 +64,8 @@ import {
   validateCubelicSetlistSongs,
   validateCubelicContentReferences,
 } from '@x-harness/db';
-import { buildCubelicXAdapter } from '../cubelic/adapter.js';
+import { buildCubelicPhase3XAdapter, buildCubelicXAdapter } from '../cubelic/adapter.js';
+import { isPhase3PublicationEnabled } from '../cubelic/safety.js';
 import { parseContent, parseEvent, parseMedia, parseMemberMaster, parseSetlist, parseSongMaster } from '../cubelic/validation.js';
 import type { Env } from '../index.js';
 
@@ -209,6 +214,21 @@ async function apiError(c: Context<Env>, error: unknown): Promise<Response> {
     });
     return c.json({ success: false, error: error.message, code: error.code, rejectReasons: error.rejectReasons }, 422);
   }
+  if (error instanceof PublicationPolicyError) {
+    const stopped = ['phase3_operation_disabled', 'emergency_stop_active'].includes(error.code);
+    const forbidden = ['human_publication_required', 'publication_operator_mismatch'].includes(error.code);
+    console.error('cubelic_publication_rejected', {
+      correlation_id: correlationId(c),
+      actor: actor(c),
+      outcome: 'rejected',
+      error_code: error.code,
+      entity_id: entityId,
+    });
+    return c.json(
+      { success: false, error: error.message, code: error.code },
+      stopped ? 423 : forbidden ? 403 : 422,
+    );
+  }
   const message = error instanceof Error ? error.message : 'Unexpected error';
   if (message.includes('UNIQUE constraint failed')) {
     console.error('cubelic_request_rejected', {
@@ -340,6 +360,25 @@ async function requireHumanApproval(c: Context<Env>): Promise<Response | null> {
   return null;
 }
 
+async function requireNamedHumanApproval(c: Context<Env>): Promise<Response | null> {
+  const denied = await requireHumanApproval(c);
+  if (denied) return denied;
+  if (!c.get('staffId') || !c.get('staffName')) {
+    return c.json({
+      success: false,
+      error: 'A named staff credential is required for Phase 3 publication authority',
+      code: 'named_human_required',
+    }, 403);
+  }
+  return null;
+}
+
+function namedHumanId(c: Context<Env>): string {
+  const staffId = c.get('staffId');
+  if (!staffId) throw new PublicationPolicyError('named_human_required', 'A named staff identity is required');
+  return staffId;
+}
+
 cubelic.use('/api/cubelic/*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
   const write = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method);
@@ -349,6 +388,7 @@ cubelic.use('/api/cubelic/*', async (c, next) => {
   if (envStopped || dbStopped) {
     return c.json({ success: false, error: 'Emergency stop is active', code: 'emergency_stop_active', source: envStopped ? 'environment' : 'database' }, 423);
   }
+  if (isPhase3PublicationEnabled(c.env)) return next();
   const operationWindow = await getCubelicOperationWindow(c.env.DB);
   if (operationWindow && !operationWindow.active) {
     await closeCubelicOperationWindowAndStop(c.env.DB, 'system', { actor: 'system', action: 'system.operation_window_expired', entityType: 'system', entityId: 'operation_window', before: { eventId: operationWindow.eventId, expiresAt: operationWindow.expiresAt }, after: { stopped: true }, correlationId: correlationId(c) });
@@ -656,11 +696,299 @@ cubelic.post('/api/cubelic/drafts/generate', async (c) => {
   } catch (error) { return apiError(c, error); }
 });
 
+cubelic.post('/api/cubelic/manual-drafts', async (c) => {
+  try {
+    if (!isPhase3PublicationEnabled(c.env)) {
+      throw new PublicationPolicyError('phase3_operation_disabled', 'Phase 3 publication capability is disabled');
+    }
+    const denied = await requireNamedHumanApproval(c);
+    if (denied) return denied;
+    const body = await c.req.json<{
+      text?: string;
+      category?: 'event_notice' | 'event_reminder' | 'youtube_notice';
+      destinationUrl?: string;
+      rightsConfirmed?: boolean;
+      privacyReviewCompleted?: boolean;
+      linkValidated?: boolean;
+    }>();
+    if (!body.text || !body.category || !body.destinationUrl) {
+      throw new PublicationPolicyError('manual_draft_invalid', 'text, category and destinationUrl are required');
+    }
+    if (!['event_notice', 'event_reminder', 'youtube_notice'].includes(body.category)) {
+      throw new PublicationPolicyError('manual_category_not_allowed', 'Manual publication category is not allowed');
+    }
+    validatePostText(body.text);
+    const now = new Date().toISOString();
+    const identity = (await sha256Json({
+      text: body.text,
+      category: body.category,
+      destinationUrl: body.destinationUrl,
+      operator: namedHumanId(c),
+    })).slice(0, 24);
+    const contentId = `cnt_manual_${identity}`;
+    const draftId = `drf_manual_${identity}`;
+    const authority = authorizeManualProductionInput({
+      contentId,
+      attestedBy: namedHumanId(c),
+      attestedAt: now,
+      rightsConfirmed: body.rightsConfirmed === true,
+      privacyReviewCompleted: body.privacyReviewCompleted === true,
+      destinationUrl: body.destinationUrl,
+      linkValidated: body.linkValidated === true,
+    });
+    const destination = new URL(body.destinationUrl);
+    destination.searchParams.set('utm_source', 'x');
+    destination.searchParams.set('utm_medium', 'social');
+    destination.searchParams.set('utm_campaign', 'manual_phase3');
+    destination.searchParams.set('utm_content', `${body.category}_manual_v1`);
+    const content: ContentItem = {
+      content_id: contentId,
+      event_id: null,
+      category: body.category,
+      target_stage: 'interested',
+      content_lifecycle: { type: 'news', expires_at: null },
+      status: 'draft_generated',
+      source_type: 'manual',
+      source_refs: [`manual:${namedHumanId(c)}`],
+      member_ids: [],
+      song_ids: [],
+      emotion_tags: ['informative'],
+      destination: {
+        type: 'manual_https',
+        base_url: body.destinationUrl,
+        tracked_url: destination.toString(),
+      },
+      created_at: now,
+      updated_at: now,
+    };
+    const draft: DraftCandidate = {
+      draft_id: draftId,
+      content_id: contentId,
+      account_id: 'tubelic_cube',
+      text: body.text,
+      media_asset_ids: [],
+      category: body.category,
+      template_id: `${body.category}_manual_v1`,
+      template_version: '1.0.0',
+      variant: 'a',
+      target_stage: 'interested',
+      emotion_tags: ['informative'],
+      hashtags: [],
+      destination_url: body.destinationUrl,
+      utm: {
+        source: 'x',
+        medium: 'social',
+        campaign: 'manual_phase3',
+        content: `${body.category}_manual_v1`,
+      },
+      quality_score: 80,
+      quality_breakdown: {
+        accuracy: 80,
+        freshness: 80,
+        rarity: 80,
+        newcomer_clarity: 80,
+        appeal: 80,
+        route_clarity: 80,
+        conversation_shareability: 80,
+      },
+      freshness_score: 80,
+      rights_gate: 'not_applicable',
+      approval_status: 'pending_review',
+      risks: ['manual_authority_attested'],
+      human_review_required: ['本文、権利、プライバシー、リンクを公開直前に再確認'],
+      idempotency_key: `manual:${identity}`,
+      scheduled_at: null,
+      published_post_id: null,
+      created_at: now,
+      updated_at: now,
+    };
+    if (!(await getCubelicContent(c.env.DB, contentId))) {
+      await createCubelicContent(c.env.DB, content, {
+        actor: 'human',
+        action: 'content.manual_created',
+        entityType: 'content',
+        entityId: contentId,
+        before: {},
+        after: contentAuditSnapshot(content),
+        correlationId: correlationId(c),
+      });
+      await createCubelicManualAuthority(c.env.DB, authority, {
+        actor: 'human',
+        action: 'manual_authority.created',
+        entityType: 'content',
+        entityId: contentId,
+        before: {},
+        after: {
+          schemaVersion: authority.schema_version,
+          attestedBy: authority.attested_by,
+          attestedAt: authority.attested_at,
+          rightsConfirmed: true,
+          privacyReviewCompleted: true,
+          linkValidated: true,
+        },
+        correlationId: correlationId(c),
+      });
+    }
+    const [stored] = await createCubelicDrafts(c.env.DB, [draft], [{
+      actor: 'human',
+      action: 'draft.manual_created',
+      entityType: 'draft',
+      entityId: draftId,
+      before: {},
+      after: await draftAuditSnapshot(draft),
+      correlationId: correlationId(c),
+    }]);
+    return c.json({ success: true, data: stored }, 201);
+  } catch (error) { return apiError(c, error); }
+});
+
 cubelic.get('/api/cubelic/drafts', async (c) => c.json({ success: true, data: await listCubelicDrafts(c.env.DB, c.req.query('status')) }));
 
 cubelic.get('/api/cubelic/drafts/:id', async (c) => {
   const draft = await getCubelicDraft(c.env.DB, c.req.param('id'));
   return draft ? c.json({ success: true, data: draft }) : c.json({ success: false, error: 'Draft not found' }, 404);
+});
+
+async function publicationCandidate(c: Context<Env>, draftId: string) {
+  const draft = await getCubelicDraft(c.env.DB, draftId);
+  if (!draft) return null;
+  if (!['approved', 'handed_off'].includes(draft.approval_status) || !draft.approved_by || !draft.approved_at) {
+    throw new PublicationPolicyError('human_approval_required', 'A human-approved draft is required');
+  }
+  let privacyReviewCompleted = true;
+  for (const assetId of draft.media_asset_ids) {
+    const media = await getCubelicMedia(c.env.DB, assetId);
+    if (!media?.privacy.manual_review_completed || media.status !== 'approved_for_draft') {
+      privacyReviewCompleted = false;
+      break;
+    }
+  }
+  let linkValidated = false;
+  try {
+    linkValidated = new URL(draft.destination_url).protocol === 'https:';
+  } catch {
+    linkValidated = false;
+  }
+  if (!privacyReviewCompleted) {
+    throw new PublicationPolicyError('privacy_review_required', 'All attached media require completed privacy review');
+  }
+  if (!linkValidated) {
+    throw new PublicationPolicyError('link_validation_required', 'The approved destination must be a valid HTTPS URL');
+  }
+  return {
+    draftId: draft.draft_id,
+    accountId: draft.account_id,
+    text: draft.text,
+    mediaAssetIds: draft.media_asset_ids,
+    category: draft.category,
+    templateId: draft.template_id,
+    approvalStatus: 'approved' as const,
+    approvedBy: draft.approved_by,
+    approvedAt: draft.approved_at,
+    rightsGate: draft.rights_gate,
+    privacyReviewCompleted: true as const,
+    linkValidated: true as const,
+    idempotencyKey: draft.idempotency_key,
+  };
+}
+
+cubelic.post('/api/cubelic/content/:id/manual-authority', async (c) => {
+  try {
+    if (!isPhase3PublicationEnabled(c.env)) {
+      throw new PublicationPolicyError('phase3_operation_disabled', 'Phase 3 publication capability is disabled');
+    }
+    const denied = await requireNamedHumanApproval(c);
+    if (denied) return denied;
+    const content = await getCubelicContent(c.env.DB, c.req.param('id'));
+    if (!content) return c.json({ success: false, error: 'Content not found' }, 404);
+    if (content.source_type !== 'manual') {
+      throw new PublicationPolicyError('manual_source_required', 'Only manual content can receive manual authority');
+    }
+    const body = await c.req.json<{
+      rightsConfirmed?: boolean;
+      privacyReviewCompleted?: boolean;
+      linkValidated?: boolean;
+    }>();
+    const authority = authorizeManualProductionInput({
+      contentId: content.content_id,
+      attestedBy: namedHumanId(c),
+      attestedAt: new Date().toISOString(),
+      rightsConfirmed: body.rightsConfirmed === true,
+      privacyReviewCompleted: body.privacyReviewCompleted === true,
+      destinationUrl: content.destination.base_url,
+      linkValidated: body.linkValidated === true,
+    });
+    const stored = await createCubelicManualAuthority(c.env.DB, authority, {
+      actor: 'human',
+      action: 'manual_authority.created',
+      entityType: 'content',
+      entityId: content.content_id,
+      before: {},
+      after: {
+        schemaVersion: authority.schema_version,
+        attestedBy: authority.attested_by,
+        attestedAt: authority.attested_at,
+        rightsConfirmed: true,
+        privacyReviewCompleted: true,
+        linkValidated: true,
+      },
+      correlationId: correlationId(c),
+    });
+    return c.json({ success: true, data: { ...authority, authority_id: stored.authorityId } }, 201);
+  } catch (error) { return apiError(c, error); }
+});
+
+cubelic.post('/api/cubelic/drafts/:id/publish', async (c) => {
+  try {
+    if (!isPhase3PublicationEnabled(c.env)) {
+      throw new PublicationPolicyError('phase3_operation_disabled', 'Phase 3 publication capability is disabled');
+    }
+    const denied = await requireNamedHumanApproval(c);
+    if (denied) return denied;
+    const candidate = await publicationCandidate(c, c.req.param('id'));
+    if (!candidate) return c.json({ success: false, error: 'Draft not found' }, 404);
+    const operatorId = namedHumanId(c);
+    const adapter = (c.get('cubelicPhase3AdapterFactory') ?? buildCubelicPhase3XAdapter)(c.env, operatorId);
+    const result = await adapter.publishPost({
+      ...candidate,
+      authorization: {
+        kind: 'human_individual',
+        operatorId,
+        authorizedAt: new Date().toISOString(),
+      },
+    });
+    return c.json({ success: true, data: result }, 201);
+  } catch (error) { return apiError(c, error); }
+});
+
+cubelic.post('/api/cubelic/drafts/:id/schedule', async (c) => {
+  try {
+    if (!isPhase3PublicationEnabled(c.env)) {
+      throw new PublicationPolicyError('phase3_operation_disabled', 'Phase 3 publication capability is disabled');
+    }
+    if (actor(c) === 'human') {
+      const denied = await requireHumanApproval(c);
+      if (denied) return denied;
+    }
+    const body = await c.req.json<{ scheduledAt?: string; policyId?: string }>();
+    if (!body.scheduledAt || !body.policyId) {
+      throw new PublicationPolicyError('schedule_authority_invalid', 'scheduledAt and policyId are required');
+    }
+    const candidate = await publicationCandidate(c, c.req.param('id'));
+    if (!candidate) return c.json({ success: false, error: 'Draft not found' }, 404);
+    const adapter = (c.get('cubelicPhase3AdapterFactory') ?? buildCubelicPhase3XAdapter)(c.env, actorName(c));
+    const result = await adapter.schedulePost({
+      ...candidate,
+      scheduledAt: body.scheduledAt,
+      authorization: {
+        kind: 'preapproved_template',
+        policyId: body.policyId,
+        approvedBy: candidate.approvedBy,
+        approvedAt: candidate.approvedAt,
+      },
+    });
+    return c.json({ success: true, data: result }, 201);
+  } catch (error) { return apiError(c, error); }
 });
 
 cubelic.get('/api/cubelic/x-harness-inbox/:draftId', async (c) => {
@@ -691,7 +1019,9 @@ cubelic.patch('/api/cubelic/drafts/:id', async (c) => {
 
 cubelic.post('/api/cubelic/drafts/:id/approve', async (c) => {
   try {
-    const denied = await requireHumanApproval(c);
+    const denied = isPhase3PublicationEnabled(c.env)
+      ? await requireNamedHumanApproval(c)
+      : await requireHumanApproval(c);
     if (denied) return denied;
     let draft = await getCubelicDraft(c.env.DB, c.req.param('id'));
     if (!draft) return c.json({ success: false, error: 'Draft not found' }, 404);
@@ -700,11 +1030,19 @@ cubelic.post('/api/cubelic/drafts/:id/approve', async (c) => {
     if (content.content_lifecycle.expires_at && Date.parse(content.content_lifecycle.expires_at) <= Date.now()) {
       throw new ContentPolicyError('expired_content', 'Content lifecycle has expired', ['expired_content']);
     }
-    if (!content.event_id) throw new ContentPolicyError('event_unknown', 'Draft content has no event', ['event_unknown']);
-    const approvalEvent = await getCubelicEvent(c.env.DB, content.event_id);
-    if (!approvalEvent) throw new ContentPolicyError('event_unknown', 'Draft event is missing', ['event_unknown']);
-    assertDraftableEventState(content, approvalEvent);
-    await assertCanonicalContentReferences(c.env.DB, content);
+    const manualAuthority = content.source_type === 'manual'
+      ? await getCubelicManualAuthority(c.env.DB, content.content_id)
+      : null;
+    if (!content.event_id) {
+      if (!isPhase3PublicationEnabled(c.env) || !manualAuthority) {
+        throw new ContentPolicyError('event_unknown', 'Draft content has no event or manual production authority', ['event_unknown']);
+      }
+    } else {
+      const approvalEvent = await getCubelicEvent(c.env.DB, content.event_id);
+      if (!approvalEvent) throw new ContentPolicyError('event_unknown', 'Draft event is missing', ['event_unknown']);
+      assertDraftableEventState(content, approvalEvent);
+      await assertCanonicalContentReferences(c.env.DB, content);
+    }
     const emergencyStopped = c.env.GLOBAL_PUBLISHING_DISABLED !== 'false' || await getCubelicEmergencyStop(c.env.DB);
     assertDraftApprovalGates(draft, { humanApproved: true, emergencyStopped, allowReserved: true });
     for (const assetId of draft.media_asset_ids) {
@@ -721,7 +1059,8 @@ cubelic.post('/api/cubelic/drafts/:id/approve', async (c) => {
       return c.json({ success: false, error: 'X Harness account mapping is not configured', code: 'x_harness_account_not_configured' }, 503);
     }
     if (draft.approval_status === 'pending_review') {
-      await reserveCubelicDraftApproval(c.env.DB, draft.draft_id, actorName(c), {
+      const approverId = isPhase3PublicationEnabled(c.env) ? namedHumanId(c) : actorName(c);
+      await reserveCubelicDraftApproval(c.env.DB, draft.draft_id, approverId, {
         actor: 'human',
         action: 'draft.approval_reserved',
         entityType: 'draft',
@@ -734,6 +1073,16 @@ cubelic.post('/api/cubelic/drafts/:id/approve', async (c) => {
       if (!reservedDraft) throw new Error('Reserved draft disappeared');
       draft = reservedDraft;
       assertDraftApprovalGates(draft, { humanApproved: true, emergencyStopped, allowReserved: true });
+    }
+    if (isPhase3PublicationEnabled(c.env)) {
+      return c.json({
+        success: true,
+        data: {
+          draft,
+          publicationReady: true,
+          xHarnessDraft: null,
+        },
+      });
     }
     const approvedAt = new Date().toISOString();
     const adapter = (c.get('cubelicAdapterFactory') ?? buildCubelicXAdapter)(c.env.DB, c.env.X_HARNESS_ACCOUNT_ID);
@@ -840,12 +1189,17 @@ cubelic.get('/api/cubelic/rejections/summary', async (c) => {
 cubelic.get('/api/cubelic/admin/status', async (c) => c.json({
   success: true,
   data: {
-    safeMode: true,
+    safeMode: !isPhase3PublicationEnabled(c.env),
+    phase3Enabled: isPhase3PublicationEnabled(c.env),
     environmentStop: c.env.GLOBAL_PUBLISHING_DISABLED !== 'false',
     emergencyStop: await getCubelicEmergencyStop(c.env.DB),
     operationWindow: await getCubelicOperationWindow(c.env.DB),
-    publishingEnabled: false,
-    schedulingEnabled: false,
+    publishingEnabled: isPhase3PublicationEnabled(c.env)
+      && c.env.GLOBAL_PUBLISHING_DISABLED === 'false'
+      && !(await getCubelicEmergencyStop(c.env.DB)),
+    schedulingEnabled: isPhase3PublicationEnabled(c.env)
+      && c.env.GLOBAL_PUBLISHING_DISABLED === 'false'
+      && !(await getCubelicEmergencyStop(c.env.DB)),
   },
 }));
 
@@ -886,6 +1240,19 @@ cubelic.post('/api/cubelic/admin/emergency-resume', async (c) => {
   if (denied) return denied;
   if (c.env.GLOBAL_PUBLISHING_DISABLED !== 'false') {
     return c.json({ success: false, error: 'Environment lock is active and cannot be resumed through the API', code: 'environment_stop_active' }, 423);
+  }
+  if (isPhase3PublicationEnabled(c.env)) {
+    const wasStopped = await getCubelicEmergencyStop(c.env.DB);
+    await setCubelicEmergencyStop(c.env.DB, false, actorName(c), {
+      actor: 'human',
+      action: 'system.normal_operation_resumed',
+      entityType: 'system',
+      entityId: 'publishing',
+      before: { stopped: wasStopped },
+      after: { stopped: false, phase3: true },
+      correlationId: correlationId(c),
+    });
+    return c.json({ success: true, data: { stopped: false, normalOperation: true } });
   }
   const operationWindow = await getCubelicOperationWindow(c.env.DB);
   if (!operationWindow?.active) {

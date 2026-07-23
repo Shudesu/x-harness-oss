@@ -34,6 +34,8 @@ for (const configuredPath of codeRoots) {
   for (const file of await filesAt(join(root, configuredPath))) {
     const source = await readFile(file, 'utf8');
     for (const [label, pattern] of forbidden) {
+      const adapterInfrastructure = relative(root, file) === 'apps/worker/src/cubelic/adapter.ts';
+      if (adapterInfrastructure && ['X SDK import', 'direct X client'].includes(label)) continue;
       if (pattern.test(source)) violations.push(`${relative(root, file)}: ${label}`);
     }
   }
@@ -41,7 +43,7 @@ for (const configuredPath of codeRoots) {
 
 const adapter = await readFile(join(root, 'packages/content-os/src/adapter.ts'), 'utf8');
 for (const operation of ['schedulePost', 'publishPost', 'deletePost']) {
-  const failClosed = new RegExp(`async ${operation}\\(\\): Promise<never>[\\s\\S]*?Phase1OperationDisabledError\\('${operation}'\\)`);
+  const failClosed = new RegExp(`class Phase1XPublishingAdapter[\\s\\S]*?async ${operation}\\([^)]*\\): Promise<never>[\\s\\S]*?Phase1OperationDisabledError\\('${operation}'\\)`);
   if (!failClosed.test(adapter)) violations.push(`packages/content-os/src/adapter.ts: ${operation} is not fail-closed`);
 }
 
@@ -52,6 +54,11 @@ for (const setting of ['CUBELIC_SAFE_MODE', 'GLOBAL_PUBLISHING_DISABLED']) {
   if (configuredValues.length === 0 || configuredValues.some((value) => value !== 'true')) {
     violations.push(`apps/worker/wrangler.toml: ${setting} must be true in every configured environment`);
   }
+}
+const phase3Values = [...wrangler.matchAll(/^CUBELIC_PHASE3_ENABLED\s*=\s*"([^"]+)"$/gm)]
+  .map((match) => match[1]);
+if (phase3Values.length === 0 || phase3Values.some((value) => value !== 'false')) {
+  violations.push('apps/worker/wrangler.toml: CUBELIC_PHASE3_ENABLED must default to false in every configured environment');
 }
 
 const worker = await readFile(join(root, 'apps/worker/src/index.ts'), 'utf8');
@@ -112,5 +119,5 @@ if (violations.length) {
   console.error(`Phase 1 boundary check failed:\n- ${violations.join('\n- ')}`);
   process.exitCode = 1;
 } else {
-  console.log('Phase 1 boundary check passed. No direct X publishing surface is reachable from CUBΣLIC code.');
+  console.log('Phase 1 boundary check passed. Phase 1 remains inert and Phase 3 X access is isolated to the default-disabled adapter infrastructure.');
 }
