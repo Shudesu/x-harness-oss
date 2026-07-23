@@ -3,7 +3,7 @@
 ## Scope
 
 - Release type: fail-closed base Phase 1 infrastructure
-- Source commit deployed: `71dd333e221a08c5ba9ce54c58623cd4aa359ecb`
+- Source commit deployed: `4def0b91d863b29a0cd8c05f192e5799c4c84cc0`
 - Operator: authorized local human operator (identity retained in Cloudflare deployment audit)
 - Hermes runtime: disabled and uncredentialed
 - Production content ingestion: disabled pending real contract inputs
@@ -12,10 +12,10 @@
 
 - Worker: `x-harness-worker-production`
 - Worker URL: `https://x-harness-worker-production.yoshihiro-fukiya.workers.dev`
-- Worker version: `639d6d2b-3caa-4940-b1fb-0e5a941e38d8`
+- Worker version: `33b668d5-2bfc-472d-bb6c-300add6441c2`
 - D1: `x-harness-production` (`ef612e3b-60bf-425f-9dc3-ad0e11d13798`)
 - Pages project: `cubelic-ops-production`
-- Pages production deployment: `e286d141-c49a-45a5-9fcb-7a4046998ca7` (Next.js security refresh, source `2cf191c`)
+- Pages production deployment: `0fd3a41a-203c-497d-a418-20af96dd673b` (Phase 1 route-boundary hardening, source `4def0b9`)
 - Operator origin: `https://ops.cubelic-fan.com`
 - Public fan site: unchanged
 
@@ -25,7 +25,10 @@
 - Export SHA-256: `138ebf8c0d0bafa5321580c8ce99fb8af8bceb8790a2fddcd5d0161765ddc3f1`
 - Export file mode: `0600`
 - Migration: `018-cubelic-content-os.sql`, 55 queries succeeded, 0 data rows written
-- D1 bookmark after migration: `00000008-00000004-000050b0-06f8151ea9abb9d184b6af1c890664e4`
+- Pre-hardening export: `/private/tmp/x-harness-production-pre-hardening-20260723T002800Z.sql`
+- Pre-hardening export SHA-256: `138ebf8c0d0bafa5321580c8ce99fb8af8bceb8790a2fddcd5d0161765ddc3f1`
+- Hardening migration: `019-cubelic-fail-closed-boundaries.sql`, 34 queries succeeded
+- D1 bookmark after migration 019: `0000000a-00000008-000050b1-fc5a0e978ed97c34f04b8b6d46750477`
 - Worker rollback: use Cloudflare Worker version rollback; this is the first persistent production Worker release after the temporary bootstrap Worker was removed.
 - Pages rollback target: deployment `f3aef93d-4621-4332-9879-64905c486862` restores the Access-protected maintenance page.
 
@@ -34,11 +37,11 @@ The D1 export contains credentials and production data. Keep it local with mode 
 ## Safety verification
 
 - `pnpm check`: passed
-- `pnpm test:cubelic`: 37 passed
+- `pnpm test:cubelic`: 38 passed
 - Production dependency audit: no known vulnerabilities
 - Operator UI framework: Next.js `15.5.21`
 - GitHub Actions `CUBΣLIC CI`: passed for security commit `2cf191c`
-- Standard tests: 180 passed
+- Standard tests: 181 passed
 - D1 integration tests: 7 passed
 - Staging Worker smoke after rotating all three staging secrets: passed
 - Production preflight: passed with Wrangler OAuth verified through `wrangler whoami`
@@ -47,11 +50,13 @@ The D1 export contains credentials and production data. Keep it local with mode 
 - `GLOBAL_PUBLISHING_DISABLED=true`
 - D1 `emergency_stop=true`
 - Immediate publishing, scheduling, DM, automated engagement and cookie scraping: all false
-- Legacy X mutation endpoint: HTTP 423
+- All legacy routes are blocked in Phase 1; both a mutation endpoint and an X-backed GET endpoint returned HTTP 423
+- All 15 D1 emergency-stop triggers use fail-closed semantics; missing and malformed flags are covered by integration tests
 - Human-only inbox read without approval proof: HTTP 403
 - Approved CORS origin: `https://ops.cubelic-fan.com`
 - Public fan-site CORS origin: not allowed
 - Unauthenticated operator UI request: redirected to Cloudflare Access
+- Direct Pages deployment URL: also redirected to Cloudflare Access (no bypass)
 
 ## Credentials
 
