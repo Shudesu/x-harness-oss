@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { evaluateProductionSafety } from './lib/verify-production-safety.mjs';
 
 const stoppedStatus = {
+  safeMode: true,
   phase3Enabled: true,
   environmentStop: false,
   emergencyStop: true,
@@ -19,10 +20,12 @@ describe('production safety verifier', () => {
   it('reports an invalid stop row and every exposed publication capability', () => {
     expect(evaluateProductionSafety({
       ...stoppedStatus,
+      safeMode: false,
       emergencyStopValid: false,
       publishingEnabled: true,
       schedulingEnabled: true,
     })).toEqual([
+      'CUBΣLIC safe mode is not active',
       'D1 emergency-stop state is missing or invalid',
       'immediate publishing is enabled',
       'scheduling is enabled',

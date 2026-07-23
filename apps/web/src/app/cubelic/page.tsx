@@ -107,12 +107,16 @@ function DraftCard({ draft, humanKey, status, refresh }: { draft: CubelicDraft; 
                 </p>
                 <button
                   disabled={Boolean(busy) || !humanKey || !scheduledAt}
-                  onClick={() => act('schedule', () => cubelicApi.drafts.schedule(
-                    draft.draft_id,
-                    humanKey,
-                    tokyoDateTimeLocalToIso(scheduledAt),
-                    draft.template_id,
-                  ))}
+                  onClick={() => {
+                    if (window.confirm(`この投稿を${scheduledAt}（Asia/Tokyo）に予約します。よろしいですか？`)) {
+                      void act('schedule', () => cubelicApi.drafts.schedule(
+                        draft.draft_id,
+                        humanKey,
+                        tokyoDateTimeLocalToIso(scheduledAt),
+                        draft.template_id,
+                      ))
+                    }
+                  }}
                   className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-bold text-rose-800 disabled:opacity-40"
                 >{busy === 'schedule' ? '予約中…' : '予約を確定'}</button>
               </>
@@ -384,7 +388,10 @@ export default function CubelicApprovalPage() {
       </section>
 
       {error && <p className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      <ReconciliationPanel humanKey={humanKey} enabled={status?.phase3Enabled === true && status?.emergencyStop === true} />
+      <ReconciliationPanel
+        humanKey={humanKey}
+        enabled={status?.phase3Enabled === true && status?.emergencyStop === true && status?.emergencyStopValid === true}
+      />
       <ManualDraftForm humanKey={humanKey} enabled={status?.phase3Enabled === true && status?.emergencyStop === false} refresh={refresh} />
       {loading ? <p className="text-sm text-gray-500">読み込み中…</p> : drafts.length === 0 ? <p className="rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">下書きはまだありません。</p> : (
         <div className="space-y-4">{drafts.map((draft) => <DraftCard key={`${draft.draft_id}:${draft.updated_at}`} draft={draft} humanKey={humanKey} status={status} refresh={refresh} />)}</div>

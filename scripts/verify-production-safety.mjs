@@ -8,8 +8,14 @@ if (!baseUrl || !apiKey) {
   process.exit(2);
 }
 const parsedBaseUrl = new URL(baseUrl);
-if (parsedBaseUrl.protocol !== 'https:') {
-  console.error('PRODUCTION_WORKER_URL must use HTTPS.');
+if (
+  parsedBaseUrl.protocol !== 'https:'
+  || parsedBaseUrl.origin !== baseUrl
+  || parsedBaseUrl.pathname !== '/'
+  || parsedBaseUrl.search
+  || parsedBaseUrl.hash
+) {
+  console.error('PRODUCTION_WORKER_URL must be an exact HTTPS origin.');
   process.exit(2);
 }
 

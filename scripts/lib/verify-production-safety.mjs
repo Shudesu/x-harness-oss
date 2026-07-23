@@ -1,5 +1,6 @@
 export function evaluateProductionSafety(status) {
   const failures = [];
+  if (status?.safeMode !== true) failures.push('CUBΣLIC safe mode is not active');
   if (status?.emergencyStopValid !== true) failures.push('D1 emergency-stop state is missing or invalid');
   if (status?.emergencyStop !== true) failures.push('D1 emergency stop is not active');
   if (status?.publishingEnabled !== false) failures.push('immediate publishing is enabled');
