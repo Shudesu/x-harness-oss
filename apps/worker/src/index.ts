@@ -23,7 +23,7 @@ import { growth } from './routes/growth.js';
 import { growthSources } from './routes/growth-sources.js';
 import { growthArticles } from './routes/growth-articles.js';
 import { cubelic } from './routes/cubelic.js';
-import { cubelicLegacyWriteGuard } from './cubelic/safety.js';
+import { cubelicPhase1RouteGuard } from './cubelic/safety.js';
 import { resolveCorsOrigin } from './cubelic/cors.js';
 import type { CubelicXAdapterFactory } from './cubelic/adapter.js';
 
@@ -64,8 +64,8 @@ app.use('*', cors({
   allowMethods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   maxAge: 600,
 }));
+app.use('*', cubelicPhase1RouteGuard);
 app.use('*', authMiddleware);
-app.use('*', cubelicLegacyWriteGuard);
 
 app.route('/', health);
 app.route('/', session);

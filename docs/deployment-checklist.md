@@ -18,13 +18,13 @@
 
 ## Staging validation
 
-1. Run `pnpm check`, apply `018-cubelic-content-os.sql` to staging D1, then run `STAGING_WORKER_URL=... STAGING_API_KEY=... pnpm smoke:staging` from an approved secret-bearing shell.
+1. Run `pnpm check`, apply `018-cubelic-content-os.sql` followed by `019-cubelic-fail-closed-boundaries.sql` to staging D1, then run `STAGING_WORKER_URL=... STAGING_API_KEY=... pnpm smoke:staging` from an approved secret-bearing shell.
 2. Import redacted master fixtures, then ingest a redacted real GAS setlist and confirm exactly one Content Item plus no more than three drafts; an unknown id/title must be rejected.
 3. Ingest a redacted real Resolve sidecar and verify duplicate hash, rights and privacy failures.
 4. Confirm Hermes cannot edit, approve, reject, stop/resume, schedule or publish.
 5. Confirm an editor/admin without `X-Human-Approval-Key` cannot approve.
 6. Approve with a named human and confirm exactly one inert inbox row and no X post/schedule id.
-7. Activate both database emergency stop and `GLOBAL_PUBLISHING_DISABLED=true`; verify all non-metrics writes and legacy X writes fail.
+7. Activate both database emergency stop and `GLOBAL_PUBLISHING_DISABLED=true`; verify all non-metrics writes and every legacy route (including X-backed GET requests) fail.
 8. Rotate all staging secrets after the exercise.
 
 ## Production release

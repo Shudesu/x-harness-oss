@@ -51,6 +51,11 @@ if (!/^CUBELIC_SAFE_MODE\s*=\s*"true"$/m.test(wrangler)) {
 }
 
 const worker = await readFile(join(root, 'apps/worker/src/index.ts'), 'utf8');
+const routeGuardIndex = worker.indexOf("app.use('*', cubelicPhase1RouteGuard)");
+const authIndex = worker.indexOf("app.use('*', authMiddleware)");
+if (routeGuardIndex < 0 || authIndex < 0 || routeGuardIndex > authIndex) {
+  violations.push('apps/worker/src/index.ts: Phase 1 route guard must run before authentication and route handlers');
+}
 for (const forbiddenCronCall of ['processScheduledPosts', 'processEngagementGates', 'processStepSequences']) {
   if (worker.includes(forbiddenCronCall)) {
     violations.push(`apps/worker/src/index.ts: Phase 1 Cron must not reference ${forbiddenCronCall}`);
@@ -67,9 +72,20 @@ if (!/const safeMode\s*=\s*true/.test(capabilities) || !/const publishingDisable
   violations.push('apps/worker/src/routes/capabilities.ts: Phase 1 capabilities must be compile-time draft-only');
 }
 
+const safety = await readFile(join(root, 'apps/worker/src/cubelic/safety.ts'), 'utf8');
+for (const requiredBlockedSurface of ['/api/users', '/api/engagement-gates', '/api/settings']) {
+  if (safety.includes(`'GET ${requiredBlockedSurface}`)) {
+    violations.push(`apps/worker/src/cubelic/safety.ts: legacy surface ${requiredBlockedSurface} must not be allowlisted`);
+  }
+}
+
 const sidebar = await readFile(join(root, 'apps/web/src/components/layout/sidebar.tsx'), 'utf8');
 if (!/const menuSections\s*=\s*safeMenuSections/.test(sidebar)) {
   violations.push('apps/web/src/components/layout/sidebar.tsx: Phase 1 navigation must use the safe allowlist unconditionally');
+}
+const authGuard = await readFile(join(root, 'apps/web/src/components/auth-guard.tsx'), 'utf8');
+if (!/pathname !== ['"]\/cubelic['"]/.test(authGuard) || !/router\.replace\(['"]\/cubelic['"]\)/.test(authGuard)) {
+  violations.push('apps/web/src/components/auth-guard.tsx: authenticated Phase 1 UI must redirect legacy pages to /cubelic');
 }
 
 const mcp = await readFile(join(root, 'packages/mcp/src/index.ts'), 'utf8');

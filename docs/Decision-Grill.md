@@ -180,3 +180,23 @@
 - Safest current behavior: CI uses a least-privilege API token. A manual release may instead set `CLOUDFLARE_AUTH_VERIFIED=true` only after `wrangler whoami` succeeds for the intended account; neither path prints or copies the credential.
 - Needed answer: None for the current manual Phase 1 release. Replace the broad interactive OAuth grant with a narrower release identity before unattended deployment is enabled.
 - Resolution: Production preflight now accepts either a non-empty minimum-length `CLOUDFLARE_API_TOKEN` or the explicit post-`wrangler whoami` attestation. The current release remains manual and Hermes cannot access either credential.
+
+## DG-019 — Missing or malformed emergency-stop state
+
+- Status: RESOLVED
+- Evidence: `SPEC.md` §20 and the repository safety rules require a missing emergency-stop state to fail closed; migration 018 originally seeded `false` and its triggers treated a missing value as resumed.
+- Conflict/gap: An absent or non-canonical flag could allow database mutation even though no operator had explicitly resumed the system.
+- Impact: Rights, privacy, approval and incident controls could be bypassed after partial migration, manual damage or malformed state.
+- Safest current behavior: New installations start stopped. Application reads and database triggers treat every value except the exact string `false` as stopped.
+- Needed answer: None for Phase 1.
+- Resolution: Migration 019 recreates every emergency-stop trigger with fail-closed semantics and safely defaults missing or invalid state to stopped. Integration tests cover initial, missing, invalid, resumed and stopped states.
+
+## DG-020 — Variant component of draft idempotency
+
+- Status: RESOLVED
+- Evidence: `SPEC.md` allows up to three variants but its abbreviated idempotency formula omitted `variant`; ADR-001 and the implemented canonical draft contract include it.
+- Conflict/gap: Without the variant component, the three approved review candidates for one content/template/media tuple would collide.
+- Impact: Valid variants could overwrite or collapse into one draft; retry behavior would be ambiguous.
+- Safest current behavior: Hash `account_id + content_id + template_version + variant + media_sha256_or_none`. Keep the variant in the stored, reviewed contract.
+- Needed answer: None for Phase 1.
+- Resolution: The variant component is an intentional, versioned extension. Retries of the same variant converge, while the maximum three distinct review candidates remain distinct.

@@ -13,6 +13,7 @@ The upstream deployment already requires D1. A second store would add distribute
 
 ## Consequences
 
-- Migration `018-cubelic-content-os.sql` is mandatory.
+- Migrations `018-cubelic-content-os.sql` and `019-cubelic-fail-closed-boundaries.sql` are mandatory and applied in order.
+- New, missing or malformed emergency-stop state is treated as stopped at both application and database-trigger layers.
 - JSON columns use canonical JSON strings and are validated at the API boundary.
 - Audit update/delete is blocked by database triggers.

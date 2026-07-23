@@ -56,6 +56,9 @@ const legacyWrite = await json('/api/posts', {
 });
 if (legacyWrite.response.status !== 423) failures.push(`legacy post write returned ${legacyWrite.response.status}, expected 423`);
 
+const legacyRead = await json('/api/users/search?query=phase1-boundary');
+if (legacyRead.response.status !== 423) failures.push(`legacy X-backed read returned ${legacyRead.response.status}, expected 423`);
+
 const approvalProof = await json('/api/cubelic/x-harness-inbox/drf_smoke_missing');
 if (approvalProof.response.status !== 403) failures.push(`human-only inbox read returned ${approvalProof.response.status} without approval proof, expected 403`);
 
@@ -64,4 +67,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('Staging smoke passed: health, draft-only capabilities, legacy-write lock, and human-proof boundary are active.');
+console.log('Staging smoke passed: health, draft-only capabilities, legacy route lock, and human-proof boundary are active.');

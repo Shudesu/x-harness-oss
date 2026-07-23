@@ -479,43 +479,43 @@ CREATE TABLE IF NOT EXISTS cubelic_audit_logs (
   correlation_id TEXT NOT NULL
 );
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_events_insert BEFORE INSERT ON cubelic_events
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_events_update BEFORE UPDATE ON cubelic_events
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_songs_insert BEFORE INSERT ON cubelic_songs
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_songs_update BEFORE UPDATE ON cubelic_songs
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_members_insert BEFORE INSERT ON cubelic_members
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_members_update BEFORE UPDATE ON cubelic_members
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_content_insert BEFORE INSERT ON cubelic_content_items
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_content_update BEFORE UPDATE ON cubelic_content_items
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_media_insert BEFORE INSERT ON cubelic_media_assets
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_media_update BEFORE UPDATE ON cubelic_media_assets
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_setlists_insert BEFORE INSERT ON cubelic_setlists
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_drafts_insert BEFORE INSERT ON cubelic_draft_posts
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_drafts_update BEFORE UPDATE ON cubelic_draft_posts
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_draft_state_transition BEFORE UPDATE OF approval_status ON cubelic_draft_posts
 WHEN NOT (
@@ -627,7 +627,7 @@ WHEN EXISTS (
 )
 BEGIN SELECT RAISE(ABORT, 'cubelic member is frozen during approval'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_inbox_insert BEFORE INSERT ON cubelic_x_draft_inbox
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_inbox_requires_approved_draft BEFORE INSERT ON cubelic_x_draft_inbox
 WHEN NOT EXISTS (
@@ -640,7 +640,7 @@ WHEN NOT EXISTS (
 )
 BEGIN SELECT RAISE(ABORT, 'inert inbox requires the matching approved cubelic draft'); END;
 CREATE TRIGGER IF NOT EXISTS cubelic_stop_post_mapping_insert BEFORE INSERT ON cubelic_post_mappings
-WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'false') = 'true'
+WHEN COALESCE((SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'), 'true') <> 'false'
 BEGIN SELECT RAISE(ABORT, 'cubelic emergency stop active'); END;
 CREATE INDEX IF NOT EXISTS idx_cubelic_audit_entity ON cubelic_audit_logs(entity_type, entity_id, timestamp);
 
@@ -657,4 +657,4 @@ BEGIN
 END;
 
 INSERT OR IGNORE INTO cubelic_system_flags (key, value, updated_at, updated_by)
-VALUES ('emergency_stop', 'false', '2026-07-21T00:00:00.000Z', 'system');
+VALUES ('emergency_stop', 'true', '2026-07-21T00:00:00.000Z', 'system');

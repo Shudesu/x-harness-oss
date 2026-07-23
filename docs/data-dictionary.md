@@ -15,4 +15,4 @@
 | Incident | Operational safety record | severity, status, summary, correlation id |
 | Audit log | Append-only evidence trail | actor, action, entity, before/after JSON, correlation id, timestamp |
 
-The normative machine contracts are in `packages/schemas/cubelic`. Database names and constraints are defined by `packages/db/migrations/018-cubelic-content-os.sql`.
+The normative machine contracts are in `packages/schemas/cubelic`. Database names and constraints are defined by ordered migrations in `packages/db/migrations/`, beginning with `018-cubelic-content-os.sql` and its Phase 1 hardening migration `019-cubelic-fail-closed-boundaries.sql`.

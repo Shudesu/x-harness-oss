@@ -3,13 +3,16 @@ import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import { Miniflare } from 'miniflare';
 import { Phase1XPublishingAdapter, type XDraftInput } from '@x-harness/content-os';
-import { createCubelicInertDraft } from '@x-harness/db';
+import { createCubelicInertDraft, setCubelicEmergencyStop } from '@x-harness/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cubelic } from './cubelic.js';
 import type { Env } from '../index.js';
 import { compileMigrationForD1Exec } from '../../../../packages/db/src/d1-test-utils.js';
 
-const migrationPath = fileURLToPath(new URL('../../../../packages/db/migrations/018-cubelic-content-os.sql', import.meta.url));
+const migrationPaths = [
+  fileURLToPath(new URL('../../../../packages/db/migrations/018-cubelic-content-os.sql', import.meta.url)),
+  fileURLToPath(new URL('../../../../packages/db/migrations/019-cubelic-fail-closed-boundaries.sql', import.meta.url)),
+];
 
 describe('CUBΣLIC Worker API integration', () => {
   let miniflare: Miniflare;
@@ -26,7 +29,18 @@ describe('CUBΣLIC Worker API integration', () => {
       d1Databases: { DB: 'cubelic-api-integration-test' },
     });
     db = await miniflare.getD1Database('DB') as unknown as D1Database;
-    await db.exec(compileMigrationForD1Exec(await readFile(migrationPath, 'utf8')));
+    for (const migrationPath of migrationPaths) {
+      await db.exec(compileMigrationForD1Exec(await readFile(migrationPath, 'utf8')));
+    }
+    await setCubelicEmergencyStop(db, false, 'integration-operator', {
+      actor: 'human',
+      action: 'system.emergency_resume',
+      entityType: 'system',
+      entityId: 'publishing',
+      before: { stopped: true },
+      after: { stopped: false },
+      correlationId: 'corr_integration_resume',
+    });
     bindings = {
       DB: db,
       API_KEY: 'integration-api-key',

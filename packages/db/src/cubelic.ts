@@ -636,7 +636,7 @@ export async function getCubelicInertDraft(db: D1Database, draftId: string): Pro
 
 export async function getCubelicEmergencyStop(db: D1Database): Promise<boolean> {
   const row = await db.prepare("SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'").first<{ value: string }>();
-  return row?.value === 'true';
+  return row?.value !== 'false';
 }
 
 export async function setCubelicEmergencyStop(db: D1Database, stopped: boolean, actor: string, audit: AuditInput): Promise<void> {

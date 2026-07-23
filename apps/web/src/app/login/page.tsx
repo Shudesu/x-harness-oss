@@ -21,7 +21,7 @@ export default function LoginPage() {
       const res = await api.session()
 
       if (res.success) {
-        router.push('/')
+        router.push('/cubelic')
       } else {
         localStorage.removeItem('xh_api_key')
         setError('APIキーが正しくありません')
@@ -44,7 +44,7 @@ export default function LoginPage() {
             X
           </div>
           <h1 className="text-xl font-bold text-gray-900">X Harness</h1>
-          <p className="text-sm text-gray-500 mt-1">Xアカウント自動化ダッシュボード</p>
+          <p className="text-sm text-gray-500 mt-1">CUBΣLIC 下書き作成・承認ダッシュボード</p>
         </div>
 
         <form onSubmit={handleLogin}>

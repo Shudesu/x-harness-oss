@@ -33,7 +33,10 @@ import {
 } from './cubelic.js';
 import { compileMigrationForD1Exec } from './d1-test-utils.js';
 
-const migrationPath = fileURLToPath(new URL('../migrations/018-cubelic-content-os.sql', import.meta.url));
+const migrationPaths = [
+  fileURLToPath(new URL('../migrations/018-cubelic-content-os.sql', import.meta.url)),
+  fileURLToPath(new URL('../migrations/019-cubelic-fail-closed-boundaries.sql', import.meta.url)),
+];
 
 function audit(action: string, entityId: string): AuditInput {
   return { actor: 'system', action, entityType: 'integration', entityId, before: {}, after: {}, correlationId: `corr_${entityId}` };
@@ -110,7 +113,9 @@ describe('CUBΣLIC D1 integration', () => {
       d1Databases: { DB: 'cubelic-integration-test' },
     });
     db = await miniflare.getD1Database('DB') as unknown as D1Database;
-    await db.exec(compileMigrationForD1Exec(await readFile(migrationPath, 'utf8')));
+    for (const migrationPath of migrationPaths) {
+      await db.exec(compileMigrationForD1Exec(await readFile(migrationPath, 'utf8')));
+    }
   });
 
   afterEach(async () => {
@@ -118,6 +123,7 @@ describe('CUBΣLIC D1 integration', () => {
   });
 
   it('persists only canonical drafts and makes adapter handoff idempotent', async () => {
+    await setCubelicEmergencyStop(db, false, 'integration-operator', audit('system.emergency_resume', 'publishing'));
     await createCubelicEvent(db, eventFixture, audit('event.created', eventFixture.event_id));
     await createCubelicContent(db, contentFixture, audit('content.created', contentFixture.content_id));
     await upsertCubelicSongMaster(db, {
@@ -202,11 +208,20 @@ describe('CUBΣLIC D1 integration', () => {
   });
 
   it('enforces duplicate media hashes, emergency state, and append-only audit records', async () => {
+    expect(await getCubelicEmergencyStop(db)).toBe(true);
+    await db.prepare("DELETE FROM cubelic_system_flags WHERE key = 'emergency_stop'").run();
+    expect(await getCubelicEmergencyStop(db)).toBe(true);
+    await expect(createCubelicEvent(db, eventFixture, audit('event.created', eventFixture.event_id))).rejects.toThrow(/emergency stop active/);
+    await db.prepare("INSERT INTO cubelic_system_flags (key, value, updated_at, updated_by) VALUES ('emergency_stop', 'invalid', ?, ?)")
+      .bind(new Date().toISOString(), 'integration-tamper').run();
+    expect(await getCubelicEmergencyStop(db)).toBe(true);
+    await expect(createCubelicEvent(db, eventFixture, audit('event.created', eventFixture.event_id))).rejects.toThrow(/emergency stop active/);
+    await setCubelicEmergencyStop(db, false, 'integration-operator', audit('system.emergency_resume', 'publishing'));
+    expect(await getCubelicEmergencyStop(db)).toBe(false);
     await createCubelicEvent(db, eventFixture, audit('event.created', eventFixture.event_id));
     await createCubelicMedia(db, mediaFixture, [], audit('media.created', mediaFixture.asset_id));
     await expect(createCubelicMedia(db, { ...mediaFixture, asset_id: 'ast_duplicate' }, [], audit('media.created', 'ast_duplicate'))).rejects.toThrow(/UNIQUE/);
 
-    expect(await getCubelicEmergencyStop(db)).toBe(false);
     await setCubelicEmergencyStop(db, true, 'integration-operator', audit('system.emergency_stop', 'publishing'));
     expect(await getCubelicEmergencyStop(db)).toBe(true);
     const blockedEvent = { ...eventFixture, event_id: 'evt_blocked_after_stop' };
@@ -227,6 +242,7 @@ describe('CUBΣLIC D1 integration', () => {
   });
 
   it('serializes competing draft decisions and prevents edits after approval reservation', async () => {
+    await setCubelicEmergencyStop(db, false, 'integration-operator', audit('system.emergency_resume', 'publishing'));
     await createCubelicEvent(db, eventFixture, audit('event.created', eventFixture.event_id));
     await createCubelicContent(db, contentFixture, audit('content.created', contentFixture.content_id));
     await upsertCubelicSongMaster(db, {
@@ -300,12 +316,14 @@ describe('CUBΣLIC D1 integration', () => {
   });
 
   it('rolls back state when its audit statement fails', async () => {
+    await setCubelicEmergencyStop(db, false, 'integration-operator', audit('system.emergency_resume', 'publishing'));
     const invalidAudit = { ...audit('event.created', eventFixture.event_id), actor: 'invalid' } as unknown as AuditInput;
     await expect(createCubelicEvent(db, eventFixture, invalidAudit)).rejects.toThrow();
     expect(await db.prepare('SELECT event_id FROM cubelic_events WHERE event_id = ?').bind(eventFixture.event_id).first()).toBeNull();
   });
 
   it('deduplicates concurrent rejection retries without false creation audits', async () => {
+    await setCubelicEmergencyStop(db, false, 'integration-operator', audit('system.emergency_resume', 'publishing'));
     const rejection = {
       actor: 'hermes' as const,
       reasons: ['rights_unconfirmed' as const],

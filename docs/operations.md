@@ -7,7 +7,7 @@ Phase 1 creates, reviews and measures content. It does not publish, schedule, de
 ## Initial setup
 
 1. Copy the variable names from `.env.example` into the deployment secret store. Never commit values.
-2. Apply `packages/db/migrations/018-cubelic-content-os.sql` to a backed-up D1 environment.
+2. Apply `packages/db/migrations/018-cubelic-content-os.sql`, then `019-cubelic-fail-closed-boundaries.sql`, to a backed-up D1 environment.
 3. Set `X_HARNESS_ACCOUNT_ID` to the selected `x_accounts.id`; do not use the public username.
 4. Keep `HERMES_RUNTIME_ENABLED=false` in Phase 1 and do not provision Hermes runtime credentials. If a later reviewed release enables it, give Hermes only `HERMES_ACCESS_TOKEN` (the MCP process prefers it over `X_HARNESS_API_KEY`). Give approval UI operators `HUMAN_APPROVAL_KEY`; never expose it to Hermes.
 5. Set `CORS_ALLOWED_ORIGINS` to the exact HTTPS approval-UI origin(s), comma-separated; wildcard origins fail closed.
@@ -26,8 +26,9 @@ Phase 1 creates, reviews and measures content. It does not publish, schedule, de
 ## Emergency controls
 
 - `POST /api/cubelic/admin/emergency-stop` blocks all CUBΣLIC mutation except metrics collection.
+- A missing or malformed database emergency-stop flag is treated as stopped. New installations start stopped.
 - `POST /api/cubelic/admin/emergency-resume` requires a human approval key and an admin.
-- `GLOBAL_PUBLISHING_DISABLED=true` disables legacy publishing paths independently of CUBΣLIC safe mode.
+- All legacy X and administration routes are unavailable in the Phase 1 Worker, including X-backed GET routes. `GLOBAL_PUBLISHING_DISABLED=true` remains an independent deployment assertion.
 - Follow [incident-response.md](incident-response.md) whenever a boundary or rights concern is discovered.
 
 ## Rollback
