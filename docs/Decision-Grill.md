@@ -206,9 +206,9 @@
 - Evidence: `SPEC.md` §22.1–22.2, §24.2–24.3; `packages/schemas/src/validate-production-inputs.mjs`; ADR-006
 - Conflict/gap: Individually schema-valid GAS, Resolve, song-master and member-master files could still refer to different events, inconsistent songs, duplicate stable ids, or media bytes outside the declared export root. The authoritative LP update-state mapping remains separately pending under DG-009.
 - Impact: A release gate could approve inputs that later fail ingestion, bind metadata to the wrong event, or trust an unrelated/tampered media file.
-- Safest current behavior: Treat the four JSON files, export root and referenced media as one fail-closed production bundle without logging identifiers, payloads or paths.
+- Safest current behavior: Treat the six JSON contracts, export root and referenced media as one fail-closed production bundle without logging identifiers, payloads or paths.
 - Needed answer: None for Phase 1.
-- Resolution: For the supplied local contracts, the production validator requires matching event ids, consecutive setlist positions, active canonical song id/title-or-alias matches, unique song/member ids, a realpath-confined media file, and an exact streaming SHA-256 match. Contract tests cover each rejection and one complete accepted bundle. This does not establish LP publication/update state; production preflight separately requires `PRODUCTION_LP_MAPPING_VALIDATED=true`, backed by the human-approved authoritative mapping required in DG-009.
+- Resolution: For the supplied local contracts, the production validator requires matching LP-event/LP-approval/GAS/Resolve event ids, an LP approval URL equal to the GAS destination with confirmed update state, matching event details, an ingestible event state, consecutive setlist positions, active canonical song id/title-or-alias matches, unique song/member ids, a realpath-confined media file, and an exact streaming SHA-256 match. Contract tests cover each rejection and one complete accepted bundle.
 
 ## DG-022 — Upstream merge availability
 
@@ -219,3 +219,13 @@
 - Safest current behavior: Use the exact commit on `Y-Fukiya/x-harness-oss:agent/cubelic-phase1-release` as the operational source of truth, retain the upstream PR for optional later integration, and never claim that upstream contains the fork changes.
 - Needed answer: None for the current Phase 1 operation.
 - Resolution: Upstream merge is deferred and is not a Phase 1 operational gate. All releases and checks must record the fork commit SHA until an upstream maintainer merges or supersedes PR #9.
+
+## DG-023 — First-run event authority and publishing-stop separation
+
+- Status: RESOLVED
+- Evidence: `apps/worker/src/routes/cubelic.ts` requires a complete Event record before setlist/media ingestion; the original handoff listed only GAS, Resolve, song and member contracts; `GLOBAL_PUBLISHING_DISABLED=true` also prevented all safe CUBΣLIC draft mutations and disabled the UI resume control.
+- Conflict/gap: The documented input bundle could not create the required event, and a reusable LP-validation boolean was not bound to the current event and destination.
+- Impact: Production master/event/media/setlist ingestion, draft generation, operator emergency controls and first-run repeatability.
+- Safest current behavior: Require human-approved `lp-event.json` and event-specific LP mapping contracts; validate them coherently with GAS/Resolve; keep both emergency stops active outside a short reviewed operation window; retain compile-time Phase 1 route and inert-adapter boundaries at all times.
+- Needed answer: None for Phase 1. A later phase must define a separate reviewed publication-enable ceremony before any executable X adapter exists.
+- Resolution: The validator now requires the LP event and event-specific LP approval contracts. Readiness verification requires both emergency stops active. Execution requires a separately attested environment window and exact event confirmation, then opens a server-enforced D1 window bound to that event for at most 30 minutes. Requests for another event and expired/missing windows fail closed. Ingest failure and the first successful inert handoff atomically close the server window and re-engage the D1 stop. The environment stop continues to block every non-metrics write whenever active, exactly as `SPEC.md` requires. Legacy X routes remain compile-time blocked and the adapter remains inert even during the operation window.

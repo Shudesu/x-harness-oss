@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import { Miniflare } from 'miniflare';
 import { Phase1XPublishingAdapter, type XDraftInput } from '@x-harness/content-os';
-import { createCubelicInertDraft, setCubelicEmergencyStop } from '@x-harness/db';
+import { createCubelicInertDraft, getCubelicEmergencyStop, setCubelicEmergencyStop, setCubelicOperationWindow } from '@x-harness/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cubelic } from './cubelic.js';
 import type { Env } from '../index.js';
@@ -76,6 +76,108 @@ describe('CUBΣLIC Worker API integration', () => {
     return app.request(`https://worker.example.test${path}`, init, bindings);
   }
 
+  async function openWindow(eventId: string): Promise<void> {
+    await setCubelicOperationWindow(db, {
+      eventId,
+      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      actor: 'integration-operator',
+    }, {
+      actor: 'human',
+      action: 'system.operation_window_opened',
+      entityType: 'system',
+      entityId: 'operation_window',
+      before: {},
+      after: { eventId },
+      correlationId: `corr_window_${eventId}`,
+    });
+  }
+
+  it('keeps every non-metrics write stopped while the environment emergency stop is active', async () => {
+    bindings.GLOBAL_PUBLISHING_DISABLED = 'true';
+
+    const resume = await request('/api/cubelic/admin/emergency-resume', {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': 'integration-human-key' },
+      body: '{}',
+    });
+    expect(resume.status).toBe(423);
+
+    const response = await request('/api/cubelic/content', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+
+    expect(response.status).toBe(423);
+    await expect((await request('/api/cubelic/admin/status')).json()).resolves.toMatchObject({
+      data: {
+        environmentStop: true,
+        emergencyStop: false,
+        publishingEnabled: false,
+        schedulingEnabled: false,
+      },
+    });
+  });
+
+  it('opens an event window only with an explicit environment resume and rejects replacement', async () => {
+    bindings.GLOBAL_PUBLISHING_DISABLED = undefined;
+    const requestWindow = () => request('/api/cubelic/admin/operation-window', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-Human-Approval-Key': 'integration-human-key' },
+      body: JSON.stringify({ eventId: 'evt_window_api', durationMinutes: 15 }),
+    });
+    expect((await requestWindow()).status).toBe(423);
+
+    bindings.GLOBAL_PUBLISHING_DISABLED = 'false';
+    expect((await requestWindow()).status).toBe(201);
+    expect((await requestWindow()).status).toBe(409);
+    await expect((await request('/api/cubelic/admin/status')).json()).resolves.toMatchObject({
+      data: {
+        operationWindow: { eventId: 'evt_window_api', active: true },
+      },
+    });
+  });
+
+  it('rejects expired and cross-event operation-window writes', async () => {
+    const event = {
+      event_id: 'evt_window_allowed',
+      title: 'WINDOW TEST',
+      venue: 'TEST VENUE',
+      starts_at: new Date(Date.now() - 90 * 60_000).toISOString(),
+      ends_at: new Date(Date.now() - 15 * 60_000).toISOString(),
+      state: 'ended',
+      event_tags: [],
+      filming_policy: { confirmed: false, scope: 'unknown', evidence_type: null, evidence_url: null, confirmed_at: null, confirmed_by: null },
+    };
+    await openWindow(event.event_id);
+    const mismatch = await request('/api/cubelic/events', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...event, event_id: 'evt_window_other' }),
+    });
+    expect(mismatch.status).toBe(423);
+
+    await setCubelicOperationWindow(db, {
+      eventId: event.event_id,
+      expiresAt: new Date(Date.now() - 1_000).toISOString(),
+      actor: 'integration-operator',
+    }, {
+      actor: 'human',
+      action: 'system.operation_window_expired_fixture',
+      entityType: 'system',
+      entityId: 'operation_window',
+      before: {},
+      after: { eventId: event.event_id },
+      correlationId: 'corr_window_expired',
+    });
+    expect((await request('/api/cubelic/events', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(event),
+    })).status).toBe(423);
+    expect(await getCubelicEmergencyStop(db)).toBe(true);
+  });
+
   it('requires human proof for initial media review and atomically records blocked-media reasons', async () => {
     const now = Date.now();
     const event = {
@@ -95,6 +197,7 @@ describe('CUBΣLIC Worker API integration', () => {
         confirmed_by: 'human_operator',
       },
     };
+    await openWindow(event.event_id);
     expect((await request('/api/cubelic/events', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'X-Human-Approval-Key': 'integration-human-key' },
@@ -139,9 +242,11 @@ describe('CUBΣLIC Worker API integration', () => {
       event_tags: [],
       filming_policy: { confirmed: false, scope: 'unknown', evidence_type: null, evidence_url: null, confirmed_at: null, confirmed_by: null },
     };
+    await openWindow(event.event_id);
     expect((await request('/api/cubelic/events', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(event),
     })).status).toBe(201);
+    await openWindow('evt_hermes_rights_claim');
     const hermesRightsClaim = await request('/api/cubelic/events', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'X-Test-Actor': 'hermes' },
@@ -172,6 +277,7 @@ describe('CUBΣLIC Worker API integration', () => {
         confirmed_by: 'human_operator',
       },
     };
+    await openWindow(humanRightsEvent.event_id);
     expect((await request('/api/cubelic/events', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(humanRightsEvent),
     })).status).toBe(403);
@@ -180,6 +286,7 @@ describe('CUBΣLIC Worker API integration', () => {
       headers: { 'content-type': 'application/json', 'X-Human-Approval-Key': 'integration-human-key' },
       body: JSON.stringify(humanRightsEvent),
     })).status).toBe(201);
+    await openWindow(event.event_id);
 
     const referencedContent = {
       content_id: 'cnt_reference_check',
@@ -261,6 +368,14 @@ describe('CUBΣLIC Worker API integration', () => {
     expect(approvalBody.data.xHarnessDraft.status).toBe('inert_draft');
     expect(createDraft).toHaveBeenCalledTimes(1);
     expect((await db.prepare('SELECT COUNT(*) AS count FROM cubelic_x_draft_inbox').first<{ count: number }>())?.count).toBe(1);
+    expect(await getCubelicEmergencyStop(db)).toBe(true);
+
+    await openWindow(event.event_id);
+    expect((await request('/api/cubelic/admin/emergency-resume', {
+      method: 'POST',
+      headers: { 'X-Human-Approval-Key': 'integration-human-key' },
+      body: '{}',
+    })).status).toBe(200);
 
     const rejectedDraftId = setlistBody.data.drafts[1].draft_id;
     expect((await request(`/api/cubelic/drafts/${rejectedDraftId}/reject`, {

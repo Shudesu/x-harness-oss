@@ -36,6 +36,7 @@ describe('CUBΣLIC centralized Phase 1 route boundary', () => {
   it('keeps the environment emergency stop effective when safe mode is disabled', () => {
     const stopped = env({ CUBELIC_SAFE_MODE: 'false', GLOBAL_PUBLISHING_DISABLED: 'true' });
     expect(isPublishingGloballyDisabled(stopped)).toBe(true);
+    expect(isPublishingGloballyDisabled(env({ GLOBAL_PUBLISHING_DISABLED: undefined }))).toBe(true);
     expect(isPhase1RouteBlocked('POST', '/api/posts/schedule', stopped)).toBe(true);
   });
 

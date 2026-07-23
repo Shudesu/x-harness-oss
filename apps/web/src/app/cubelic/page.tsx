@@ -132,10 +132,10 @@ export default function CubelicApprovalPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input type="password" autoComplete="off" value={humanKey} onChange={(event) => setHumanKey(event.target.value)} placeholder="人間承認キー（保存されません）" className="w-64 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm" />
-            <button disabled={!humanKey || systemBusy || status?.environmentStop} onClick={toggleStop} className={`rounded-lg px-4 py-2 text-sm font-bold text-white disabled:bg-gray-300 ${status?.emergencyStop ? 'bg-emerald-600' : 'bg-red-600'}`}>{systemBusy ? '処理中…' : status?.emergencyStop ? '運用を再開' : '緊急停止'}</button>
+            <button disabled={!humanKey || systemBusy || status?.environmentStop} onClick={toggleStop} className={`rounded-lg px-4 py-2 text-sm font-bold text-white disabled:bg-gray-300 ${status?.emergencyStop ? 'bg-emerald-600' : 'bg-red-600'}`}>{systemBusy ? '処理中…' : status?.emergencyStop ? '下書き運用を再開' : '下書き運用を緊急停止'}</button>
           </div>
         </div>
-        {status && <p className="mt-3 text-xs text-blue-700">safe_mode={String(status.safeMode)} / emergency_stop={String(status.emergencyStop)} / environment_stop={String(status.environmentStop)} / publish=false / schedule=false</p>}
+        {status && <p className="mt-3 text-xs text-blue-700">environment_stop={String(status.environmentStop)} / emergency_stop={String(status.emergencyStop)} / operation_window_active={String(status.operationWindow?.active === true)} / publish=false / schedule=false</p>}
       </section>
 
       {error && <p className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}

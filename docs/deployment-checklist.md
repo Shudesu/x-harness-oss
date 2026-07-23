@@ -35,5 +35,6 @@
 - Verify Cloudflare Access denies an unauthenticated request to `ops.cubelic-fan.com` before sharing the URL.
 - Check `/api/capabilities` and `/api/cubelic/admin/status` before operator access.
 - Keep the first production run manual: one source, one reviewed draft, one inert handoff, no automated X action.
+- Before that run, validate the six-contract bundle and event-specific LP attestation, then run `pnpm operate:production:check` with both emergency stops active. Open a separately reviewed operation window (`GLOBAL_PUBLISHING_DISABLED=false`), set `PRODUCTION_OPERATION_WINDOW_OPEN=true` and `PRODUCTION_OPERATION_CONFIRMED` to the exact approved event id, then run `pnpm operate:production:first-run`. The server binds writes to that event for at most 30 minutes; ingest failure and the first successful inert handoff re-engage the D1 stop. Restore the environment stop immediately after handoff.
 - Record release commit, operator, migration result and rollback point in the audit/release record.
 - If any boundary differs from staging, activate emergency stop and follow `docs/incident-response.md`.

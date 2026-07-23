@@ -16,12 +16,13 @@ const denylist = JSON.parse(readFileSync(
   fixtureFiles: string[];
   testOnlyValues: Array<{ value: string; replacement: string }>;
 };
-const [gasFixture, resolveFixture, songMasterFixture, memberMasterFixture] = denylist.fixtureFiles;
 const fixtureNames = {
-  gas: gasFixture,
-  resolve: resolveFixture,
-  songMaster: songMasterFixture,
-  memberMaster: memberMasterFixture,
+  event: 'lp-event-v1.json',
+  lpMappingApproval: 'lp-mapping-approval-v1.json',
+  gas: 'gas-setlist-v1.json',
+  resolve: 'resolve-metadata-v1.json',
+  songMaster: 'song-master-v1.json',
+  memberMaster: 'member-master-v1.json',
 } as const;
 type FixtureName = keyof typeof fixtureNames;
 
@@ -29,6 +30,8 @@ function inputEnvironment(inputDirectory: string, resolveRoot: string, allowedRo
   return {
     ...process.env,
     INIT_CWD: repositoryRoot,
+    LP_EVENT_PATH: resolve(inputDirectory, fixtureNames.event),
+    LP_MAPPING_APPROVAL_PATH: resolve(inputDirectory, fixtureNames.lpMappingApproval),
     GAS_PAYLOAD_PATH: resolve(inputDirectory, fixtureNames.gas),
     RESOLVE_METADATA_PATH: resolve(inputDirectory, fixtureNames.resolve),
     SONG_MASTER_PATH: resolve(inputDirectory, fixtureNames.songMaster),
@@ -92,6 +95,8 @@ describe('production input validation CLI', () => {
     const result = runValidator({
       ...process.env,
       INIT_CWD: repositoryRoot,
+      LP_EVENT_PATH: 'packages/test-fixtures/contracts/lp-event-v1.json',
+      LP_MAPPING_APPROVAL_PATH: 'packages/test-fixtures/contracts/lp-mapping-approval-v1.json',
       GAS_PAYLOAD_PATH: 'packages/test-fixtures/contracts/gas-setlist-v1.json',
       RESOLVE_METADATA_PATH: 'packages/test-fixtures/contracts/resolve-metadata-v1.json',
       SONG_MASTER_PATH: 'packages/test-fixtures/contracts/song-master-v1.json',
@@ -182,7 +187,7 @@ describe('production input validation CLI', () => {
   it('reports schema paths without echoing invalid payload values', () => {
     withTemporaryDirectory('cubelic-production-schema-', (directory) => {
       copyFixtures(directory, true);
-      writeFileSync(resolve(directory, denylist.fixtureFiles[0]), '{"private_value":"must-not-leak"}');
+      writeFileSync(resolve(directory, fixtureNames.gas), '{"private_value":"must-not-leak"}');
       const result = runValidator(inputEnvironment(directory, directory, directory));
 
       expect(result.status).toBe(1);
@@ -200,7 +205,49 @@ describe('production input validation CLI', () => {
       const result = runValidator(inputEnvironment(directory, directory, directory));
 
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain('GAS_PAYLOAD_PATH and RESOLVE_METADATA_PATH must reference the same event_id');
+      expect(result.stderr).toContain('LP_EVENT_PATH, GAS_PAYLOAD_PATH, and RESOLVE_METADATA_PATH must reference the same event_id');
+    });
+  });
+
+  it('rejects event, GAS, and Resolve contracts for different events', () => {
+    withTemporaryDirectory('cubelic-production-event-contract-', (directory) => {
+      prepareProductionInputs(directory);
+      mutateJsonFixture<{ event_id: string }>(directory, 'event', (event) => {
+        event.event_id = 'evt_different_production_event';
+      });
+      const result = runValidator(inputEnvironment(directory, directory, directory));
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('LP_EVENT_PATH, GAS_PAYLOAD_PATH, and RESOLVE_METADATA_PATH must reference the same event_id');
+      expect(result.stderr).not.toContain('evt_different_production_event');
+    });
+  });
+
+  it('rejects event details that disagree with the GAS contract', () => {
+    withTemporaryDirectory('cubelic-production-event-details-', (directory) => {
+      prepareProductionInputs(directory);
+      mutateJsonFixture<{ venue: string }>(directory, 'event', (event) => {
+        event.venue = 'private mismatched venue';
+      });
+      const result = runValidator(inputEnvironment(directory, directory, directory));
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('LP_EVENT_PATH and GAS_PAYLOAD_PATH event details must match');
+      expect(result.stderr).not.toContain('private mismatched venue');
+    });
+  });
+
+  it('rejects an LP approval for a stale event or destination', () => {
+    withTemporaryDirectory('cubelic-production-lp-approval-', (directory) => {
+      prepareProductionInputs(directory);
+      mutateJsonFixture<{ lp_url: string }>(directory, 'lpMappingApproval', (approval) => {
+        approval.lp_url = 'https://cubelic-fan.com/setlists/stale-destination';
+      });
+      const result = runValidator(inputEnvironment(directory, directory, directory));
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('LP_MAPPING_APPROVAL_PATH must approve the current GAS event_id, lp_url, and LP update state');
+      expect(result.stderr).not.toContain('stale-destination');
     });
   });
 

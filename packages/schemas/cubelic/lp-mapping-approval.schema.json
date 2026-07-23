@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cubelic-fan.com/schemas/contracts/lp-mapping-approval.v1.json",
+  "title": "LP Mapping Approval Contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "lp_url", "lp_update_confirmed", "authority_source", "confirmed_at", "confirmed_by"],
+  "properties": {
+    "schema_version": { "const": "cubelic.lp-mapping-approval.v1" },
+    "event_id": { "type": "string", "pattern": "^evt_[A-Za-z0-9_-]+$" },
+    "lp_url": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "lp_update_confirmed": { "const": true },
+    "authority_source": { "type": "string", "minLength": 1 },
+    "confirmed_at": { "type": "string", "format": "date-time" },
+    "confirmed_by": { "type": "string", "minLength": 1 },
+    "review_notes": { "type": ["string", "null"] }
+  }
+}

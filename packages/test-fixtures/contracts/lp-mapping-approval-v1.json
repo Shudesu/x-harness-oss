@@ -1,0 +1,10 @@
+{
+  "schema_version": "cubelic.lp-mapping-approval.v1",
+  "event_id": "evt_20260721_example",
+  "lp_url": "https://cubelic-fan.com/setlists/evt_20260721_example",
+  "lp_update_confirmed": true,
+  "authority_source": "test-only operator approval",
+  "confirmed_at": "2026-07-21T20:45:00+09:00",
+  "confirmed_by": "test operator",
+  "review_notes": null
+}

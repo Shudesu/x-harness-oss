@@ -26,6 +26,8 @@
     "preflight:production": "node scripts/preflight-production.mjs",
     "smoke:staging": "node scripts/smoke-staging.mjs",
     "validate:production-inputs": "pnpm --filter @x-harness/schemas validate:inputs",
+    "operate:production:check": "node scripts/production-first-run-keychain.mjs",
+    "operate:production:first-run": "node scripts/production-first-run-keychain.mjs --execute",
     "check": "pnpm check:boundaries && pnpm check:config && pnpm security:scan && pnpm typecheck && pnpm test && pnpm test:d1 && pnpm build"
   },
   "packageManager": "pnpm@10.34.5",

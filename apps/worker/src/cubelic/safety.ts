@@ -16,7 +16,7 @@ export function isCubelicSafeMode(env: Env['Bindings']): boolean {
 }
 
 export function isPublishingGloballyDisabled(env: Env['Bindings']): boolean {
-  return env.GLOBAL_PUBLISHING_DISABLED === 'true';
+  return env.GLOBAL_PUBLISHING_DISABLED !== 'false';
 }
 
 export function isPhase1RouteBlocked(method: string, path: string, env: Env['Bindings']): boolean {

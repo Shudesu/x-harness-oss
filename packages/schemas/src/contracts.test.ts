@@ -10,6 +10,7 @@ import gasSchema from '../cubelic/gas-setlist.schema.json';
 import hermesSchema from '../cubelic/hermes-output.schema.json';
 import incidentSchema from '../cubelic/incident.schema.json';
 import lpSchema from '../cubelic/lp-event.schema.json';
+import lpMappingApprovalSchema from '../cubelic/lp-mapping-approval.schema.json';
 import mediaSchema from '../cubelic/media-asset.schema.json';
 import metricsSchema from '../cubelic/metrics.schema.json';
 import memberMasterSchema from '../cubelic/member-master.schema.json';
@@ -22,6 +23,7 @@ import analyticsFixture from '../../test-fixtures/contracts/analytics-event-v1.j
 import gasFixture from '../../test-fixtures/contracts/gas-setlist-v1.json';
 import hermesFixture from '../../test-fixtures/contracts/hermes-output-v1.json';
 import lpFixture from '../../test-fixtures/contracts/lp-event-v1.json';
+import lpMappingApprovalFixture from '../../test-fixtures/contracts/lp-mapping-approval-v1.json';
 import memberMasterFixture from '../../test-fixtures/contracts/member-master-v1.json';
 import resolveFixture from '../../test-fixtures/contracts/resolve-metadata-v1.json';
 import songMasterFixture from '../../test-fixtures/contracts/song-master-v1.json';
@@ -30,7 +32,7 @@ import postMappingFixture from '../../test-fixtures/contracts/published-post-map
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 addFormats(ajv);
-for (const schema of [rightsSchema, eventSchema, mediaSchema, contentSchema, draftSchema, metricsSchema, incidentSchema, auditSchema, gasSchema, lpSchema, resolveSchema, hermesSchema, analyticsSchema, songMasterSchema, memberMasterSchema, inertDraftSchema, postMappingSchema]) {
+for (const schema of [rightsSchema, eventSchema, mediaSchema, contentSchema, draftSchema, metricsSchema, incidentSchema, auditSchema, gasSchema, lpSchema, lpMappingApprovalSchema, resolveSchema, hermesSchema, analyticsSchema, songMasterSchema, memberMasterSchema, inertDraftSchema, postMappingSchema]) {
   ajv.addSchema(schema);
 }
 
@@ -38,6 +40,7 @@ describe('Phase 1 contract fixtures', () => {
   const contracts = [
     [gasSchema.$id, gasFixture],
     [lpSchema.$id, lpFixture],
+    [lpMappingApprovalSchema.$id, lpMappingApprovalFixture],
     [resolveSchema.$id, resolveFixture],
     [hermesSchema.$id, hermesFixture],
     [analyticsSchema.$id, analyticsFixture],

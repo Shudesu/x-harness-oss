@@ -19,6 +19,7 @@ import {
 } from '@x-harness/content-os';
 import {
   appendCubelicAudit,
+  closeCubelicOperationWindowAndStop,
   createCubelicContent,
   createCubelicDrafts,
   createCubelicEvent,
@@ -34,11 +35,13 @@ import {
   getCubelicMedia,
   getCubelicMetricsSummary,
   getCubelicMetricsSnapshot,
+  getCubelicOperationWindow,
   getCubelicMemberMasterEntry,
   getCubelicPublishedPostMapping,
   getCubelicRejectionSummary,
   getCubelicSongMasterEntry,
   getCubelicSetlistForEvent,
+  handoffCubelicDraftAndStop,
   listCubelicContent,
   listCubelicDrafts,
   listCubelicEvents,
@@ -47,6 +50,7 @@ import {
   reserveCubelicDraftApproval,
   setCubelicDraftDecision,
   setCubelicEmergencyStop,
+  setCubelicOperationWindow,
   upsertCubelicMemberMaster,
   upsertCubelicSongMaster,
   updateCubelicContent,
@@ -260,7 +264,50 @@ function isMetricsWrite(path: string): boolean {
 }
 
 function isEmergencyAdmin(path: string): boolean {
-  return path === '/api/cubelic/admin/emergency-stop' || path === '/api/cubelic/admin/emergency-resume';
+  return path === '/api/cubelic/admin/emergency-stop'
+    || path === '/api/cubelic/admin/emergency-resume'
+    || path === '/api/cubelic/admin/operation-window';
+}
+
+const OPERATION_WINDOW_UNSCOPED_WRITES = new Set([
+  '/api/cubelic/masters/songs/ingest',
+  '/api/cubelic/masters/members/ingest',
+]);
+
+async function operationEventForWrite(c: Context<Env>, path: string): Promise<string | null | undefined> {
+  if (OPERATION_WINDOW_UNSCOPED_WRITES.has(path)) return undefined;
+  const payload = async () => c.req.raw.clone().json() as Promise<Record<string, unknown>>;
+  if (path === '/api/cubelic/events' || path === '/api/cubelic/content' || path === '/api/cubelic/media/validate' || path === '/api/cubelic/setlists/ingest') {
+    const body = await payload();
+    return typeof body.event_id === 'string' ? body.event_id : null;
+  }
+  if (path === '/api/cubelic/rights/validate') {
+    const body = await payload();
+    return typeof body.eventId === 'string' ? body.eventId : null;
+  }
+  const eventPath = path.match(/^\/api\/cubelic\/events\/([^/]+)$/);
+  if (eventPath) return decodeURIComponent(eventPath[1]);
+  const contentPath = path.match(/^\/api\/cubelic\/content\/([^/]+)$/);
+  if (contentPath) return (await getCubelicContent(c.env.DB, decodeURIComponent(contentPath[1])))?.event_id ?? null;
+  const mediaPath = path.match(/^\/api\/cubelic\/media\/([^/]+)\/review$/);
+  if (mediaPath) return (await getCubelicMedia(c.env.DB, decodeURIComponent(mediaPath[1])))?.event_id ?? null;
+  if (path === '/api/cubelic/drafts/generate') {
+    const body = await payload();
+    if (typeof body.contentId !== 'string') return null;
+    return (await getCubelicContent(c.env.DB, body.contentId))?.event_id ?? null;
+  }
+  const draftPath = path.match(/^\/api\/cubelic\/drafts\/([^/]+)(?:\/(?:approve|reject))?$/);
+  if (draftPath) {
+    const draft = await getCubelicDraft(c.env.DB, decodeURIComponent(draftPath[1]));
+    return draft ? (await getCubelicContent(c.env.DB, draft.content_id))?.event_id ?? null : null;
+  }
+  if (path === '/api/cubelic/metrics/post-mappings') {
+    const body = await payload();
+    if (typeof body.draftId !== 'string') return null;
+    const draft = await getCubelicDraft(c.env.DB, body.draftId);
+    return draft ? (await getCubelicContent(c.env.DB, draft.content_id))?.event_id ?? null : null;
+  }
+  return null;
 }
 
 function hermesClaimsHumanRights(event: EventRecord): boolean {
@@ -297,10 +344,22 @@ cubelic.use('/api/cubelic/*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
   const write = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method);
   if (!write || isMetricsWrite(path) || isEmergencyAdmin(path)) return next();
-  const envStopped = c.env.GLOBAL_PUBLISHING_DISABLED === 'true';
+  const envStopped = c.env.GLOBAL_PUBLISHING_DISABLED !== 'false';
   const dbStopped = await getCubelicEmergencyStop(c.env.DB);
   if (envStopped || dbStopped) {
     return c.json({ success: false, error: 'Emergency stop is active', code: 'emergency_stop_active', source: envStopped ? 'environment' : 'database' }, 423);
+  }
+  const operationWindow = await getCubelicOperationWindow(c.env.DB);
+  if (operationWindow && !operationWindow.active) {
+    await closeCubelicOperationWindowAndStop(c.env.DB, 'system', { actor: 'system', action: 'system.operation_window_expired', entityType: 'system', entityId: 'operation_window', before: { eventId: operationWindow.eventId, expiresAt: operationWindow.expiresAt }, after: { stopped: true }, correlationId: correlationId(c) });
+    return c.json({ success: false, error: 'The production operation window expired', code: 'operation_window_expired' }, 423);
+  }
+  if (!operationWindow) {
+    return c.json({ success: false, error: 'A valid production operation window is required', code: 'operation_window_inactive' }, 423);
+  }
+  const requestEventId = await operationEventForWrite(c, path);
+  if (requestEventId !== undefined && requestEventId !== operationWindow.eventId) {
+    return c.json({ success: false, error: 'The active operation window is bound to another event', code: 'operation_event_mismatch' }, 423);
   }
   return next();
 });
@@ -617,6 +676,8 @@ cubelic.patch('/api/cubelic/drafts/:id', async (c) => {
   try {
     const draft = await getCubelicDraft(c.env.DB, c.req.param('id'));
     if (!draft) return c.json({ success: false, error: 'Draft not found' }, 404);
+    const content = await getCubelicContent(c.env.DB, draft.content_id);
+    if (!content?.event_id) throw new ContentPolicyError('event_unknown', 'Draft content has no event', ['event_unknown']);
     if (!['pending_review', 'needs_revision'].includes(draft.approval_status)) return c.json({ success: false, error: 'Draft is immutable in its current state' }, 409);
     const body = await c.req.json<{ text?: string }>();
     if (!body.text) throw new ContentPolicyError('invalid_request', 'text is required', ['incorrect_metadata']);
@@ -644,7 +705,7 @@ cubelic.post('/api/cubelic/drafts/:id/approve', async (c) => {
     if (!approvalEvent) throw new ContentPolicyError('event_unknown', 'Draft event is missing', ['event_unknown']);
     assertDraftableEventState(content, approvalEvent);
     await assertCanonicalContentReferences(c.env.DB, content);
-    const emergencyStopped = c.env.GLOBAL_PUBLISHING_DISABLED === 'true' || await getCubelicEmergencyStop(c.env.DB);
+    const emergencyStopped = c.env.GLOBAL_PUBLISHING_DISABLED !== 'false' || await getCubelicEmergencyStop(c.env.DB);
     assertDraftApprovalGates(draft, { humanApproved: true, emergencyStopped, allowReserved: true });
     for (const assetId of draft.media_asset_ids) {
       const media = await getCubelicMedia(c.env.DB, assetId);
@@ -685,7 +746,14 @@ cubelic.post('/api/cubelic/drafts/:id/approve', async (c) => {
       approvedBy: actorName(c),
       approvedAt,
     });
-    await setCubelicDraftDecision(c.env.DB, { draftId: draft.draft_id, status: 'handed_off', actor: actorName(c), inboxId: result.inboxId }, { actor: 'human', action: 'draft.approved_and_handed_off', entityType: 'draft', entityId: draft.draft_id, before: { status: 'approved' }, after: { status: 'handed_off', inboxId: result.inboxId }, correlationId: correlationId(c) });
+    await handoffCubelicDraftAndStop(c.env.DB, {
+      draftId: draft.draft_id,
+      actor: actorName(c),
+      inboxId: result.inboxId,
+    }, {
+      draft: { actor: 'human', action: 'draft.approved_and_handed_off', entityType: 'draft', entityId: draft.draft_id, before: { status: 'approved' }, after: { status: 'handed_off', inboxId: result.inboxId }, correlationId: correlationId(c) },
+      operationWindow: { actor: 'human', action: 'system.operation_window_closed_after_handoff', entityType: 'system', entityId: 'operation_window', before: { eventId: content.event_id }, after: { stopped: true }, correlationId: correlationId(c) },
+    });
     return c.json({ success: true, data: { draft: await getCubelicDraft(c.env.DB, draft.draft_id), xHarnessDraft: result } });
   } catch (error) { return apiError(c, error); }
 });
@@ -696,6 +764,8 @@ cubelic.post('/api/cubelic/drafts/:id/reject', async (c) => {
     if (denied) return denied;
     const draft = await getCubelicDraft(c.env.DB, c.req.param('id'));
     if (!draft) return c.json({ success: false, error: 'Draft not found' }, 404);
+    const content = await getCubelicContent(c.env.DB, draft.content_id);
+    if (!content?.event_id) throw new ContentPolicyError('event_unknown', 'Draft content has no event', ['event_unknown']);
     if (!['pending_review', 'needs_revision'].includes(draft.approval_status)) return c.json({ success: false, error: 'Draft cannot be rejected in its current state' }, 409);
     const body: { reason?: string } = await c.req.json<{ reason?: string }>().catch(() => ({}));
     const reason: RejectReason = isRejectReason(body.reason) ? body.reason : 'manual_rejection';
@@ -739,6 +809,8 @@ cubelic.post('/api/cubelic/metrics/post-mappings', async (c) => {
     if (!draft || draft.approval_status !== 'handed_off') {
       throw new ContentPolicyError('invalid_approval_state', 'Only a handed-off draft may be mapped to a manually published post', ['incorrect_metadata']);
     }
+    const content = await getCubelicContent(c.env.DB, draft.content_id);
+    if (!content?.event_id) throw new ContentPolicyError('event_unknown', 'Draft content has no event', ['event_unknown']);
     const mapping = await createCubelicPublishedPostMapping(c.env.DB, {
       draftId: draft.draft_id,
       postId: body.postId,
@@ -769,8 +841,9 @@ cubelic.get('/api/cubelic/admin/status', async (c) => c.json({
   success: true,
   data: {
     safeMode: true,
-    environmentStop: c.env.GLOBAL_PUBLISHING_DISABLED === 'true',
+    environmentStop: c.env.GLOBAL_PUBLISHING_DISABLED !== 'false',
     emergencyStop: await getCubelicEmergencyStop(c.env.DB),
+    operationWindow: await getCubelicOperationWindow(c.env.DB),
     publishingEnabled: false,
     schedulingEnabled: false,
   },
@@ -780,15 +853,43 @@ cubelic.post('/api/cubelic/admin/emergency-stop', async (c) => {
   const denied = await requireHumanApproval(c);
   if (denied) return denied;
   const wasStopped = await getCubelicEmergencyStop(c.env.DB);
-  await setCubelicEmergencyStop(c.env.DB, true, actorName(c), { actor: 'human', action: 'system.emergency_stop', entityType: 'system', entityId: 'publishing', before: { stopped: wasStopped }, after: { stopped: true }, correlationId: correlationId(c) });
+  await closeCubelicOperationWindowAndStop(c.env.DB, actorName(c), { actor: 'human', action: 'system.emergency_stop', entityType: 'system', entityId: 'publishing', before: { stopped: wasStopped }, after: { stopped: true, operationWindowClosed: true }, correlationId: correlationId(c) });
   return c.json({ success: true, data: { stopped: true } });
+});
+
+cubelic.post('/api/cubelic/admin/operation-window', async (c) => {
+  try {
+    const denied = await requireHumanApproval(c);
+    if (denied) return denied;
+    if (c.env.GLOBAL_PUBLISHING_DISABLED !== 'false') {
+      return c.json({ success: false, error: 'Environment lock must be explicitly false before opening an operation window', code: 'environment_stop_active' }, 423);
+    }
+    const body = await c.req.json<{ eventId?: string; durationMinutes?: number }>();
+    if (!body.eventId || !/^evt_[A-Za-z0-9_-]+$/.test(body.eventId) || !Number.isInteger(body.durationMinutes) || body.durationMinutes! < 1 || body.durationMinutes! > 30) {
+      throw new ContentPolicyError('invalid_request', 'eventId and durationMinutes from 1 to 30 are required', ['incorrect_metadata']);
+    }
+    const existingWindow = await getCubelicOperationWindow(c.env.DB);
+    if (existingWindow?.active) {
+      return c.json({ success: false, error: 'An operation window is already active', code: 'operation_window_already_active' }, 409);
+    }
+    if (existingWindow) {
+      await closeCubelicOperationWindowAndStop(c.env.DB, actorName(c), { actor: 'human', action: 'system.expired_operation_window_replaced', entityType: 'system', entityId: 'operation_window', before: { eventId: existingWindow.eventId, expiresAt: existingWindow.expiresAt }, after: { stopped: true }, correlationId: correlationId(c) });
+    }
+    const expiresAt = new Date(Date.now() + body.durationMinutes! * 60_000).toISOString();
+    await setCubelicOperationWindow(c.env.DB, { eventId: body.eventId, expiresAt, actor: actorName(c) }, { actor: 'human', action: 'system.operation_window_opened', entityType: 'system', entityId: 'operation_window', before: existingWindow ? { eventId: existingWindow.eventId, expiresAt: existingWindow.expiresAt, active: false } : {}, after: { eventId: body.eventId, expiresAt }, correlationId: correlationId(c) });
+    return c.json({ success: true, data: { eventId: body.eventId, expiresAt } }, 201);
+  } catch (error) { return apiError(c, error); }
 });
 
 cubelic.post('/api/cubelic/admin/emergency-resume', async (c) => {
   const denied = await requireHumanApproval(c);
   if (denied) return denied;
-  if (c.env.GLOBAL_PUBLISHING_DISABLED === 'true') {
+  if (c.env.GLOBAL_PUBLISHING_DISABLED !== 'false') {
     return c.json({ success: false, error: 'Environment lock is active and cannot be resumed through the API', code: 'environment_stop_active' }, 423);
+  }
+  const operationWindow = await getCubelicOperationWindow(c.env.DB);
+  if (!operationWindow?.active) {
+    return c.json({ success: false, error: 'A valid production operation window is required before resume', code: 'operation_window_inactive' }, 423);
   }
   const wasStopped = await getCubelicEmergencyStop(c.env.DB);
   await setCubelicEmergencyStop(c.env.DB, false, actorName(c), { actor: 'human', action: 'system.emergency_resume', entityType: 'system', entityId: 'publishing', before: { stopped: wasStopped }, after: { stopped: false }, correlationId: correlationId(c) });

@@ -18,14 +18,18 @@ import {
   createCubelicInertDraft,
   createCubelicMedia,
   createCubelicPublishedPostMapping,
+  closeCubelicOperationWindowAndStop,
   getCubelicEmergencyStop,
+  getCubelicOperationWindow,
   getCubelicInertDraft,
   getCubelicMetricsSummary,
+  handoffCubelicDraftAndStop,
   listCubelicDrafts,
   reserveCubelicDraftApproval,
   recordCubelicRejections,
   setCubelicDraftDecision,
   setCubelicEmergencyStop,
+  setCubelicOperationWindow,
   updateCubelicDraftText,
   upsertCubelicSongMaster,
   saveCubelicMetrics,
@@ -122,6 +126,30 @@ describe('CUBΣLIC D1 integration', () => {
     await miniflare.dispose();
   });
 
+  it('expires and atomically closes an event-bound operation window', async () => {
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    await setCubelicOperationWindow(db, {
+      eventId: eventFixture.event_id,
+      expiresAt,
+      actor: 'integration-operator',
+    }, audit('system.operation_window_opened', 'operation_window'));
+
+    await expect(getCubelicOperationWindow(db)).resolves.toEqual({
+      eventId: eventFixture.event_id,
+      expiresAt,
+      active: true,
+    });
+    await expect(getCubelicOperationWindow(db, Date.parse(expiresAt) + 1)).resolves.toMatchObject({ active: false });
+
+    await closeCubelicOperationWindowAndStop(
+      db,
+      'integration-operator',
+      audit('system.operation_window_closed', 'operation_window'),
+    );
+    await expect(getCubelicOperationWindow(db)).resolves.toBeNull();
+    await expect(getCubelicEmergencyStop(db)).resolves.toBe(true);
+  });
+
   it('persists only canonical drafts and makes adapter handoff idempotent', async () => {
     await setCubelicEmergencyStop(db, false, 'integration-operator', audit('system.emergency_resume', 'publishing'));
     await createCubelicEvent(db, eventFixture, audit('event.created', eventFixture.event_id));
@@ -180,11 +208,22 @@ describe('CUBΣLIC D1 integration', () => {
       "SELECT entity_id FROM cubelic_audit_logs WHERE action = 'x_harness_inbox.created'",
     ).all<{ entity_id: string }>();
     expect(inboxAudits.results).toEqual([{ entity_id: firstHandoff.inboxId }]);
-    await setCubelicDraftDecision(
+    await setCubelicOperationWindow(db, {
+      eventId: eventFixture.event_id,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      actor: 'integration-operator',
+    }, audit('system.operation_window_opened', 'operation_window_handoff'));
+    await handoffCubelicDraftAndStop(
       db,
-      { draftId: firstStored[0].draft_id, status: 'handed_off', actor: 'integration-operator', inboxId: firstHandoff.inboxId },
-      audit('draft.approved_and_handed_off', firstStored[0].draft_id),
+      { draftId: firstStored[0].draft_id, actor: 'integration-operator', inboxId: firstHandoff.inboxId },
+      {
+        draft: audit('draft.approved_and_handed_off', firstStored[0].draft_id),
+        operationWindow: audit('system.operation_window_closed_after_handoff', 'operation_window_handoff'),
+      },
     );
+    await expect(getCubelicEmergencyStop(db)).resolves.toBe(true);
+    await expect(getCubelicOperationWindow(db)).resolves.toBeNull();
+    await setCubelicEmergencyStop(db, false, 'integration-operator', audit('system.emergency_resume', 'publishing_after_handoff'));
 
     await createCubelicPublishedPostMapping(db, {
       postId: '1234567890123456789',

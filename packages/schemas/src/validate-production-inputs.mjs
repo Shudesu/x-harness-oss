@@ -11,6 +11,10 @@ async function schema(name) {
 }
 
 const gasSchema = await schema('gas-setlist.schema.json');
+const eventSchema = await schema('event.schema.json');
+const lpEventSchema = await schema('lp-event.schema.json');
+const lpMappingApprovalSchema = await schema('lp-mapping-approval.schema.json');
+const rightsSchema = await schema('rights-evidence.schema.json');
 const memberSchema = await schema('member-master.schema.json');
 const resolveSchema = await schema('resolve-metadata.schema.json');
 const songSchema = await schema('song-master.schema.json');
@@ -21,6 +25,8 @@ const productionInputDenylist = JSON.parse(await readFile(
 ));
 
 const inputs = [
+  ['LP_EVENT_PATH', lpEventSchema],
+  ['LP_MAPPING_APPROVAL_PATH', lpMappingApprovalSchema],
   ['GAS_PAYLOAD_PATH', gasSchema],
   ['RESOLVE_METADATA_PATH', resolveSchema],
   ['SONG_MASTER_PATH', songSchema],
@@ -30,6 +36,8 @@ const inputs = [
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 addFormats(ajv);
 ajv.addSchema(mediaSchema);
+ajv.addSchema(rightsSchema);
+ajv.addSchema(eventSchema);
 const failures = [];
 const parsedInputs = new Map();
 const testFixturesRoot = fileURLToPath(new URL('../../test-fixtures/', import.meta.url));
@@ -94,8 +102,32 @@ for (const [environmentName, schema] of inputs) {
 
 const gasPayload = parsedInputs.get('GAS_PAYLOAD_PATH');
 const resolveMetadata = parsedInputs.get('RESOLVE_METADATA_PATH');
-if (gasPayload && resolveMetadata && gasPayload.event_id !== resolveMetadata.event_id) {
-  failures.push('GAS_PAYLOAD_PATH and RESOLVE_METADATA_PATH must reference the same event_id');
+const lpEvent = parsedInputs.get('LP_EVENT_PATH');
+const lpMappingApproval = parsedInputs.get('LP_MAPPING_APPROVAL_PATH');
+if (lpEvent && gasPayload && resolveMetadata && new Set([
+  lpEvent.event_id,
+  gasPayload.event_id,
+  resolveMetadata.event_id,
+]).size !== 1) {
+  failures.push('LP_EVENT_PATH, GAS_PAYLOAD_PATH, and RESOLVE_METADATA_PATH must reference the same event_id');
+}
+if (lpEvent && gasPayload && [
+  ['title', 'event_title'],
+  ['venue', 'venue'],
+  ['starts_at', 'starts_at'],
+  ['ends_at', 'ends_at'],
+].some(([eventField, gasField]) => lpEvent[eventField] !== gasPayload[gasField])) {
+  failures.push('LP_EVENT_PATH and GAS_PAYLOAD_PATH event details must match');
+}
+if (lpMappingApproval && gasPayload && (
+  lpMappingApproval.event_id !== gasPayload.event_id
+  || lpMappingApproval.lp_url !== gasPayload.lp_url
+  || lpMappingApproval.lp_update_confirmed !== true
+)) {
+  failures.push('LP_MAPPING_APPROVAL_PATH must approve the current GAS event_id, lp_url, and LP update state');
+}
+if (lpEvent && !['ended', 'setlist_confirmed', 'digest_ready', 'archived'].includes(lpEvent.state)) {
+  failures.push('LP_EVENT_PATH state must permit setlist ingestion');
 }
 if (gasPayload?.songs.some((song, index) => song.position !== index + 1)) {
   failures.push('GAS_PAYLOAD_PATH song positions must be consecutive from 1');
@@ -170,4 +202,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('Production input contracts passed: GAS, Resolve, song master, member master, and export root.');
+console.log('Production input contracts passed: LP event/mapping, GAS, Resolve, song master, member master, and export root.');

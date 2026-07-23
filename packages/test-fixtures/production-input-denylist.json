@@ -1,5 +1,7 @@
 {
   "fixtureFiles": [
+    "lp-event-v1.json",
+    "lp-mapping-approval-v1.json",
     "gas-setlist-v1.json",
     "resolve-metadata-v1.json",
     "song-master-v1.json",
@@ -13,6 +15,8 @@
     { "value": "member_example", "replacement": "member_alpha" },
     { "value": "サンプル（テスト専用）", "replacement": "承認済みメンバー" },
     { "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "replacement": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
-    { "value": "https://x.com/CUBELIC_hvt/status/123", "replacement": "https://x.com/CUBELIC_hvt/status/456" }
+    { "value": "https://x.com/CUBELIC_hvt/status/123", "replacement": "https://x.com/CUBELIC_hvt/status/456" },
+    { "value": "test-only operator approval", "replacement": "approved production authority" },
+    { "value": "test operator", "replacement": "production operator" }
   ]
 }

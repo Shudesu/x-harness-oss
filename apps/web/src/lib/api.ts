@@ -471,6 +471,7 @@ export interface CubelicSystemStatus {
   safeMode: boolean;
   environmentStop: boolean;
   emergencyStop: boolean;
+  operationWindow: { eventId: string; expiresAt: string; active: boolean } | null;
   publishingEnabled: false;
   schedulingEnabled: false;
 }

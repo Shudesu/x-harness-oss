@@ -40,7 +40,7 @@ capabilities.get('/api/capabilities', (c) => {
         : FEATURES,
       safety: {
         cubelicSafeMode: safeMode,
-        globalPublishingDisabled: c.env.GLOBAL_PUBLISHING_DISABLED === 'true',
+        globalPublishingDisabled: c.env.GLOBAL_PUBLISHING_DISABLED !== 'false',
         immediatePublishing: !publishingDisabled,
         scheduling: !publishingDisabled,
         dm: !publishingDisabled,

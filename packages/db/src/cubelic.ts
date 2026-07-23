@@ -546,6 +546,26 @@ export async function setCubelicDraftDecision(db: D1Database, input: {
   await runCubelicMutation(db, [statement, ...rejection.statements], [audit, ...rejection.audits]);
 }
 
+export async function handoffCubelicDraftAndStop(
+  db: D1Database,
+  input: { draftId: string; actor: string; inboxId: string },
+  audits: { draft: AuditInput; operationWindow: AuditInput },
+): Promise<void> {
+  const updatedAt = nowIso();
+  const statements = [
+    db.prepare(
+      "UPDATE cubelic_draft_posts SET approval_status = 'handed_off', approved_by = ?, approved_at = ?, reject_reason = NULL, x_harness_inbox_id = ?, updated_at = ? WHERE draft_id = ?",
+    ).bind(input.actor, updatedAt, input.inboxId, updatedAt, input.draftId),
+    db.prepare(
+      "INSERT INTO cubelic_system_flags (key, value, updated_at, updated_by) VALUES ('emergency_stop', 'true', ?, ?) ON CONFLICT(key) DO UPDATE SET value = 'true', updated_at = excluded.updated_at, updated_by = excluded.updated_by",
+    ).bind(updatedAt, input.actor),
+    db.prepare(
+      "DELETE FROM cubelic_system_flags WHERE key IN ('operation_window_event_id', 'operation_window_expires_at')",
+    ),
+  ];
+  await runCubelicMutation(db, statements, [audits.draft, audits.operationWindow]);
+}
+
 interface InertDraftIdentityRow {
   inbox_id: string;
   draft_id: string;
@@ -644,6 +664,57 @@ export async function setCubelicEmergencyStop(db: D1Database, stopped: boolean, 
     "INSERT INTO cubelic_system_flags (key, value, updated_at, updated_by) VALUES ('emergency_stop', ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by",
   ).bind(stopped ? 'true' : 'false', nowIso(), actor);
   await runCubelicMutation(db, [statement], [audit]);
+}
+
+export interface CubelicOperationWindow {
+  eventId: string;
+  expiresAt: string;
+  active: boolean;
+}
+
+export async function getCubelicOperationWindow(db: D1Database, at = Date.now()): Promise<CubelicOperationWindow | null> {
+  const result = await db.prepare(
+    "SELECT key, value FROM cubelic_system_flags WHERE key IN ('operation_window_event_id', 'operation_window_expires_at')",
+  ).all<{ key: string; value: string }>();
+  const values = new Map(result.results.map((row) => [row.key, row.value]));
+  const eventId = values.get('operation_window_event_id');
+  const expiresAt = values.get('operation_window_expires_at');
+  if (!eventId || !expiresAt || Number.isNaN(Date.parse(expiresAt))) return null;
+  return { eventId, expiresAt, active: Date.parse(expiresAt) > at };
+}
+
+export async function setCubelicOperationWindow(
+  db: D1Database,
+  input: { eventId: string; expiresAt: string; actor: string },
+  audit: AuditInput,
+): Promise<void> {
+  const updatedAt = nowIso();
+  const statements = [
+    db.prepare(
+      "INSERT INTO cubelic_system_flags (key, value, updated_at, updated_by) VALUES ('operation_window_event_id', ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by",
+    ).bind(input.eventId, updatedAt, input.actor),
+    db.prepare(
+      "INSERT INTO cubelic_system_flags (key, value, updated_at, updated_by) VALUES ('operation_window_expires_at', ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by",
+    ).bind(input.expiresAt, updatedAt, input.actor),
+  ];
+  await runCubelicMutation(db, statements, [audit]);
+}
+
+export async function closeCubelicOperationWindowAndStop(
+  db: D1Database,
+  actor: string,
+  audit: AuditInput,
+): Promise<void> {
+  const updatedAt = nowIso();
+  const statements = [
+    db.prepare(
+      "INSERT INTO cubelic_system_flags (key, value, updated_at, updated_by) VALUES ('emergency_stop', 'true', ?, ?) ON CONFLICT(key) DO UPDATE SET value = 'true', updated_at = excluded.updated_at, updated_by = excluded.updated_by",
+    ).bind(updatedAt, actor),
+    db.prepare(
+      "DELETE FROM cubelic_system_flags WHERE key IN ('operation_window_event_id', 'operation_window_expires_at')",
+    ),
+  ];
+  await runCubelicMutation(db, statements, [audit]);
 }
 
 export interface PublishedPostMapping {
