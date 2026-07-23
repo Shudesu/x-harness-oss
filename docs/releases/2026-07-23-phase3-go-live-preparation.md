@@ -110,3 +110,42 @@ The first named admin operator is `Y-Fukiya`.
   without a state mutation
 - `ops.cubelic-fan.com` and the direct Pages deployment both redirect
   unauthenticated requests to Cloudflare Access
+
+## Operation-safety hardening release
+
+- Source commit: `de618c276bb20b7287490ff0ae7868320be10efa`
+- Fork branches: `codex/production-operation` and
+  `agent/cubelic-phase1-release`
+- Fork CI run `29997633974`: passed
+- Independent standards review: 0 findings
+- Independent specification review: 0 findings
+- Final `pnpm check`: 235 standard tests and 24 D1 integration tests passed;
+  boundary, config, secret, type and production-build checks also passed
+- Database migration:
+  `022-cubelic-operation-window-publication-lock.sql`
+- Staging D1 bookmark after migration 022:
+  `00000039-00000006-000050b1-7689b0088ae23eb64edefebb29f793db`
+- Production D1 bookmark after migration 022:
+  `0000004a-00000006-000050b1-9146515e47fd594ff06f1378c9961b2b`
+- Staging Worker version:
+  `303cb29f-fc57-448b-9445-0483faefb275`
+- Production Worker version:
+  `b3cff98e-bd15-402b-a2c7-239e469e837d`
+- Production Pages deployment:
+  `https://83f3b0ed.cubelic-ops-production.pages.dev`
+- Staging and production pre-migration exports are retained locally as
+  `/private/tmp/x-harness-staging-before-022-20260723.sql` and
+  `/private/tmp/x-harness-production-before-022-20260723.sql`, both mode `0600`
+- Staging smoke passed with the exact valid D1 stop active
+- `pnpm verify:production-safety:keychain` passed against the deployed
+  production Worker: safe mode is active, the exact D1 stop is active,
+  publishing and scheduling are disabled, and no operation window is active
+- `ops.cubelic-fan.com/login` and the direct Pages deployment both redirect
+  unauthenticated requests to Cloudflare Access
+
+This release adds the operator reconciliation UI, strict Asia/Tokyo scheduling
+conversion, automatic schedule-policy binding to the approved template, and a
+read-only Keychain-backed production safety check. Migration 022 makes
+content-ingestion windows and X publication jobs mutually exclusive in D1.
+An expired window is audited, removed, and converted back to the exact D1 stop
+before publication can resume. No X post was created by this release.
