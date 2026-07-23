@@ -88,7 +88,7 @@
 - Impact: UTM destination correctness.
 - Safest current behavior: Require an explicit HTTPS `base_url` on each content item and reject hand-entered tracked URLs.
 - Needed answer: Confirm whether `/setlists/<YYYY-MM-DD>/<slug>/` is the canonical production route and provide the authoritative `event_id` to slug mapping or JSON endpoint.
-- Resolution: Pending.
+- Resolution: Pending. `PRODUCTION_LP_MAPPING_VALIDATED` defaults to false and production preflight blocks content ingestion until a human separately attests that the authoritative event-to-LP mapping and LP update state were validated.
 
 ## DG-010 — Phase 1 deployment topology
 
@@ -199,3 +199,13 @@
 - Safest current behavior: Hash `account_id + content_id + template_version + variant + media_sha256_or_none`. Keep the variant in the stored, reviewed contract.
 - Needed answer: None for Phase 1.
 - Resolution: The variant component is an intentional, versioned extension. Retries of the same variant converge, while the maximum three distinct review candidates remain distinct.
+
+## DG-021 — Production input bundle coherence
+
+- Status: RESOLVED
+- Evidence: `SPEC.md` §22.1–22.2, §24.2–24.3; `packages/schemas/src/validate-production-inputs.mjs`; ADR-006
+- Conflict/gap: Individually schema-valid GAS, Resolve, song-master and member-master files could still refer to different events, inconsistent songs, duplicate stable ids, or media bytes outside the declared export root. The authoritative LP update-state mapping remains separately pending under DG-009.
+- Impact: A release gate could approve inputs that later fail ingestion, bind metadata to the wrong event, or trust an unrelated/tampered media file.
+- Safest current behavior: Treat the four JSON files, export root and referenced media as one fail-closed production bundle without logging identifiers, payloads or paths.
+- Needed answer: None for Phase 1.
+- Resolution: For the supplied local contracts, the production validator requires matching event ids, consecutive setlist positions, active canonical song id/title-or-alias matches, unique song/member ids, a realpath-confined media file, and an exact streaming SHA-256 match. Contract tests cover each rejection and one complete accepted bundle. This does not establish LP publication/update state; production preflight separately requires `PRODUCTION_LP_MAPPING_VALIDATED=true`, backed by the human-approved authoritative mapping required in DG-009.

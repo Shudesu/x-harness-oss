@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -15,15 +16,23 @@ const denylist = JSON.parse(readFileSync(
   fixtureFiles: string[];
   testOnlyValues: Array<{ value: string; replacement: string }>;
 };
+const [gasFixture, resolveFixture, songMasterFixture, memberMasterFixture] = denylist.fixtureFiles;
+const fixtureNames = {
+  gas: gasFixture,
+  resolve: resolveFixture,
+  songMaster: songMasterFixture,
+  memberMaster: memberMasterFixture,
+} as const;
+type FixtureName = keyof typeof fixtureNames;
 
 function inputEnvironment(inputDirectory: string, resolveRoot: string, allowedRoots: string): NodeJS.ProcessEnv {
   return {
     ...process.env,
     INIT_CWD: repositoryRoot,
-    GAS_PAYLOAD_PATH: resolve(inputDirectory, denylist.fixtureFiles[0]),
-    RESOLVE_METADATA_PATH: resolve(inputDirectory, denylist.fixtureFiles[1]),
-    SONG_MASTER_PATH: resolve(inputDirectory, denylist.fixtureFiles[2]),
-    MEMBER_MASTER_PATH: resolve(inputDirectory, denylist.fixtureFiles[3]),
+    GAS_PAYLOAD_PATH: resolve(inputDirectory, fixtureNames.gas),
+    RESOLVE_METADATA_PATH: resolve(inputDirectory, fixtureNames.resolve),
+    SONG_MASTER_PATH: resolve(inputDirectory, fixtureNames.songMaster),
+    MEMBER_MASTER_PATH: resolve(inputDirectory, fixtureNames.memberMaster),
     RESOLVE_EXPORT_ROOT: resolveRoot,
     RESOLVE_EXPORT_ALLOWED_ROOTS: allowedRoots,
   };
@@ -46,6 +55,27 @@ function copyFixtures(inputDirectory: string, replaceTestValues = false): void {
     for (const item of denylist.testOnlyValues) source = source.replaceAll(item.value, item.replacement);
     writeFileSync(destination, source);
   }
+}
+
+function mutateJsonFixture<T>(inputDirectory: string, fixtureName: FixtureName, mutate: (value: T) => void): void {
+  const fixturePath = resolve(inputDirectory, fixtureNames[fixtureName]);
+  const value = JSON.parse(readFileSync(fixturePath, 'utf8')) as T;
+  mutate(value);
+  writeFileSync(fixturePath, JSON.stringify(value));
+}
+
+function prepareProductionInputs(
+  inputDirectory: string,
+  mediaRoot = inputDirectory,
+  mediaBytes = Buffer.from('approved production media contract'),
+): void {
+  copyFixtures(inputDirectory, true);
+  const mediaPath = resolve(mediaRoot, 'approved-clip.mp4');
+  writeFileSync(mediaPath, mediaBytes);
+  mutateJsonFixture<{ path: string; sha256: string }>(inputDirectory, 'resolve', (metadata) => {
+    metadata.path = mediaPath;
+    metadata.sha256 = createHash('sha256').update(mediaBytes).digest('hex');
+  });
 }
 
 function withTemporaryDirectory<T>(prefix: string, callback: (directory: string) => T): T {
@@ -161,9 +191,103 @@ describe('production input validation CLI', () => {
     });
   });
 
+  it('rejects GAS and Resolve contracts for different events', () => {
+    withTemporaryDirectory('cubelic-production-event-link-', (directory) => {
+      copyFixtures(directory, true);
+      mutateJsonFixture<{ event_id: string }>(directory, 'resolve', (metadata) => {
+        metadata.event_id = 'evt_different_production_event';
+      });
+      const result = runValidator(inputEnvironment(directory, directory, directory));
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('GAS_PAYLOAD_PATH and RESOLVE_METADATA_PATH must reference the same event_id');
+    });
+  });
+
+  it('rejects non-consecutive GAS setlist positions', () => {
+    withTemporaryDirectory('cubelic-production-setlist-order-', (directory) => {
+      copyFixtures(directory, true);
+      mutateJsonFixture<{ songs: Array<{ position: number }> }>(directory, 'gas', (payload) => {
+        payload.songs[1].position = 3;
+      });
+      const result = runValidator(inputEnvironment(directory, directory, directory));
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('GAS_PAYLOAD_PATH song positions must be consecutive from 1');
+    });
+  });
+
+  it('rejects GAS songs that do not match the active song master', () => {
+    withTemporaryDirectory('cubelic-production-song-link-', (directory) => {
+      copyFixtures(directory, true);
+      mutateJsonFixture<{ songs: Array<{ title: string }> }>(directory, 'gas', (payload) => {
+        payload.songs[0].title = 'not-an-approved-title';
+      });
+      const result = runValidator(inputEnvironment(directory, directory, directory));
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('GAS_PAYLOAD_PATH songs must match active SONG_MASTER_PATH ids and titles');
+      expect(result.stderr).not.toContain('not-an-approved-title');
+    });
+  });
+
+  it('rejects duplicate stable identifiers in production masters', () => {
+    withTemporaryDirectory('cubelic-production-master-ids-', (directory) => {
+      copyFixtures(directory, true);
+      mutateJsonFixture<{ songs: Array<{ song_id: string }> }>(directory, 'songMaster', (songMaster) => {
+        songMaster.songs[1].song_id = songMaster.songs[0].song_id;
+      });
+      mutateJsonFixture<{ members: Array<Record<string, unknown>> }>(directory, 'memberMaster', (memberMaster) => {
+        memberMaster.members.push({ ...memberMaster.members[0] });
+      });
+      const result = runValidator(inputEnvironment(directory, directory, directory));
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('SONG_MASTER_PATH song_id values must be unique');
+      expect(result.stderr).toContain('MEMBER_MASTER_PATH member_id values must be unique');
+    });
+  });
+
+  it('rejects Resolve media outside the approved export root', () => {
+    withTemporaryDirectory('cubelic-production-media-root-', (directory) => {
+      const approved = resolve(directory, 'approved');
+      const outside = resolve(directory, 'outside');
+      mkdirSync(approved);
+      mkdirSync(outside);
+      prepareProductionInputs(directory, outside);
+      const result = runValidator(inputEnvironment(directory, approved, approved));
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('RESOLVE_METADATA_PATH media must be a file inside RESOLVE_EXPORT_ROOT');
+      expect(result.stderr).not.toContain('approved-clip.mp4');
+    });
+  });
+
+  it('rejects Resolve metadata whose SHA-256 does not match the media file', () => {
+    withTemporaryDirectory('cubelic-production-media-hash-', (directory) => {
+      prepareProductionInputs(directory);
+      writeFileSync(resolve(directory, 'approved-clip.mp4'), 'tampered after sidecar generation');
+      const result = runValidator(inputEnvironment(directory, directory, directory));
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('RESOLVE_METADATA_PATH sha256 must match the media file');
+      expect(result.stderr).not.toContain('tampered after sidecar generation');
+    });
+  });
+
+  it('hashes Resolve media across multiple stream chunks', () => {
+    withTemporaryDirectory('cubelic-production-media-stream-', (directory) => {
+      prepareProductionInputs(directory, directory, Buffer.alloc(2 * 1024 * 1024, 0x5a));
+      const result = runValidator(inputEnvironment(directory, directory, directory));
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('Production input contracts passed');
+    });
+  });
+
   it('accepts production-shaped contracts under an approved existing root', () => {
     withTemporaryDirectory('cubelic-production-valid-', (directory) => {
-      copyFixtures(directory, true);
+      prepareProductionInputs(directory);
       const result = runValidator(inputEnvironment(directory, directory, directory));
 
       expect(result.status).toBe(0);

@@ -14,7 +14,7 @@
 - Production CORS must be exactly `https://ops.cubelic-fan.com`; the public fan-site origin is not an operator origin.
 - Keep `PRODUCTION_CONTENT_INGEST_ENABLED=false` for the base Phase 1 infrastructure release. Import the human-approved `cubelic.song-master.v1` and `cubelic.member-master.v1` contracts before any production setlist.
 - Run `pnpm preflight:production`; it reports names only and never prints secret values.
-- Set `PRODUCTION_INPUTS_VALIDATED=true` only after contract validation succeeds and before enabling `PRODUCTION_CONTENT_INGEST_ENABLED=true`. Set `STAGING_SMOKE_VERIFIED=true` only after the staging smoke succeeds.
+- Set `PRODUCTION_INPUTS_VALIDATED=true` only after contract validation succeeds. Set `PRODUCTION_LP_MAPPING_VALIDATED=true` only after a human approves the authoritative event-to-LP route and confirms the LP update state. Both attestations are required before enabling `PRODUCTION_CONTENT_INGEST_ENABLED=true`. Set `STAGING_SMOKE_VERIFIED=true` only after the staging smoke succeeds.
 
 ## Staging validation
 

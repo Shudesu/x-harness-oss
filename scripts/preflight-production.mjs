@@ -10,7 +10,7 @@ const cloudflareAuthVerified = process.env.CLOUDFLARE_AUTH_VERIFIED === 'true';
 const requiredSecrets = ['API_KEY', 'HUMAN_APPROVAL_KEY'];
 if (hermesRuntimeEnabled) requiredSecrets.push('HERMES_ACCESS_TOKEN');
 
-for (const name of ['HERMES_RUNTIME_ENABLED', 'PRODUCTION_CONTENT_INGEST_ENABLED', 'CLOUDFLARE_AUTH_VERIFIED']) {
+for (const name of ['HERMES_RUNTIME_ENABLED', 'PRODUCTION_CONTENT_INGEST_ENABLED', 'PRODUCTION_INPUTS_VALIDATED', 'PRODUCTION_LP_MAPPING_VALIDATED', 'CLOUDFLARE_AUTH_VERIFIED']) {
   if (process.env[name] && !['true', 'false'].includes(process.env[name])) {
     errors.push(`${name} must be true or false when set`);
   }
@@ -39,6 +39,9 @@ if (process.env.CUBELIC_SAFE_MODE !== 'true') errors.push('CUBELIC_SAFE_MODE mus
 if (process.env.GLOBAL_PUBLISHING_DISABLED !== 'true') errors.push('GLOBAL_PUBLISHING_DISABLED must be explicitly true');
 if (productionContentIngestEnabled && process.env.PRODUCTION_INPUTS_VALIDATED !== 'true') {
   errors.push('PRODUCTION_INPUTS_VALIDATED must be true before production content ingestion is enabled');
+}
+if (productionContentIngestEnabled && process.env.PRODUCTION_LP_MAPPING_VALIDATED !== 'true') {
+  errors.push('PRODUCTION_LP_MAPPING_VALIDATED must be true before production content ingestion is enabled');
 }
 if (process.env.STAGING_SMOKE_VERIFIED !== 'true') errors.push('STAGING_SMOKE_VERIFIED must be true after smoke:staging succeeds');
 const corsOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);

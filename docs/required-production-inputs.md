@@ -31,4 +31,8 @@ After provisioning, run `pnpm preflight:production` and the staging steps in `do
 
 Before importing structured files, set `GAS_PAYLOAD_PATH`, `RESOLVE_METADATA_PATH`, `SONG_MASTER_PATH`, `MEMBER_MASTER_PATH`, `RESOLVE_EXPORT_ROOT` and `RESOLVE_EXPORT_ALLOWED_ROOTS`, then run `pnpm validate:production-inputs`. `RESOLVE_EXPORT_ALLOWED_ROOTS` is a comma-separated list of existing absolute directories approved to contain exports. The validator resolves symlinks before checking containment, so an export root that escapes those directories is rejected.
 
-Validation reports environment/schema fields only; it does not print payload contents or local file paths. It rejects repository fixtures, copied fixture fingerprints, known test-only identifiers, missing/non-directory Resolve roots, and roots outside the configured allowlist.
+Validation reports environment/schema fields only; it does not print payload contents or local file paths. It rejects repository fixtures, copied fixture fingerprints, known test-only identifiers, missing/non-directory Resolve roots, and roots outside the configured allowlist. The referenced media file must exist inside `RESOLVE_EXPORT_ROOT`, and its bytes must match the sidecar SHA-256.
+
+The four contracts are validated as one production bundle: GAS and Resolve must reference the same event, setlist positions must be consecutive from 1, every setlist song must match an active canonical id/title or alias, and song/member master identifiers must be unique.
+
+This local validation does not prove that the public LP has been updated. Before enabling production ingestion, separately approve the authoritative `event_id` to LP route/state mapping tracked in DG-009, confirm the LP update state, and set `PRODUCTION_LP_MAPPING_VALIDATED=true`. Preflight fails closed if content ingestion is enabled without both this attestation and `PRODUCTION_INPUTS_VALIDATED=true`.

@@ -48,13 +48,20 @@ describe('production preflight phase boundaries', () => {
 
   it('requires real input validation only when production content ingestion is enabled', () => {
     const missing = preflight({ PRODUCTION_CONTENT_INGEST_ENABLED: 'true' });
+    const inputsOnly = preflight({
+      PRODUCTION_CONTENT_INGEST_ENABLED: 'true',
+      PRODUCTION_INPUTS_VALIDATED: 'true',
+    });
     const validated = preflight({
       PRODUCTION_CONTENT_INGEST_ENABLED: 'true',
       PRODUCTION_INPUTS_VALIDATED: 'true',
+      PRODUCTION_LP_MAPPING_VALIDATED: 'true',
     });
 
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain('PRODUCTION_INPUTS_VALIDATED must be true');
+    expect(inputsOnly.status).toBe(1);
+    expect(inputsOnly.stderr).toContain('PRODUCTION_LP_MAPPING_VALIDATED must be true');
     expect(validated.status).toBe(0);
   });
 
