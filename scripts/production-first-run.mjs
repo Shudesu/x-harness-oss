@@ -62,6 +62,9 @@ async function request(fetchImpl, baseUrl, apiKey, path, options = {}) {
 
 function assertSafeStatus(status) {
   if (status?.safeMode !== true) throw new Error('CUBΣLIC safe mode is not active');
+  if (status?.emergencyStopValid !== true) {
+    throw new Error('The D1 emergency-stop state is missing or invalid');
+  }
   if (status?.publishingEnabled !== false || status?.schedulingEnabled !== false) {
     throw new Error('Publishing or scheduling capability is unexpectedly enabled');
   }
@@ -191,7 +194,11 @@ export async function runProductionFirstRun({
       }
       try {
         const closureStatus = await request(fetchImpl, workerOrigin, apiKey, '/api/cubelic/admin/status', { label: 'failure closure verification' });
-        if (closureStatus.emergencyStop !== true || closureStatus.operationWindow?.active === true) closureFailed = true;
+        if (
+          closureStatus.emergencyStopValid !== true
+          || closureStatus.emergencyStop !== true
+          || closureStatus.operationWindow?.active === true
+        ) closureFailed = true;
       } catch {
         closureFailed = true;
       }

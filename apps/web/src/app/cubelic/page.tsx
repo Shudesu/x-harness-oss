@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Header from '@/components/layout/header'
-import { cubelicApi, type CubelicDraft, type CubelicSystemStatus } from '@/lib/api'
+import {
+  cubelicApi,
+  type CubelicDraft,
+  type CubelicPublicationReconciliationResult,
+  type CubelicSystemStatus,
+} from '@/lib/api'
+import { tokyoDateTimeLocalToIso } from '@/lib/cubelic-time'
 
 function badgeClass(status: CubelicDraft['approval_status']): string {
   if (status === 'pending_review') return 'bg-amber-50 text-amber-700 border-amber-200'
@@ -16,7 +22,6 @@ function DraftCard({ draft, humanKey, status, refresh }: { draft: CubelicDraft; 
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [scheduledAt, setScheduledAt] = useState('')
-  const [policyId, setPolicyId] = useState('')
   const editable = draft.approval_status === 'pending_review' || draft.approval_status === 'needs_revision'
   const approvable = draft.approval_status === 'pending_review' && draft.quality_score >= 80
   const publishable = (draft.approval_status === 'approved' || draft.approval_status === 'handed_off')
@@ -94,16 +99,20 @@ function DraftCard({ draft, humanKey, status, refresh }: { draft: CubelicDraft; 
             {schedulable && (
               <>
                 <label className="text-xs font-semibold text-rose-900">
-                  予約日時
+                  予約日時（Asia/Tokyo）
                   <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} className="mt-1 block rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm" />
                 </label>
-                <label className="text-xs font-semibold text-rose-900">
-                  承認済みポリシーID
-                  <input value={policyId} onChange={(event) => setPolicyId(event.target.value)} placeholder="policy_..." className="mt-1 block rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm" />
-                </label>
+                <p className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs text-rose-900">
+                  承認済みポリシー: <b>{draft.category}:{draft.template_id}</b>
+                </p>
                 <button
-                  disabled={Boolean(busy) || !humanKey || !scheduledAt || !policyId}
-                  onClick={() => act('schedule', () => cubelicApi.drafts.schedule(draft.draft_id, humanKey, new Date(scheduledAt).toISOString(), policyId))}
+                  disabled={Boolean(busy) || !humanKey || !scheduledAt}
+                  onClick={() => act('schedule', () => cubelicApi.drafts.schedule(
+                    draft.draft_id,
+                    humanKey,
+                    tokyoDateTimeLocalToIso(scheduledAt),
+                    draft.template_id,
+                  ))}
                   className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-bold text-rose-800 disabled:opacity-40"
                 >{busy === 'schedule' ? '予約中…' : '予約を確定'}</button>
               </>
@@ -203,6 +212,115 @@ function ManualDraftForm({ humanKey, enabled, refresh }: { humanKey: string; ena
   )
 }
 
+function ReconciliationPanel({ humanKey, enabled }: { humanKey: string; enabled: boolean }) {
+  const [jobId, setJobId] = useState('')
+  const [outcome, setOutcome] = useState<'not_published' | 'published'>('not_published')
+  const [recentPostsChecked, setRecentPostsChecked] = useState(10)
+  const [confirmedNoPostId, setConfirmedNoPostId] = useState(false)
+  const [confirmedNoPrefix, setConfirmedNoPrefix] = useState(false)
+  const [postId, setPostId] = useState('')
+  const [publishedAt, setPublishedAt] = useState('')
+  const [result, setResult] = useState<CubelicPublicationReconciliationResult | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  if (!enabled) return null
+
+  const complete = Boolean(
+    humanKey
+    && jobId
+    && (
+      outcome === 'published'
+        ? postId && publishedAt
+        : recentPostsChecked >= 10 && confirmedNoPostId && confirmedNoPrefix
+    ),
+  )
+
+  const submit = async () => {
+    if (!complete) return
+    const description = outcome === 'published'
+      ? 'このjobを投稿済みとして確定します。Xへの再送信は行いません。'
+      : 'このjobを未投稿として失敗確定し、新しいretry identityを発行します。'
+    if (!window.confirm(`${description}\njob_id=${jobId}\nよろしいですか？`)) return
+    setBusy(true)
+    setError('')
+    setResult(null)
+    try {
+      const response = outcome === 'published'
+        ? await cubelicApi.publications.reconcile(jobId, {
+          outcome,
+          postId,
+          publishedAt: tokyoDateTimeLocalToIso(publishedAt),
+        }, humanKey)
+        : await cubelicApi.publications.reconcile(jobId, {
+          outcome,
+          evidence: {
+            recentPostsChecked,
+            postIdMatchFound: false,
+            fixedTextPrefixMatchFound: false,
+          },
+        }, humanKey)
+      setResult(response.data)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '投稿結果の照合に失敗しました')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="mb-6 rounded-2xl border border-violet-200 bg-violet-50 p-5">
+      <h2 className="font-bold text-violet-950">結果不明の投稿を照合</h2>
+      <p className="mt-1 text-sm text-violet-800">
+        インシデント記録のjob IDを使用します。D1緊急停止中だけ実行でき、Xへの書き込みは行いません。
+      </p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <label className="text-xs font-semibold text-violet-900">
+          Publication job ID
+          <input value={jobId} onChange={(event) => setJobId(event.target.value.trim())} placeholder="pub_..." className="mt-1 block w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm" />
+        </label>
+        <label className="text-xs font-semibold text-violet-900">
+          読み取り確認の結果
+          <select value={outcome} onChange={(event) => setOutcome(event.target.value as typeof outcome)} className="mt-1 block w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm">
+            <option value="not_published">該当投稿なし</option>
+            <option value="published">投稿済み</option>
+          </select>
+        </label>
+      </div>
+      {outcome === 'not_published' ? (
+        <div className="mt-3 grid gap-2 text-sm text-violet-950 md:grid-cols-3">
+          <label className="text-xs font-semibold">
+            確認した直近投稿数
+            <input type="number" min={10} step={1} value={recentPostsChecked} onChange={(event) => setRecentPostsChecked(Number(event.target.value))} className="mt-1 block w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm" />
+          </label>
+          <label className="self-end pb-2"><input type="checkbox" checked={confirmedNoPostId} onChange={(event) => setConfirmedNoPostId(event.target.checked)} className="mr-2" />post ID一致なしを確認</label>
+          <label className="self-end pb-2"><input type="checkbox" checked={confirmedNoPrefix} onChange={(event) => setConfirmedNoPrefix(event.target.checked)} className="mr-2" />固定文先頭一致なしを確認</label>
+        </div>
+      ) : (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <label className="text-xs font-semibold text-violet-900">
+            X post ID
+            <input inputMode="numeric" value={postId} onChange={(event) => setPostId(event.target.value.trim())} className="mt-1 block w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm" />
+          </label>
+          <label className="text-xs font-semibold text-violet-900">
+            投稿日時（Asia/Tokyo）
+            <input type="datetime-local" value={publishedAt} onChange={(event) => setPublishedAt(event.target.value)} className="mt-1 block w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm" />
+          </label>
+        </div>
+      )}
+      {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {result && (
+        <p className="mt-3 rounded-lg bg-white px-3 py-2 text-sm text-violet-900">
+          照合完了: job={result.jobId} / outcome={result.outcome} / status={result.status}
+        </p>
+      )}
+      <div className="mt-4 flex justify-end">
+        <button disabled={!complete || busy} onClick={() => void submit()} className="rounded-lg bg-violet-700 px-4 py-2 text-sm font-bold text-white disabled:bg-gray-300">{busy ? '照合中…' : '人間確認済みとして照合'}</button>
+      </div>
+    </section>
+  )
+}
+
 export default function CubelicApprovalPage() {
   const [drafts, setDrafts] = useState<CubelicDraft[]>([])
   const [status, setStatus] = useState<CubelicSystemStatus | null>(null)
@@ -228,6 +346,9 @@ export default function CubelicApprovalPage() {
 
   const toggleStop = async () => {
     if (!status || !humanKey) return
+    if (status.emergencyStop && !window.confirm(
+      'D1緊急停止を解除します。承認済みの投稿・予約が実行可能になります。運用を再開しますか？',
+    )) return
     setSystemBusy(true)
     try {
       if (status.emergencyStop) await cubelicApi.system.resume(humanKey)
@@ -251,13 +372,19 @@ export default function CubelicApprovalPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input type="password" autoComplete="off" value={humanKey} onChange={(event) => setHumanKey(event.target.value)} placeholder="人間承認キー（保存されません）" className="w-64 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm" />
-            <button disabled={!humanKey || systemBusy || status?.environmentStop} onClick={toggleStop} className={`rounded-lg px-4 py-2 text-sm font-bold text-white disabled:bg-gray-300 ${status?.emergencyStop ? 'bg-emerald-600' : 'bg-red-600'}`}>{systemBusy ? '処理中…' : status?.emergencyStop ? '運用を再開' : '緊急停止'}</button>
+            <button disabled={!humanKey || systemBusy || status?.environmentStop || status?.emergencyStopValid === false} onClick={toggleStop} className={`rounded-lg px-4 py-2 text-sm font-bold text-white disabled:bg-gray-300 ${status?.emergencyStop ? 'bg-emerald-600' : 'bg-red-600'}`}>{systemBusy ? '処理中…' : status?.emergencyStop ? '運用を再開' : '緊急停止'}</button>
           </div>
         </div>
-        {status && <p className="mt-3 text-xs text-blue-700">environment_stop={String(status.environmentStop)} / emergency_stop={String(status.emergencyStop)} / operation_window_active={String(status.operationWindow?.active === true)} / publish={String(status.publishingEnabled)} / schedule={String(status.schedulingEnabled)}</p>}
+        {status && <p className="mt-3 text-xs text-blue-700">environment_stop={String(status.environmentStop)} / emergency_stop={String(status.emergencyStop)} / emergency_stop_valid={String(status.emergencyStopValid)} / operation_window_active={String(status.operationWindow?.active === true)} / publish={String(status.publishingEnabled)} / schedule={String(status.schedulingEnabled)}</p>}
+        {status?.emergencyStopValid === false && (
+          <p className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm font-bold text-red-800">
+            D1緊急停止状態が欠落または不正です。運用を再開せず、管理者がD1状態を修復してください。
+          </p>
+        )}
       </section>
 
       {error && <p className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      <ReconciliationPanel humanKey={humanKey} enabled={status?.phase3Enabled === true && status?.emergencyStop === true} />
       <ManualDraftForm humanKey={humanKey} enabled={status?.phase3Enabled === true && status?.emergencyStop === false} refresh={refresh} />
       {loading ? <p className="text-sm text-gray-500">読み込み中…</p> : drafts.length === 0 ? <p className="rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">下書きはまだありません。</p> : (
         <div className="space-y-4">{drafts.map((draft) => <DraftCard key={`${draft.draft_id}:${draft.updated_at}`} draft={draft} humanKey={humanKey} status={status} refresh={refresh} />)}</div>

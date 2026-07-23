@@ -191,6 +191,7 @@ describe('CUBΣLIC Worker API integration', () => {
       data: {
         environmentStop: true,
         emergencyStop: false,
+        emergencyStopValid: true,
         publishingEnabled: false,
         schedulingEnabled: false,
       },
@@ -693,6 +694,14 @@ describe('CUBΣLIC Worker API integration', () => {
     expect(missingStop.status).toBe(423);
     await expect(missingStop.json()).resolves.toMatchObject({
       code: 'reconciliation_emergency_stop_state_invalid',
+    });
+    await expect((await request('/api/cubelic/admin/status')).json()).resolves.toMatchObject({
+      data: {
+        emergencyStop: true,
+        emergencyStopValid: false,
+        publishingEnabled: false,
+        schedulingEnabled: false,
+      },
     });
   });
 

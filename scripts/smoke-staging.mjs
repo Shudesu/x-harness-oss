@@ -45,8 +45,13 @@ if (!capabilities.response.ok) {
 const status = await json('/api/cubelic/admin/status');
 if (!status.response.ok) {
   failures.push(`/api/cubelic/admin/status returned ${status.response.status}`);
-} else if (status.body?.data?.publishingEnabled !== false || status.body?.data?.schedulingEnabled !== false) {
-  failures.push('CUBΣLIC status exposed publishing or scheduling');
+} else {
+  if (status.body?.data?.emergencyStopValid !== true) {
+    failures.push('CUBΣLIC emergency-stop state is missing or invalid');
+  }
+  if (status.body?.data?.publishingEnabled !== false || status.body?.data?.schedulingEnabled !== false) {
+    failures.push('CUBΣLIC status exposed publishing or scheduling');
+  }
 }
 
 const legacyWrite = await json('/api/posts', {

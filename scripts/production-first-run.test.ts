@@ -80,6 +80,7 @@ describe('production first-run operation', () => {
             safeMode: true,
             environmentStop: true,
             emergencyStop: true,
+            emergencyStopValid: true,
             publishingEnabled: false,
             schedulingEnabled: false,
           },
@@ -120,6 +121,7 @@ describe('production first-run operation', () => {
               safeMode: true,
               environmentStop: false,
               emergencyStop: calls.length === 1,
+              emergencyStopValid: true,
               operationWindow: calls.length === 1 ? null : {
                 eventId: 'evt_production_first_run',
                 expiresAt: '2026-07-23T20:00:00+09:00',
@@ -183,6 +185,7 @@ describe('production first-run operation', () => {
             safeMode: true,
             environmentStop: false,
             emergencyStop: true,
+            emergencyStopValid: true,
             publishingEnabled: false,
             schedulingEnabled: false,
           },
@@ -207,6 +210,28 @@ describe('production first-run operation', () => {
     });
   });
 
+  it('rejects a missing or malformed D1 emergency-stop state', async () => {
+    await withInputFiles(async (environment) => {
+      await expect(runProductionFirstRun({
+        environment,
+        execute: false,
+        validateInputs: () => undefined,
+        log: () => undefined,
+        fetchImpl: async () => response(200, {
+          success: true,
+          data: {
+            safeMode: true,
+            environmentStop: true,
+            emergencyStop: true,
+            emergencyStopValid: false,
+            publishingEnabled: false,
+            schedulingEnabled: false,
+          },
+        }),
+      })).rejects.toThrow('missing or invalid');
+    });
+  });
+
   it('re-engages the D1 emergency stop when ingestion fails', async () => {
     await withInputFiles(async (environment) => {
       const paths: string[] = [];
@@ -220,6 +245,7 @@ describe('production first-run operation', () => {
               safeMode: true,
               environmentStop: false,
               emergencyStop: true,
+              emergencyStopValid: true,
               publishingEnabled: false,
               schedulingEnabled: false,
             },

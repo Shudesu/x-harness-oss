@@ -34,6 +34,7 @@ import {
   getCubelicContent,
   getCubelicDraft,
   getCubelicEmergencyStop,
+  getCubelicEmergencyStopState,
   getCubelicEvent,
   getCubelicInertDraft,
   getCubelicMedia,
@@ -1193,22 +1194,28 @@ cubelic.get('/api/cubelic/rejections/summary', async (c) => {
   return c.json({ success: true, data: await getCubelicRejectionSummary(c.env.DB, new Date(since).toISOString()) });
 });
 
-cubelic.get('/api/cubelic/admin/status', async (c) => c.json({
-  success: true,
-  data: {
-    safeMode: !isPhase3PublicationEnabled(c.env),
-    phase3Enabled: isPhase3PublicationEnabled(c.env),
-    environmentStop: c.env.GLOBAL_PUBLISHING_DISABLED !== 'false',
-    emergencyStop: await getCubelicEmergencyStop(c.env.DB),
-    operationWindow: await getCubelicOperationWindow(c.env.DB),
-    publishingEnabled: isPhase3PublicationEnabled(c.env)
-      && c.env.GLOBAL_PUBLISHING_DISABLED === 'false'
-      && !(await getCubelicEmergencyStop(c.env.DB)),
-    schedulingEnabled: isPhase3PublicationEnabled(c.env)
-      && c.env.GLOBAL_PUBLISHING_DISABLED === 'false'
-      && !(await getCubelicEmergencyStop(c.env.DB)),
-  },
-}));
+cubelic.get('/api/cubelic/admin/status', async (c) => {
+  const [stopState, operationWindow] = await Promise.all([
+    getCubelicEmergencyStopState(c.env.DB),
+    getCubelicOperationWindow(c.env.DB),
+  ]);
+  const operational = isPhase3PublicationEnabled(c.env)
+    && c.env.GLOBAL_PUBLISHING_DISABLED === 'false'
+    && !stopState.stopped;
+  return c.json({
+    success: true,
+    data: {
+      safeMode: !isPhase3PublicationEnabled(c.env),
+      phase3Enabled: isPhase3PublicationEnabled(c.env),
+      environmentStop: c.env.GLOBAL_PUBLISHING_DISABLED !== 'false',
+      emergencyStop: stopState.stopped,
+      emergencyStopValid: stopState.valid,
+      operationWindow,
+      publishingEnabled: operational,
+      schedulingEnabled: operational,
+    },
+  });
+});
 
 cubelic.post('/api/cubelic/admin/publications/:jobId/reconcile', async (c) => {
   try {

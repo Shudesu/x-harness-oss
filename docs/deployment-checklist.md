@@ -23,7 +23,9 @@
    `020-cubelic-phase3-publication.sql`, then
    `021-cubelic-publication-reconciliation.sql` to staging D1, then run
    `STAGING_WORKER_URL=... STAGING_API_KEY=... pnpm smoke:staging` from an
-   approved secret-bearing shell.
+   approved secret-bearing shell. Smoke must observe
+   `emergencyStopValid: true`; a missing or malformed D1 stop row is a failed
+   deployment even though runtime mutations still fail closed.
 2. Import redacted master fixtures, then ingest a redacted real GAS setlist and confirm exactly one Content Item plus no more than three drafts; an unknown id/title must be rejected.
 3. Ingest a redacted real Resolve sidecar and verify duplicate hash, rights and privacy failures.
 4. Confirm Hermes cannot edit, approve, reject, stop/resume, schedule or publish.
@@ -39,6 +41,8 @@
 - Verify the operator Pages project and custom-domain target are distinct from the existing `cubelic-fan` project before deploying Web.
 - Verify Cloudflare Access denies an unauthenticated request to `ops.cubelic-fan.com` before sharing the URL.
 - Check `/api/capabilities` and `/api/cubelic/admin/status` before operator access.
+- Run `pnpm verify:production-safety:keychain` and require a valid active D1
+  stop, disabled publishing/scheduling, and no active operation window.
 - Keep the first production run manual: one source, one reviewed draft, one inert handoff, no automated X action.
 - Before that run, validate the six-contract bundle and event-specific LP attestation, then run `pnpm operate:production:check` with both emergency stops active. Open a separately reviewed operation window (`GLOBAL_PUBLISHING_DISABLED=false`), set `PRODUCTION_OPERATION_WINDOW_OPEN=true` and `PRODUCTION_OPERATION_CONFIRMED` to the exact approved event id, then run `pnpm operate:production:first-run`. The server binds writes to that event for at most 30 minutes; ingest failure and the first successful inert handoff re-engage the D1 stop. Restore the environment stop immediately after handoff.
 - Record release commit, operator, migration result and rollback point in the audit/release record.

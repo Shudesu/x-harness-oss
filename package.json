@@ -28,6 +28,8 @@
     "validate:production-inputs": "pnpm --filter @x-harness/schemas validate:inputs",
     "operate:production:check": "node scripts/production-first-run-keychain.mjs",
     "operate:production:first-run": "node scripts/production-first-run-keychain.mjs --execute",
+    "verify:production-safety": "node scripts/verify-production-safety.mjs",
+    "verify:production-safety:keychain": "node scripts/verify-production-safety-keychain.mjs",
     "check": "pnpm check:boundaries && pnpm check:config && pnpm security:scan && pnpm typecheck && pnpm test && pnpm test:d1 && pnpm build"
   },
   "packageManager": "pnpm@10.34.5",

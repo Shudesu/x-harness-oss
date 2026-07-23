@@ -472,6 +472,7 @@ export interface CubelicSystemStatus {
   phase3Enabled: boolean;
   environmentStop: boolean;
   emergencyStop: boolean;
+  emergencyStopValid: boolean;
   operationWindow: { eventId: string; expiresAt: string; active: boolean } | null;
   publishingEnabled: boolean;
   schedulingEnabled: boolean;

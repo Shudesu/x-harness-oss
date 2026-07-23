@@ -62,9 +62,11 @@ If an X delivery attempt remains `publishing` with
    At least ten posts and both explicit no-match values are required. The
    endpoint atomically fails the unknown job and returns a new retry
    idempotency key.
-7. Confirm `GET /api/cubelic/admin/status` still reports
-   `emergencyStop: true`, and confirm the reconciliation audit actions under
-   the request correlation id. A returned retry identity is not permission to
-   publish: resumption and any retry require separate named-human approval.
+7. Confirm `GET /api/cubelic/admin/status` reports both
+   `emergencyStop: true` and `emergencyStopValid: true`, then run
+   `pnpm verify:production-safety:keychain` and confirm the reconciliation audit
+   actions under the request correlation id. A returned retry identity is not
+   permission to publish: resumption and any retry require separate named-human
+   approval.
 8. Do not repair these states with direct D1 writes while the reviewed DG-026
    endpoint is available.

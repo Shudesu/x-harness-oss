@@ -743,9 +743,17 @@ export async function getCubelicInertDraft(db: D1Database, draftId: string): Pro
   };
 }
 
-export async function getCubelicEmergencyStop(db: D1Database): Promise<boolean> {
+export async function getCubelicEmergencyStopState(
+  db: D1Database,
+): Promise<{ stopped: boolean; valid: boolean }> {
   const row = await db.prepare("SELECT value FROM cubelic_system_flags WHERE key = 'emergency_stop'").first<{ value: string }>();
-  return row?.value !== 'false';
+  if (row?.value === 'true') return { stopped: true, valid: true };
+  if (row?.value === 'false') return { stopped: false, valid: true };
+  return { stopped: true, valid: false };
+}
+
+export async function getCubelicEmergencyStop(db: D1Database): Promise<boolean> {
+  return (await getCubelicEmergencyStopState(db)).stopped;
 }
 
 async function hasExactCubelicEmergencyStop(db: D1Database): Promise<boolean> {
