@@ -46,8 +46,12 @@ for (const operation of ['schedulePost', 'publishPost', 'deletePost']) {
 }
 
 const wrangler = await readFile(join(root, 'apps/worker/wrangler.toml'), 'utf8');
-if (!/^CUBELIC_SAFE_MODE\s*=\s*"true"$/m.test(wrangler)) {
-  violations.push('apps/worker/wrangler.toml: CUBELIC_SAFE_MODE must default to true');
+for (const setting of ['CUBELIC_SAFE_MODE', 'GLOBAL_PUBLISHING_DISABLED']) {
+  const configuredValues = [...wrangler.matchAll(new RegExp(`^${setting}\\s*=\\s*"([^"]+)"$`, 'gm'))]
+    .map((match) => match[1]);
+  if (configuredValues.length === 0 || configuredValues.some((value) => value !== 'true')) {
+    violations.push(`apps/worker/wrangler.toml: ${setting} must be true in every configured environment`);
+  }
 }
 
 const worker = await readFile(join(root, 'apps/worker/src/index.ts'), 'utf8');
