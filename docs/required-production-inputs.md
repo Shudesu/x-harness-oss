@@ -12,6 +12,8 @@ Provide these items through the approved secret/file-transfer channel. Do not pa
 
 The example identifiers and names are test-only and must not be promoted as production truth.
 
+The [official harvest profile](https://www.hvt-inc.com/cubelic/) can be used to review the six current member display names, but it does not supply the required stable ids, aliases or active-status export. The public fan-site setlist archive is explicitly unofficial and must not be converted into a canonical song master without human approval. Its visible `/setlists/<YYYY-MM-DD>/<slug>/` route still requires an authoritative `event_id` mapping.
+
 ## Deployment identifiers
 
 - Staging Worker/Web HTTPS origins. The approved production UI origin is `https://ops.cubelic-fan.com`; `https://cubelic-fan.com` remains the public fan site.

@@ -83,11 +83,11 @@
 ## DG-009 — Public LP/GAS event identifier mapping
 
 - Status: NON_BLOCKING
-- Evidence: `SPEC.md` §14; `cubelic-fan.com` renders event and setlist content but no stable JSON endpoint was supplied.
-- Conflict/gap: A canonical page URL cannot always be derived from `event_id` alone.
+- Evidence: `SPEC.md` §14; the public archive exposes detail routes such as `/setlists/2026-07-14/afterimage-trace/`, but `cubelic-fan.com` labels the archive unofficial and exposes no supplied stable JSON/GAS endpoint.
+- Conflict/gap: The visible date/slug route does not define a canonical `event_id` to slug mapping, and it is not authoritative enough to infer one.
 - Impact: UTM destination correctness.
 - Safest current behavior: Require an explicit HTTPS `base_url` on each content item and reject hand-entered tracked URLs.
-- Needed answer: Provide the canonical event/setlist URL templates or JSON endpoint.
+- Needed answer: Confirm whether `/setlists/<YYYY-MM-DD>/<slug>/` is the canonical production route and provide the authoritative `event_id` to slug mapping or JSON endpoint.
 - Resolution: Pending.
 
 ## DG-010 — Phase 1 deployment topology
@@ -119,16 +119,15 @@
 - Safest current behavior: Preserve `null` rather than infer zero, and keep metrics collection incapable of X writes.
 - Needed answer: Supply the authorized read-only metrics source.
 - Resolution: The manual publication mapping is implemented as the audited `cubelic.published-post-mapping.v1` contract. Only handed-off drafts may be mapped; collection rejects unknown post ids, and summaries join metrics to the required content dimensions. Connecting a real read-only metrics provider remains pending on entitlement.
-- Resolution: Pending.
 
 ## DG-013 — Canonical song and member masters
 
 - Status: NON_BLOCKING
-- Evidence: `SPEC.md` §5, §10, §17, §24.3; no canonical song/member master fixture or endpoint exists in the workspace.
-- Conflict/gap: Phase 1 can validate that identifiers are present and setlist positions are consistent, but cannot prove that an identifier/title pair belongs to the canonical catalog.
+- Evidence: `SPEC.md` §5, §10, §17, §24.3; the official harvest profile currently lists six display names, while no authoritative stable ids, aliases, active-status export, or canonical song catalog exists in the workspace. The public setlist archive is explicitly unofficial.
+- Conflict/gap: Phase 1 can validate that identifiers are present and setlist positions are consistent, but public display names and unofficial setlists cannot prove canonical ids, aliases, activity, or the complete song catalog.
 - Impact: `song_unknown`, `member_unknown`, setlist reconciliation and member-focused generation.
 - Safest current behavior: Accept only human-approved versioned song/member masters; setlist ingestion rejects unknown, inactive, or title-mismatched songs and never guesses a mapping.
-- Needed answer: Provide versioned song/member master exports with stable ids and aliases.
+- Needed answer: Approve stable ids, aliases and active status for the six officially listed members, and provide a complete human-approved song master from an authoritative source.
 - Resolution: Contract, D1 storage, human-only import and fail-closed song reconciliation are implemented; the actual production catalog export remains pending.
 
 ## DG-014 — Atomic state and audit commits
