@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validateWranglerBoundaries } from './lib/check-wrangler-boundaries.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const codeRoots = [
@@ -48,18 +49,7 @@ for (const operation of ['schedulePost', 'publishPost', 'deletePost']) {
 }
 
 const wrangler = await readFile(join(root, 'apps/worker/wrangler.toml'), 'utf8');
-for (const setting of ['CUBELIC_SAFE_MODE', 'GLOBAL_PUBLISHING_DISABLED']) {
-  const configuredValues = [...wrangler.matchAll(new RegExp(`^${setting}\\s*=\\s*"([^"]+)"$`, 'gm'))]
-    .map((match) => match[1]);
-  if (configuredValues.length === 0 || configuredValues.some((value) => value !== 'true')) {
-    violations.push(`apps/worker/wrangler.toml: ${setting} must be true in every configured environment`);
-  }
-}
-const phase3Values = [...wrangler.matchAll(/^CUBELIC_PHASE3_ENABLED\s*=\s*"([^"]+)"$/gm)]
-  .map((match) => match[1]);
-if (phase3Values.length === 0 || phase3Values.some((value) => value !== 'false')) {
-  violations.push('apps/worker/wrangler.toml: CUBELIC_PHASE3_ENABLED must default to false in every configured environment');
-}
+violations.push(...validateWranglerBoundaries(wrangler));
 
 const worker = await readFile(join(root, 'apps/worker/src/index.ts'), 'utf8');
 const routeGuardIndex = worker.indexOf("app.use('*', cubelicPhase1RouteGuard)");
@@ -119,5 +109,5 @@ if (violations.length) {
   console.error(`Phase 1 boundary check failed:\n- ${violations.join('\n- ')}`);
   process.exitCode = 1;
 } else {
-  console.log('Phase 1 boundary check passed. Phase 1 remains inert and Phase 3 X access is isolated to the default-disabled adapter infrastructure.');
+  console.log('CUBΣLIC boundary check passed. Phase 1 remains inert and each enabled Phase 3 environment has explicit release gates.');
 }

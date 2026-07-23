@@ -249,3 +249,23 @@
 - Safest current behavior: Keep the production D1 emergency stop active, retain the first job as `publishing` for reconciliation, and never retry automatically. Do not expose or copy credentials through logs or Git.
 - Needed answer: Configure the production X account through the approved secret channel with either OAuth 1.0a Consumer Key, Consumer Secret, Access Token and Access Token Secret, or an OAuth 2.0 User Context token authorized for tweet read/write and user read.
 - Resolution: On 2026-07-23 the operator stored OAuth 1.0a User Context credentials through macOS Keychain. A secret-free `/2/users/me` verification returned X user `1556917966587166720` (`tubelic_cube`), and production D1 was updated with an append-only `x_account.credentials_updated` audit. After a second explicit human authorization, the unresolved job was marked `failed` with `reconciled_no_matching_post`, the approved draft received a new audited retry idempotency key, and a single new publication job completed as X post `2080209283598487956`. A read-only timeline check confirmed that post ID and the approved fixed-text prefix; X URL normalization explains why the stored timeline text does not exactly equal the original URL-bearing input. The D1 emergency stop was reactivated after the ceremony.
+
+## DG-026 — Publication-outcome reconciliation API
+
+- Status: BLOCKING
+- Evidence: `apps/worker/src/cubelic/adapter.ts` retains an uncertain delivery as `publishing` and refuses every automatic retry; `docs/incidents/2026-07-23-first-phase3-publication.md` required a manual, audited D1 reconciliation before the approved retry; `docs/incident-response.md` does not define a public reconciliation contract.
+- Conflict/gap: The safe runtime behavior correctly prevents duplicate delivery, but no reviewed operator API exists to resolve an outcome-unknown job or issue a new retry identity while the emergency stop remains logically active.
+- Impact: Future X timeout recovery requires direct production D1 access, and the intended request schema, evidence threshold, operator authorization, published/not-published outcomes, and audit vocabulary are not yet a stable external contract.
+- Safest current behavior: Keep outcome-unknown jobs in `publishing`, keep the D1 emergency stop active, require read-only X reconciliation, and permit no retry until a named human separately authorizes a documented manual repair.
+- Needed answer: Approve a named-human-only `POST /api/cubelic/admin/publications/:jobId/reconcile` seam with two explicit outcomes: `not_published` requires at least ten recent posts checked and no post-id/fixed-prefix match, then atomically fails the job and issues a retry idempotency key while the externally visible stop remains active; `published` requires the confirmed X post id and timestamp, then completes the existing job without another X write.
+- Resolution: Pending.
+
+## DG-027 — Boundary checker rejected the approved Phase 3 release
+
+- Status: RESOLVED
+- Evidence: `package.json` makes `scripts/check-phase1-boundaries.mjs` part of the required `pnpm check`; DG-024 and `docs/adr/ADR-009-phase3-publication-boundary.md` authorize an exact-gated Phase 3 environment; `apps/worker/wrangler.toml` contains the reviewed staging and production Phase 3 settings.
+- Conflict/gap: The checker still required `GLOBAL_PUBLISHING_DISABLED=true` and `CUBELIC_PHASE3_ENABLED=false` in every environment, so the released configuration could never pass its own required verification.
+- Impact: CI and release verification failed even though the runtime configuration matched the approved Phase 3 contract, encouraging operators to skip the full check.
+- Safest current behavior: Keep all compile-time legacy-route, MCP, UI and Phase 1 adapter checks unchanged; validate each environment as either strict inert Phase 1 or exact-gated Phase 3.
+- Needed answer: None; DG-024 already supplied the governing authority and this change does not create a new runtime seam.
+- Resolution: `scripts/lib/check-wrangler-boundaries.mjs` now requires `CUBELIC_SAFE_MODE=true` everywhere. Phase 1 requires an exact disabled flag and environment stop; Phase 3 requires the environment stop disengaged, release approval, verified staging smoke, environment-specific delivery mode, explicit reviewed scheduling policies, and the exact dedicated staging Worker URL for fake delivery. CLI and negative tests cover the released configuration, missing gates, unsafe policy categories and fake-delivery hostname drift. The complete `pnpm check` passes.

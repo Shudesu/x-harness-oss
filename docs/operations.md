@@ -4,6 +4,15 @@
 
 Phase 1 creates, reviews and measures content. It does not publish, schedule, delete, like, repost, follow, reply or send DMs on X. Approval writes an inert adapter inbox row only. The Phase 1 build keeps this boundary even if `CUBELIC_SAFE_MODE=false` is supplied; keep it `true` as an operational assertion and for preflight visibility.
 
+Production also contains the separately approved DG-024 Phase 3 boundary. It
+does not reopen legacy X Harness write routes: only
+`POST /api/cubelic/drafts/:id/publish` may perform an immediate text post after
+named-human approval, and only reviewed `category:template_id` policies may
+enter the CUBΣLIC scheduler. Media delivery, deletion, DMs, replies, likes,
+follows and engagement automation remain unavailable. The current production
+D1 emergency stop is active, so both Phase 3 publication and scheduling are
+disabled until a separate human resume decision.
+
 ## Initial setup
 
 1. Copy the variable names from `.env.example` into the deployment secret store. Never commit values.
@@ -31,6 +40,11 @@ Phase 1 creates, reviews and measures content. It does not publish, schedule, de
 - `POST /api/cubelic/admin/emergency-resume` requires a human approval key and an admin.
 - All legacy X and administration routes are unavailable in the Phase 1 Worker, including X-backed GET routes. `GLOBAL_PUBLISHING_DISABLED=true` remains an independent deployment assertion.
 - Follow [incident-response.md](incident-response.md) whenever a boundary or rights concern is discovered.
+- An X timeout or ambiguous response must remain `publishing`; never retry it
+  automatically. Follow “Publication outcome unknown” in
+  [incident-response.md](incident-response.md). Until DG-026 is resolved,
+  reconciliation is an exceptional documented operation rather than a normal
+  UI/API action.
 
 ## Rollback
 
