@@ -1,4 +1,4 @@
-import { isValidCalendarDateTime } from '@x-harness/content-os';
+import { isValidCalendarDateTime } from '@x-harness/content-os/datetime';
 
 export function tokyoDateTimeLocalToIso(value: string): string {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);

@@ -5,6 +5,10 @@
   "license": "MIT",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./datetime": "./src/datetime.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run src/**/*.test.ts"
