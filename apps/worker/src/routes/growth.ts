@@ -9,6 +9,7 @@ import {
   getLatestGrowthDigest,
   getGrowthDigestByDate,
   createScheduledPost,
+  resolveFreeSlot,
 } from '@x-harness/db';
 import type { Env } from '../index.js';
 
@@ -75,16 +76,27 @@ growth.post('/api/growth/drafts/:id/approve', async (c) => {
   if (draft.status !== 'pending') {
     return c.json({ success: false, error: 'Draft is not pending' }, 409);
   }
+  // Drafts carry the slot the planner picked at generation time. By approval
+  // time that slot may be stale or claimed by a post approved from another
+  // batch — both used to fire as a simultaneous burst on the next cron tick.
+  const scheduledAt = await resolveFreeSlot(c.env.DB, draft.x_account_id, draft.scheduled_at, { rollStale: true });
   const post = await createScheduledPost(
     c.env.DB,
     draft.x_account_id,
     draft.text,
-    draft.scheduled_at,
+    scheduledAt,
     undefined,
     draft.quote_tweet_id ?? undefined,
   );
+  if (scheduledAt !== draft.scheduled_at) {
+    // Keep the draft row in sync so the dashboard shows the resolved slot.
+    await updateGrowthDraft(c.env.DB, id, { scheduledAt });
+  }
   await setGrowthDraftStatus(c.env.DB, id, 'scheduled', post.id);
-  return c.json({ success: true, data: { ...draft, status: 'scheduled', scheduledPostId: post.id } });
+  return c.json({
+    success: true,
+    data: { ...draft, status: 'scheduled', scheduled_at: scheduledAt, scheduledPostId: post.id },
+  });
 });
 
 // POST /api/growth/drafts/:id/reject

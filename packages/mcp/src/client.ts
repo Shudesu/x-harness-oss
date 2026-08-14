@@ -24,4 +24,19 @@ export class XHarnessClient {
   post<T>(path: string, body?: unknown) { return this.request<T>('POST', path, body); }
   put<T>(path: string, body?: unknown) { return this.request<T>('PUT', path, body); }
   del<T>(path: string) { return this.request<T>('DELETE', path); }
+
+  // multipart/form-data POST — Content-Type is left to fetch so the
+  // boundary is set correctly.
+  async postForm<T>(path: string, form: FormData): Promise<T> {
+    const res = await fetch(`${this.apiUrl}${path}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${this.apiKey}` },
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`X Harness API POST ${path}: ${res.status} ${text}`);
+    }
+    return res.json() as Promise<T>;
+  }
 }

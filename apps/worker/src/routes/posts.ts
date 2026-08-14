@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { XClient } from '@x-harness/x-sdk';
-import { createScheduledPost, getScheduledPosts, deleteScheduledPost, getXAccountById, getXAccounts, incrementApiUsage, saveQuoteTweets, getQuoteTweetsByAccount, getQuoteTweetsBySource, getLatestDiscoveredAt, recordAction, getActions } from '@x-harness/db';
+import { createScheduledPost, getScheduledPosts, deleteScheduledPost, getXAccountById, getXAccounts, incrementApiUsage, resolveFreeSlot, saveQuoteTweets, getQuoteTweetsByAccount, getQuoteTweetsBySource, getLatestDiscoveredAt, recordAction, getActions } from '@x-harness/db';
 import type { SaveQuoteTweetInput } from '@x-harness/db';
 import type { Env } from '../index.js';
 
@@ -48,7 +48,11 @@ posts.post('/api/posts/schedule', async (c) => {
   }
   const account = await getXAccountById(c.env.DB, xAccountId);
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
-  const post = await createScheduledPost(c.env.DB, xAccountId, text, scheduledAt, mediaIds, quoteTweetId);
+  // Avoid double-booking a slot already held by another scheduled post — two
+  // posts due on the same cron tick fire simultaneously and read as a burst.
+  // Past times are kept as-is (schedule-in-the-past means "post ASAP").
+  const resolvedAt = await resolveFreeSlot(c.env.DB, xAccountId, scheduledAt);
+  const post = await createScheduledPost(c.env.DB, xAccountId, text, resolvedAt, mediaIds, quoteTweetId);
   return c.json({
     success: true,
     data: {

@@ -15,13 +15,16 @@ const createGrowthDraftMock = vi.fn(async (db: any, d: any) => ({
 
 const getGrowthDraftsMock = vi.fn(async () => []);
 
+// Far-future slot so resolveApprovedSlot passes it through unchanged.
+const FUTURE_SLOT = '2099-01-01T08:00:00+09:00';
+
 const getGrowthDraftMock = vi.fn(async (_db: any, id: string) => ({
   id,
   x_account_id: 'acc1',
   type: 'pillar',
   text: 'hello',
   quote_tweet_id: 'qt99',
-  scheduled_at: '2026-07-12 08:00:00',
+  scheduled_at: FUTURE_SLOT,
   status: 'pending',
   scheduled_post_id: null,
   created_at: '2026-07-11 00:00:00',
@@ -37,6 +40,9 @@ const upsertGrowthDigestMock = vi.fn(async () => {});
 const getLatestGrowthDigestMock = vi.fn(async () => null);
 
 const getGrowthDigestByDateMock = vi.fn(async () => null);
+
+// Pass-through by default; tests override to simulate a bumped/rolled slot.
+const resolveFreeSlotMock = vi.fn(async (..._a: any[]) => _a[2] as string);
 
 const createScheduledPostMock = vi.fn(async (...args: any[]) => ({
   id: 'sp1',
@@ -62,6 +68,7 @@ vi.mock('@x-harness/db', async (importOriginal) => ({
   getLatestGrowthDigest: (...a: any[]) => getLatestGrowthDigestMock(...a),
   getGrowthDigestByDate: (...a: any[]) => getGrowthDigestByDateMock(...a),
   createScheduledPost: (...a: any[]) => createScheduledPostMock(...a),
+  resolveFreeSlot: (...a: any[]) => resolveFreeSlotMock(...a),
 }));
 
 import { growth } from '../growth.js';
@@ -127,13 +134,44 @@ describe('/api/growth routes', () => {
       {},
       'acc1',
       'hello',
-      '2026-07-12 08:00:00',
+      FUTURE_SLOT,
       undefined,
       'qt99',
     );
     // setGrowthDraftStatus called with 'scheduled' and the scheduled post id
     expect(setGrowthDraftStatusMock).toHaveBeenCalledWith({}, 'draft1', 'scheduled', 'sp1');
     expect(body.data.scheduledPostId).toBe('sp1');
+  });
+
+  // Case 3b: approve resolves the slot with rollStale (stale drafts must not
+  // fire immediately) and schedules + syncs the draft row to the resolved slot.
+  it('approve schedules at the conflict-resolved slot and syncs the draft row', async () => {
+    const RESOLVED = '2099-01-01T09:00:00.000+09:00';
+    resolveFreeSlotMock.mockResolvedValueOnce(RESOLVED);
+    const res = await growth.request(
+      new Request('http://local/api/growth/drafts/draft1/approve', { method: 'POST', body: '{}' }),
+      undefined,
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(resolveFreeSlotMock).toHaveBeenCalledWith({}, 'acc1', FUTURE_SLOT, { rollStale: true });
+    expect(createScheduledPostMock.mock.calls[0][3]).toBe(RESOLVED);
+    // Draft row is kept in sync with the resolved slot
+    expect(updateGrowthDraftMock).toHaveBeenCalledWith({}, 'draft1', { scheduledAt: RESOLVED });
+    const body = await res.json() as any;
+    expect(body.data.scheduled_at).toBe(RESOLVED);
+  });
+
+  // Case 3c: untouched slot → no draft-row rewrite.
+  it('approve does not rewrite the draft when the slot is unchanged', async () => {
+    const res = await growth.request(
+      new Request('http://local/api/growth/drafts/draft1/approve', { method: 'POST', body: '{}' }),
+      undefined,
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(createScheduledPostMock.mock.calls[0][3]).toBe(FUTURE_SLOT);
+    expect(updateGrowthDraftMock).not.toHaveBeenCalled();
   });
 
   // Case 4: approve of non-pending draft → 409

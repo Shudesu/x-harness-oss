@@ -9,7 +9,7 @@ export const articleToolDefs = [
         xAccountId: { type: 'string' },
         title: { type: 'string', description: '記事タイトル' },
         body: { type: 'string', description: '記事本文（Markdown風。空行区切りで段落）' },
-        coverMediaId: { type: 'string', description: 'カバー画像のメディアID（upload_image等で取得）' },
+        coverMediaId: { type: 'string', description: 'カバー画像のメディアID（upload_image ツールで取得。省略するとカバー無しで作成される — 記事のサムネイルが必要なら必ず指定すること。推奨サイズ 1500×600 の 5:2）' },
       },
       required: ['xAccountId', 'title', 'body'],
     },

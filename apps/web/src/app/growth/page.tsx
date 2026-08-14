@@ -476,12 +476,19 @@ function SourceCard({
 
 // Minimal, dependency-free markdown preview — renders inline images, headings, lists.
 function Inline({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g)
+  // **bold** / `code` / 裸URL をインライン装飾する
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|https?:\/\/[^\s)]+)/g)
   return (
     <>
-      {parts.map((p, i) =>
-        p.startsWith('**') && p.endsWith('**') ? <strong key={i} className="font-bold text-gray-900">{p.slice(2, -2)}</strong> : p
-      )}
+      {parts.map((p, i) => {
+        if (p.startsWith('**') && p.endsWith('**'))
+          return <strong key={i} className="font-bold text-gray-900">{p.slice(2, -2)}</strong>
+        if (p.startsWith('`') && p.endsWith('`'))
+          return <code key={i} className="px-1 py-0.5 rounded bg-gray-100 text-[0.85em] font-mono text-pink-600">{p.slice(1, -1)}</code>
+        if (/^https?:\/\//.test(p))
+          return <a key={i} href={p} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">{p}</a>
+        return p
+      })}
     </>
   )
 }
@@ -489,24 +496,44 @@ function Inline({ text }: { text: string }) {
 function MarkdownPreview({ md }: { md: string }) {
   const blocks = md.split(/\n{2,}/)
   return (
-    <div className="space-y-3 text-sm text-gray-800 leading-relaxed">
+    <div className="space-y-4 text-[15px] text-gray-800 leading-[1.9]">
       {blocks.map((b, i) => {
-        const img = b.trim().match(/^!\[[^\]]*\]\(([^)]+)\)(?:\n\*(.+)\*)?$/)
+        const img = b.trim().match(/^!\[([^\]]*)\]\(([^)]+)\)(?:\n\*(.+)\*)?$/)
         if (img)
           return (
-            <figure key={i}>
-              <img src={img[1]} alt="" className="w-full rounded-lg border border-gray-100" />
-              {img[2] && <figcaption className="mt-1 text-xs text-gray-500 italic">{img[2]}</figcaption>}
+            <figure key={i} className="my-5">
+              <img
+                src={img[2]}
+                alt={img[1]}
+                loading="lazy"
+                className="max-h-72 w-auto max-w-full mx-auto rounded-xl border border-gray-100 shadow-sm"
+              />
+              {(img[3] || img[1]) && (
+                <figcaption className="mt-1.5 text-xs text-gray-400 text-center">{img[3] || img[1]}</figcaption>
+              )}
             </figure>
           )
-        if (b.startsWith('### ')) return <h4 key={i} className="text-sm font-bold text-gray-900">{b.slice(4)}</h4>
-        if (b.startsWith('## ')) return <h3 key={i} className="text-base font-bold text-gray-900">{b.slice(3)}</h3>
-        if (b.startsWith('# ')) return <h2 key={i} className="text-lg font-bold text-gray-900">{b.slice(2)}</h2>
-        if (b.trimStart().startsWith('> '))
+        if (b.startsWith('### ')) return <h4 key={i} className="text-[15px] font-bold text-gray-900 pt-2"><Inline text={b.slice(4)} /></h4>
+        if (b.startsWith('## ')) return <h3 key={i} className="text-base font-bold text-gray-900 pt-3"><Inline text={b.slice(3)} /></h3>
+        if (b.startsWith('# ')) return <h2 key={i} className="text-xl font-bold text-gray-900 pt-4 border-b border-gray-100 pb-2"><Inline text={b.slice(2)} /></h2>
+        if (b.trimStart().startsWith('>'))
           return (
-            <blockquote key={i} className="border-l-4 border-gray-200 pl-3 text-gray-600 whitespace-pre-wrap">
+            <blockquote key={i} className="border-l-4 border-blue-200 bg-blue-50/40 rounded-r-lg pl-4 pr-3 py-2.5 text-[13px] text-gray-600 whitespace-pre-wrap font-mono leading-relaxed">
               <Inline text={b.replace(/^> ?/gm, '')} />
             </blockquote>
+          )
+        const lines = b.split('\n')
+        if (lines.length > 0 && lines.every((l) => /^\s*- /.test(l)))
+          return (
+            <ul key={i} className="list-disc pl-5 space-y-1.5">
+              {lines.map((l, j) => <li key={j}><Inline text={l.replace(/^\s*- /, '')} /></li>)}
+            </ul>
+          )
+        if (lines.length > 0 && lines.every((l) => /^\s*\d+\. /.test(l)))
+          return (
+            <ol key={i} className="list-decimal pl-5 space-y-1.5">
+              {lines.map((l, j) => <li key={j}><Inline text={l.replace(/^\s*\d+\. /, '')} /></li>)}
+            </ol>
           )
         if (b.trimStart().startsWith('■')) return <p key={i} className="font-bold text-gray-900">{b.replace(/\*\*/g, '')}</p>
         return <p key={i} className="whitespace-pre-wrap"><Inline text={b} /></p>
@@ -532,6 +559,8 @@ function ArticleCard({
   const [discarding, setDiscarding] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [expanded, setExpanded] = useState(false)
+  // 開いたときはSNS記事風プレビューを見せる。編集はトグルで切替
+  const [mode, setMode] = useState<'preview' | 'edit'>('preview')
 
   const isDirty = title !== article.title || bodyMd !== article.body_md
 
@@ -589,22 +618,23 @@ function ArticleCard({
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-      {/* Header image */}
-      {article.image_url ? (
-        <img
-          src={article.image_url}
-          alt="記事ヘッダー"
-          className="w-full aspect-[5/2] object-contain bg-gray-50 rounded-lg border border-gray-100"
-        />
-      ) : (
-        <div className="w-full h-24 rounded-lg border border-dashed border-gray-200 bg-gray-50 flex items-center justify-center">
-          <span className="text-xs text-gray-400">画像なし</span>
-        </div>
-      )}
-
       {/* Header row */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            <button
+              onClick={() => setMode('preview')}
+              className={`px-3 py-1.5 text-xs font-semibold transition-colors ${mode === 'preview' ? 'bg-gray-900 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+            >
+              プレビュー
+            </button>
+            <button
+              onClick={() => setMode('edit')}
+              className={`px-3 py-1.5 text-xs font-semibold transition-colors ${mode === 'edit' ? 'bg-gray-900 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+            >
+              編集
+            </button>
+          </div>
           {article.theme && (
             <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
               {article.theme}
@@ -629,34 +659,48 @@ function ArticleCard({
         </div>
       </div>
 
-      {/* Title editor */}
-      <div>
-        <label className="block text-xs font-semibold text-gray-500 mb-1">タイトル</label>
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm font-medium leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
+      {mode === 'preview' ? (
+        /* ─ SNS記事風プレビュー: X の記事ページの見え方に寄せた読み物ビュー ─ */
+        <article className="max-w-xl mx-auto">
+          {article.image_url && (
+            <img
+              src={article.image_url}
+              alt="カバー画像"
+              className="w-full aspect-[5/2] object-cover rounded-xl border border-gray-100 shadow-sm"
+            />
+          )}
+          <h1 className="mt-4 text-xl font-bold text-gray-900 leading-snug">{title || article.title}</h1>
+          <p className="mt-1 mb-5 text-xs text-gray-400">
+            {bodyMd.length.toLocaleString()} 文字 ・ 画像 {(bodyMd.match(/!\[/g) || []).length} 枚
+          </p>
+          <MarkdownPreview md={bodyMd} />
+        </article>
+      ) : (
+        <>
+          {/* Title editor */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">タイトル</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm font-medium leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
 
-      {/* Body editor */}
-      <div>
-        <label className="block text-xs font-semibold text-gray-500 mb-1">本文 (Markdown)</label>
-        <textarea
-          value={bodyMd}
-          onChange={(e) => setBodyMd(e.target.value)}
-          rows={14}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm leading-relaxed font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <p className="mt-1 text-xs text-gray-400 text-right">{bodyMd.length} 文字</p>
-      </div>
-
-      {/* Body preview (renders inline images) */}
-      <details className="border border-gray-100 rounded-lg p-3 bg-gray-50/50">
-        <summary className="cursor-pointer select-none text-xs font-semibold text-gray-500 mb-2">プレビュー(画像込み)</summary>
-        <div className="mt-2"><MarkdownPreview md={bodyMd} /></div>
-      </details>
+          {/* Body editor */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">本文 (Markdown)</label>
+            <textarea
+              value={bodyMd}
+              onChange={(e) => setBodyMd(e.target.value)}
+              rows={20}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm leading-relaxed font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="mt-1 text-xs text-gray-400 text-right">{bodyMd.length} 文字</p>
+          </div>
+        </>
+      )}
 
       {/* Action row */}
       <div className="flex items-center justify-between gap-3 flex-wrap">

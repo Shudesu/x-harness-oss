@@ -18,6 +18,7 @@ import { articleToolDefs } from './tools/articles.js';
 import { scrapeToolDefs } from './tools/scrape.js';
 import { growthToolDefs } from './tools/growth.js';
 import { scrapeUserPosts, scrapeSearch, scrapeUser, scrapePost } from './scraper.js';
+import { loadImageSource } from './media.js';
 
 const API_URL = process.env.X_HARNESS_API_URL ?? 'http://localhost:8787';
 const API_KEY = process.env.X_HARNESS_API_KEY ?? '';
@@ -62,6 +63,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ...(a.paidPartnership ? { paidPartnership: true } : {}),
         });
         break;
+      case 'upload_image': {
+        const media = await loadImageSource(a.source);
+        const form = new FormData();
+        form.set('xAccountId', a.xAccountId);
+        if (a.mediaCategory) form.set('mediaCategory', a.mediaCategory);
+        form.set('file', new Blob([media.data], { type: media.contentType }), media.filename);
+        result = await client.postForm('/api/media/upload', form);
+        break;
+      }
       case 'create_article':
         result = await client.post('/api/articles/draft', {
           xAccountId: a.xAccountId,
