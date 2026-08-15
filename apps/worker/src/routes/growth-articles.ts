@@ -3,9 +3,20 @@ import {
   createGrowthArticle,
   getGrowthArticles,
   getGrowthArticle,
+  getXAccountById,
+  incrementApiUsage,
   updateGrowthArticle,
+  setGrowthArticleXDraftId,
   setGrowthArticleStatus,
 } from '@x-harness/db';
+import {
+  InlineImageError,
+  buildXClient,
+  errorMessage,
+  markdownToContentState,
+  uploadArticleCover,
+  uploadInlineImages,
+} from './articles.js';
 import type { Env } from '../index.js';
 
 const growthArticles = new Hono<Env>();
@@ -17,12 +28,14 @@ growthArticles.post('/api/growth/articles/image', async (c) => {
   if (!c.env.GROWTH_IMAGES) return c.json({ success: false, error: 'R2 not configured' }, 500);
   const form = await c.req.formData();
   const file = form.get('file');
-  if (!(file instanceof File)) return c.json({ success: false, error: 'file is required' }, 400);
+  if (!file || typeof file === 'string' || typeof (file as Blob).arrayBuffer !== 'function') {
+    return c.json({ success: false, error: 'file is required' }, 400);
+  }
   const base = (c.env.WORKER_URL || '').replace(/\/$/, '');
   if (!base) return c.json({ success: false, error: 'WORKER_URL not configured' }, 500);
   // Pipeline always uploads PNG (codex imagegen output); store as .png with matching type.
   const key = `growth/${crypto.randomUUID()}.png`;
-  await c.env.GROWTH_IMAGES.put(key, await file.arrayBuffer(), {
+  await c.env.GROWTH_IMAGES.put(key, await (file as Blob).arrayBuffer(), {
     httpMetadata: { contentType: 'image/png' },
   });
   return c.json({ success: true, data: { url: `${base}/api/growth/img/${key.split('/')[1]}` } }, 201);
@@ -84,7 +97,13 @@ growthArticles.patch('/api/growth/articles/:id', async (c) => {
   return c.json({ success: true, data: updated });
 });
 
-// POST /api/growth/articles/:id/publish — mark as published
+// POST /api/growth/articles/:id/publish — create the X Article draft, publish
+// it, then mark the Growth draft as published. If X draft creation succeeds
+// but publishing fails, x_article_draft_id is retained so a retry does not
+// consume another slot from X's 10-drafts-per-24h quota.
+//
+// Legacy callers may still send { publishedArticleId } after publishing via
+// MCP/API; that path only records the already-published post ID.
 growthArticles.post('/api/growth/articles/:id/publish', async (c) => {
   const id = c.req.param('id');
   const article = await getGrowthArticle(c.env.DB, id);
@@ -92,9 +111,54 @@ growthArticles.post('/api/growth/articles/:id/publish', async (c) => {
   if (article.status !== 'draft') {
     return c.json({ success: false, error: 'Article is not a draft' }, 409);
   }
-  const body = await c.req.json<{ publishedArticleId?: string }>();
-  await setGrowthArticleStatus(c.env.DB, id, 'published', body.publishedArticleId);
-  return c.json({ success: true });
+  const body: { publishedArticleId?: string } = await c.req
+    .json<{ publishedArticleId?: string }>()
+    .catch(() => ({}));
+  if (body.publishedArticleId) {
+    await setGrowthArticleStatus(c.env.DB, id, 'published', body.publishedArticleId);
+    return c.json({ success: true, data: { post_id: body.publishedArticleId } });
+  }
+
+  const account = await getXAccountById(c.env.DB, article.x_account_id);
+  if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
+  const xClient = buildXClient(account);
+
+  try {
+    let xArticleDraftId = article.x_article_draft_id;
+    if (!xArticleDraftId) {
+      const source = { workerUrl: c.env.WORKER_URL, growthImages: c.env.GROWTH_IMAGES };
+      const [mediaMap, coverMediaId] = await Promise.all([
+        uploadInlineImages(article.body_md, xClient, source),
+        article.image_url ? uploadArticleCover(article.image_url, xClient, source) : Promise.resolve(undefined),
+      ]);
+      const draft = await xClient.createArticleDraft({
+        title: article.title,
+        content_state: markdownToContentState(article.body_md, mediaMap, article.title),
+        ...(coverMediaId
+          ? { cover_media: { media_id: coverMediaId, media_category: 'tweet_image' } }
+          : {}),
+      });
+      xArticleDraftId = draft.id;
+      await setGrowthArticleXDraftId(c.env.DB, id, xArticleDraftId);
+      // Usage logging must never turn a successful X mutation into a failed
+      // response (which could tempt the caller to create a duplicate draft).
+      await incrementApiUsage(c.env.DB, account.id, 'article_draft').catch(() => {});
+    }
+
+    const result = await xClient.publishArticle(xArticleDraftId);
+    await setGrowthArticleStatus(c.env.DB, id, 'published', result.post_id);
+    await incrementApiUsage(c.env.DB, account.id, 'article_publish').catch(() => {});
+    return c.json({
+      success: true,
+      data: { article_id: xArticleDraftId, post_id: result.post_id },
+    });
+  } catch (err) {
+    const message = errorMessage(err, 'Failed to publish article');
+    return c.json(
+      { success: false, error: message },
+      err instanceof InlineImageError ? 400 : 500,
+    );
+  }
 });
 
 // POST /api/growth/articles/:id/discard — mark as discarded

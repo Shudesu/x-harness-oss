@@ -551,13 +551,15 @@ function ArticleCard({
   article: ArticleDraft
   onSaved: (id: string, title: string, bodyMd: string) => Promise<void>
   onDiscard: (id: string) => Promise<void>
-  onPublish: () => void
+  onPublish: (id: string) => Promise<void>
 }) {
   const [title, setTitle] = useState(article.title)
   const [bodyMd, setBodyMd] = useState(article.body_md)
   const [saving, setSaving] = useState(false)
   const [discarding, setDiscarding] = useState(false)
+  const [publishing, setPublishing] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const [actionError, setActionError] = useState('')
   const [expanded, setExpanded] = useState(false)
   // 開いたときはSNS記事風プレビューを見せる。編集はトグルで切替
   const [mode, setMode] = useState<'preview' | 'edit'>('preview')
@@ -577,6 +579,7 @@ function ArticleCard({
   const handleSave = async () => {
     setSaving(true)
     setSaveMsg('')
+    setActionError('')
     try {
       await onSaved(article.id, title, bodyMd)
       setSaveMsg('保存しました')
@@ -589,6 +592,23 @@ function ArticleCard({
   const handleDiscard = async () => {
     setDiscarding(true)
     try { await onDiscard(article.id) } finally { setDiscarding(false) }
+  }
+
+  const handlePublish = async () => {
+    if (!confirm(`「${title || article.title}」をXで公開します。よろしいですか？`)) return
+    setPublishing(true)
+    setSaveMsg('')
+    setActionError('')
+    try {
+      // Publish exactly what is visible in the editor. Saving first also
+      // prevents an unsaved title/body from being silently ignored.
+      if (isDirty) await onSaved(article.id, title, bodyMd)
+      await onPublish(article.id)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '公開に失敗しました')
+    } finally {
+      setPublishing(false)
+    }
   }
 
   // Collapsed row — the drafts list gets long, so cards fold to one line
@@ -713,6 +733,7 @@ function ArticleCard({
             {saving ? '保存中…' : '保存'}
           </button>
           {saveMsg && <span className="text-xs text-green-600">{saveMsg}</span>}
+          {actionError && <span className="text-xs text-red-600">{actionError}</span>}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -723,11 +744,12 @@ function ArticleCard({
             {discarding ? '破棄中…' : '破棄'}
           </button>
           <button
-            onClick={onPublish}
-            className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-opacity"
+            onClick={handlePublish}
+            disabled={publishing || saving || discarding}
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
             style={{ backgroundColor: '#1D9BF0' }}
           >
-            公開
+            {publishing ? '公開中…' : '公開'}
           </button>
         </div>
       </div>
@@ -1158,8 +1180,13 @@ export default function GrowthPage() {
     showToast('破棄しました')
   }
 
-  const handleArticlePublish = () => {
-    showToast('公開は create_article → publish_article(MCP/API・X Premiumで可)')
+  const handleArticlePublish = async (id: string) => {
+    const res = await fetchApi<ApiResponse<{ article_id: string; post_id: string }>>(`/api/growth/articles/${id}/publish`, {
+      method: 'POST',
+      body: '{}',
+    })
+    await loadArticles()
+    showToast(`Xで公開しました（ポストID: ${res.data.post_id}）`)
   }
 
   // Health line

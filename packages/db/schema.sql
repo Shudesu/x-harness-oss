@@ -265,6 +265,7 @@ CREATE TABLE IF NOT EXISTS growth_articles (
   theme TEXT,
   source_tweet_ids TEXT,
   status TEXT DEFAULT 'draft' CHECK (status IN ('draft','published','discarded')),
+  x_article_draft_id TEXT,
   published_article_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

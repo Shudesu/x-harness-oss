@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { markdownToContentState, collectInlineImageUrls, growthImageKey } from '../articles.js';
+import { describe, it, expect, vi } from 'vitest';
+import { markdownToContentState, collectInlineImageUrls, growthImageKey, uploadArticleCover } from '../articles.js';
 
 // Blocks carry the standard DraftJS raw fields (key/depth/...) — assertions
 // simplify keeps assertions stable if the shape ever grows again.
@@ -273,5 +273,46 @@ describe('growthImageKey', () => {
   it('returns null for foreign URLs and when workerUrl is unset', () => {
     expect(growthImageKey('https://example.com/a.png', WORKER)).toBeNull();
     expect(growthImageKey(`${WORKER}/api/growth/img/abc.png`, undefined)).toBeNull();
+  });
+});
+
+describe('uploadArticleCover', () => {
+  it('loads a Growth image directly from R2 and uploads it as tweet_image', async () => {
+    const data = new Uint8Array([1, 2, 3]).buffer;
+    const growthImages = {
+      get: vi.fn(async () => ({
+        arrayBuffer: async () => data,
+        httpMetadata: { contentType: 'image/png' },
+      })),
+    } as any;
+    const xClient = {
+      uploadMedia: vi.fn(async () => 'cover-media-id'),
+    } as any;
+
+    const result = await uploadArticleCover(
+      'https://my-worker.example.workers.dev/api/growth/img/cover.png',
+      xClient,
+      { workerUrl: 'https://my-worker.example.workers.dev', growthImages },
+    );
+
+    expect(result).toBe('cover-media-id');
+    expect(growthImages.get).toHaveBeenCalledWith('growth/cover.png');
+    expect(xClient.uploadMedia).toHaveBeenCalledWith(data, 'image/png', 'tweet_image');
+  });
+
+  it('rejects non-image covers before calling X', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => new Response('text', {
+      headers: { 'content-type': 'text/plain' },
+    })) as any;
+    const xClient = { uploadMedia: vi.fn() } as any;
+    try {
+      await expect(uploadArticleCover('https://example.com/not-an-image', xClient)).rejects.toThrow(
+        /cover must be a non-GIF image/,
+      );
+      expect(xClient.uploadMedia).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

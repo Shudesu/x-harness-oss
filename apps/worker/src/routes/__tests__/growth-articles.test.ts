@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockArticle = {
+const mockArticle: any = {
   id: 'art1',
   x_account_id: 'acc1',
   title: 'Test Article',
@@ -9,6 +9,7 @@ const mockArticle = {
   theme: null,
   source_tweet_ids: null,
   status: 'draft',
+  x_article_draft_id: null,
   published_article_id: null,
   created_at: '2026-07-12 00:00:00',
   updated_at: '2026-07-12 00:00:00',
@@ -34,14 +35,39 @@ const getGrowthArticleMock = vi.fn(async (_db: any, id: string) => ({
 const updateGrowthArticleMock = vi.fn(async () => {});
 
 const setGrowthArticleStatusMock = vi.fn(async () => {});
+const setGrowthArticleXDraftIdMock = vi.fn(async () => {});
+const getXAccountByIdMock = vi.fn(async () => ({
+  id: 'acc1',
+  consumer_key: 'consumer-key',
+  consumer_secret: 'consumer-secret',
+  access_token: 'access-token',
+  access_token_secret: 'access-token-secret',
+}));
+const incrementApiUsageMock = vi.fn(async () => {});
+
+const createArticleDraftMock = vi.fn(async () => ({ id: 'x-draft-1', title: 'Test Article' }));
+const publishArticleMock = vi.fn(async () => ({ post_id: 'post-123' }));
+const uploadMediaMock = vi.fn(async () => 'media-123');
+
+vi.mock('@x-harness/x-sdk', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  XClient: class {
+    createArticleDraft = createArticleDraftMock;
+    publishArticle = publishArticleMock;
+    uploadMedia = uploadMediaMock;
+  },
+}));
 
 vi.mock('@x-harness/db', async (importOriginal) => ({
   ...(await importOriginal<any>()),
-  createGrowthArticle: (...a: any[]) => createGrowthArticleMock(...a),
-  getGrowthArticles: (...a: any[]) => getGrowthArticlesMock(...a),
-  getGrowthArticle: (...a: any[]) => getGrowthArticleMock(...a),
-  updateGrowthArticle: (...a: any[]) => updateGrowthArticleMock(...a),
-  setGrowthArticleStatus: (...a: any[]) => setGrowthArticleStatusMock(...a),
+  createGrowthArticle: (...a: any[]) => (createGrowthArticleMock as any)(...a),
+  getGrowthArticles: (...a: any[]) => (getGrowthArticlesMock as any)(...a),
+  getGrowthArticle: (...a: any[]) => (getGrowthArticleMock as any)(...a),
+  updateGrowthArticle: (...a: any[]) => (updateGrowthArticleMock as any)(...a),
+  getXAccountById: (...a: any[]) => (getXAccountByIdMock as any)(...a),
+  incrementApiUsage: (...a: any[]) => (incrementApiUsageMock as any)(...a),
+  setGrowthArticleXDraftId: (...a: any[]) => (setGrowthArticleXDraftIdMock as any)(...a),
+  setGrowthArticleStatus: (...a: any[]) => (setGrowthArticleStatusMock as any)(...a),
 }));
 
 import { growthArticles } from '../growth-articles.js';
@@ -52,6 +78,8 @@ describe('/api/growth/articles routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getGrowthArticleMock.mockResolvedValue({ ...mockArticle });
+    createArticleDraftMock.mockResolvedValue({ id: 'x-draft-1', title: 'Test Article' });
+    publishArticleMock.mockResolvedValue({ post_id: 'post-123' });
   });
 
   // Case 1: POST /api/growth/articles → 201
@@ -154,6 +182,60 @@ describe('/api/growth/articles routes', () => {
     const body = await res.json() as any;
     expect(body.success).toBe(true);
     expect(setGrowthArticleStatusMock).toHaveBeenCalledWith({}, 'art1', 'published', 'pub123');
+  });
+
+  it('publishes a Growth draft through create_article then publish_article', async () => {
+    const req = new Request('http://local/api/growth/articles/art1/publish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    const res = await growthArticles.request(req, undefined, env);
+
+    expect(res.status).toBe(200);
+    expect(createArticleDraftMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Test Article',
+      content_state: expect.objectContaining({ blocks: expect.any(Array) }),
+    }));
+    expect(setGrowthArticleXDraftIdMock).toHaveBeenCalledWith({}, 'art1', 'x-draft-1');
+    expect(publishArticleMock).toHaveBeenCalledWith('x-draft-1');
+    expect(setGrowthArticleStatusMock).toHaveBeenCalledWith({}, 'art1', 'published', 'post-123');
+    expect(incrementApiUsageMock).toHaveBeenCalledWith({}, 'acc1', 'article_draft');
+    expect(incrementApiUsageMock).toHaveBeenCalledWith({}, 'acc1', 'article_publish');
+    expect(await res.json()).toMatchObject({
+      success: true,
+      data: { article_id: 'x-draft-1', post_id: 'post-123' },
+    });
+  });
+
+  it('retries publishing the saved X draft without creating a duplicate', async () => {
+    getGrowthArticleMock.mockResolvedValueOnce({ ...mockArticle, x_article_draft_id: 'x-draft-existing' });
+    const req = new Request('http://local/api/growth/articles/art1/publish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    const res = await growthArticles.request(req, undefined, env);
+
+    expect(res.status).toBe(200);
+    expect(createArticleDraftMock).not.toHaveBeenCalled();
+    expect(setGrowthArticleXDraftIdMock).not.toHaveBeenCalled();
+    expect(publishArticleMock).toHaveBeenCalledWith('x-draft-existing');
+  });
+
+  it('keeps the saved X draft retryable when publish_article fails', async () => {
+    publishArticleMock.mockRejectedValueOnce(new Error('Premium required'));
+    const req = new Request('http://local/api/growth/articles/art1/publish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    const res = await growthArticles.request(req, undefined, env);
+
+    expect(res.status).toBe(500);
+    expect(setGrowthArticleXDraftIdMock).toHaveBeenCalledWith({}, 'art1', 'x-draft-1');
+    expect(setGrowthArticleStatusMock).not.toHaveBeenCalled();
+    expect(await res.json()).toMatchObject({ success: false, error: 'Premium required' });
   });
 
   // Case 5b: POST /api/growth/articles/:id/publish on non-draft → 409

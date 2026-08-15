@@ -13,6 +13,8 @@
     "db:migrate:004:local": "wrangler d1 execute x-harness --file=packages/db/migrations/004-polling-columns.sql --local",
     "db:migrate:005": "wrangler d1 execute x-harness --file=packages/db/migrations/005-reply-trigger.sql",
     "db:migrate:005:local": "wrangler d1 execute x-harness --file=packages/db/migrations/005-reply-trigger.sql --local",
+    "db:migrate:018": "wrangler d1 execute x-harness --file=packages/db/migrations/018-growth-article-x-draft.sql",
+    "db:migrate:018:local": "wrangler d1 execute x-harness --file=packages/db/migrations/018-growth-article-x-draft.sql --local",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "pnpm -r typecheck"

@@ -8,7 +8,7 @@ const articles = new Hono<Env>();
 
 // Rate-limit errors carry the window reset time — surface it so callers
 // know when to retry instead of guessing.
-function errorMessage(err: unknown, fallback: string): string {
+export function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof XApiRateLimitError && err.resetAtEpoch) {
     const resetJst = new Date(err.resetAtEpoch * 1000).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
     return `Rate limited by X API（リセット: ${resetJst} JST）`;
@@ -16,7 +16,7 @@ function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-function buildXClient(account: { consumer_key: string | null; consumer_secret: string | null; access_token: string; access_token_secret: string | null }): XClient {
+export function buildXClient(account: { consumer_key: string | null; consumer_secret: string | null; access_token: string; access_token_secret: string | null }): XClient {
   return account.consumer_key && account.consumer_secret && account.access_token_secret
     ? new XClient({
         type: 'oauth1',
@@ -251,6 +251,45 @@ export function growthImageKey(url: string, workerUrl?: string): string | null {
   return url.startsWith(prefix) ? `growth/${url.slice(prefix.length)}` : null;
 }
 
+async function loadArticleMedia(
+  url: string,
+  source: InlineImageSource,
+): Promise<{ data: ArrayBuffer; contentType: string }> {
+  const r2Key = growthImageKey(url, source.workerUrl);
+  if (r2Key && source.growthImages) {
+    const obj = await source.growthImages.get(r2Key);
+    if (!obj) throw new InlineImageError(`Article image not found in R2: ${url}`);
+    return {
+      data: await obj.arrayBuffer(),
+      contentType: obj.httpMetadata?.contentType ?? 'image/png',
+    };
+  }
+  if (!/^https:\/\//.test(url)) {
+    throw new InlineImageError(`Article image URL must be https: ${url}`);
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new InlineImageError(`Failed to fetch article image (${res.status}): ${url}`);
+  return {
+    data: await res.arrayBuffer(),
+    contentType: res.headers.get('content-type') ?? 'image/png',
+  };
+}
+
+// Upload the Growth article's 5:2 header image as the X Article cover.
+// Growth images are PNGs, and the Articles API requires tweet_image for
+// cover_media (the category must match the upload).
+export async function uploadArticleCover(
+  url: string,
+  xClient: XClient,
+  source: InlineImageSource = {},
+): Promise<string> {
+  const { data, contentType } = await loadArticleMedia(url, source);
+  if (!contentType.startsWith('image/') || contentType === 'image/gif') {
+    throw new InlineImageError(`Article cover must be a non-GIF image: ${url}`);
+  }
+  return xClient.uploadMedia(data, contentType, 'tweet_image');
+}
+
 // Fetch every inline media URL referenced in the markdown body (same
 // paragraph segmentation as markdownToContentState, via
 // collectInlineImageUrls) and upload it to X media, returning
@@ -268,23 +307,7 @@ export async function uploadInlineImages(
 ): Promise<Record<string, InlineMedia>> {
   const entries = await Promise.all(
     collectInlineImageUrls(body).map(async (url): Promise<[string, InlineMedia]> => {
-      let data: ArrayBuffer;
-      let contentType: string;
-      const r2Key = growthImageKey(url, source.workerUrl);
-      if (r2Key && source.growthImages) {
-        const obj = await source.growthImages.get(r2Key);
-        if (!obj) throw new InlineImageError(`Inline image not found in R2: ${url}`);
-        data = await obj.arrayBuffer();
-        contentType = obj.httpMetadata?.contentType ?? 'image/png';
-      } else {
-        if (!/^https:\/\//.test(url)) {
-          throw new InlineImageError(`Inline image URL must be https: ${url}`);
-        }
-        const res = await fetch(url);
-        if (!res.ok) throw new InlineImageError(`Failed to fetch inline image (${res.status}): ${url}`);
-        data = await res.arrayBuffer();
-        contentType = res.headers.get('content-type') ?? 'image/png';
-      }
+      const { data, contentType } = await loadArticleMedia(url, source);
       if (contentType.startsWith('video/')) {
         const mediaId = await xClient.uploadVideo(data, contentType, INLINE_VIDEO_CATEGORY);
         return [url, { media_id: mediaId, media_category: INLINE_VIDEO_CATEGORY }];

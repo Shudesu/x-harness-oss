@@ -9,6 +9,7 @@ export interface DbGrowthArticle {
   theme: string | null;
   source_tweet_ids: string | null;
   status: string;
+  x_article_draft_id: string | null;
   published_article_id: string | null;
   created_at: string;
   updated_at: string;
@@ -101,5 +102,17 @@ export async function setGrowthArticleStatus(
   await db
     .prepare('UPDATE growth_articles SET status = ?, published_article_id = ?, updated_at = ? WHERE id = ?')
     .bind(status, publishedArticleId ?? null, now, id)
+    .run();
+}
+
+export async function setGrowthArticleXDraftId(
+  db: D1Database,
+  id: string,
+  xArticleDraftId: string,
+): Promise<void> {
+  const now = jstNow();
+  await db
+    .prepare('UPDATE growth_articles SET x_article_draft_id = ?, updated_at = ? WHERE id = ?')
+    .bind(xArticleDraftId, now, id)
     .run();
 }
