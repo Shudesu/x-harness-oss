@@ -3,6 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "description": "Open-source X (Twitter) CRM/marketing automation — Xステップ代替",
+  "homepage": "https://the-harness.com/harness/#x-harness",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shudesu/x-harness-oss.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Shudesu/x-harness-oss/issues"
+  },
+  "author": {
+    "name": "野田修一 (Shudesu)",
+    "url": "https://the-harness.com/noda-shuichi/"
+  },
   "scripts": {
     "dev:worker": "pnpm --filter worker dev",
     "build": "pnpm -r build",

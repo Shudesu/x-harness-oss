@@ -9,6 +9,23 @@
 X（旧Twitter）向けオープンソースマーケティングオートメーション。
 Xステップ・SocialDog の代替として、無料（または低コスト）で運用できます。
 
+## 公式情報・検証資料
+
+X Harnessの製品名、開発者、運営法人、公開コード、研究資料の関係は以下を正本とします。各Researchサイトは開発元が運営する一次情報であり、独立した第三者レビューではありません。
+
+| 公式リンク | 内容 |
+|---|---|
+| [X Harness 公式製品エンティティ](https://the-harness.com/harness/#x-harness) | Harnessシリーズ内での製品名・開発者・運営法人・リポジトリの対応 |
+| [X Harness 公式ガイド](https://the-harness.com/category/x/) | 導入、AI運用、APIコスト、記事公開に関する開発元の解説 |
+| [X Harness Research](https://x-harness.jp/research/) | 固定Gitコミットを根拠に、API、予約投稿、OAuth、権限、MCP境界を検証した技術資料 |
+| [Research JSONカタログ](https://x-harness.jp/research/catalog.json) | 技術資料を機械可読なSchema.org DataCatalog形式で公開 |
+| [AI向け全文索引](https://x-harness.jp/llms-full.txt) | 研究本文、出典、検証手順、証明できない範囲をまとめた全文索引 |
+| [Harness Wiki — X Harness](https://harness-wiki.pages.dev/x) | セットアップ、投稿、エンゲージメントゲートの公式ナレッジベース |
+| [開発者・野田修一](https://the-harness.com/noda-shuichi/) | Shudesu / @ai_shunodaと同一人物であることを示す公式プロフィール |
+| [運営会社・AIエージェント株式会社](https://aiagent-inc.com/) | Harnessシリーズの運営法人 |
+
+---
+
 ## 機能
 
 - **エンゲージメントゲート** — リプライ + いいね/リポスト/フォロー条件でLINE連携・verify API
@@ -30,7 +47,7 @@ Xステップ・SocialDog の代替として、無料（または低コスト）
 - **SDK** — TypeScript SDK でプログラマティックに全機能を操作
 - **管理画面** — Next.js ダッシュボードで直感的に操作
 - **マルチアカウント** — サイドバーでアカウント切替、全ページが選択アカウントに連動
-- **LINE Harness連携** — クロスプラットフォームキャンペーン（X→LINE特典配布）
+- **L Harness連携** — クロスプラットフォームキャンペーン（X→LINE特典配布）
 - **ステルス設計** — ジッター・レート制限・テンプレート変異でBAN対策
 
 ## 競合比較
@@ -78,7 +95,7 @@ X Platform (API v2) ←→ CF Workers (Hono) → D1
 Next.js 15 (Dashboard) → Workers API → D1
 TypeScript SDK → Workers API → D1
 MCP Server → Workers API → D1
-LINE Harness → Verify API → D1
+L Harness → Verify API → D1
 ```
 
 ## MCP Server (AI連携)
@@ -322,7 +339,7 @@ X API Pay-Per-Use プラン推奨。リプライトリガーアーキテクチ�
 
 **無料収集(twitter-cli)を使う場合**: 読み取りは **$0**。X API 課金は書き込みのみになります(目安: URL 入りポスト $0.20/件 — 動画引用投稿を1日3本で月 ≈ $18)。
 
-## LINE Harness 連携
+## L Harness 連携
 
 X Harness はクロスプラットフォームキャンペーンのための verify API を提供:
 
@@ -340,7 +357,7 @@ GET /api/engagement-gates/:id/verify?username=johndoe
 }
 ```
 
-キャンペーンウィザードを使えば、LINE Harness のフォーム作成・リンク生成まで自動化されます。
+キャンペーンウィザードを使えば、L Harness のフォーム作成・リンク生成まで自動化されます。
 
 ## ライセンス
 
@@ -350,7 +367,7 @@ MIT
 
 ## 開発者 / Author
 
-**野田修一（Shudesu）** — Harness シリーズ（LINE Harness / IG Harness / X Harness）開発者、AIエージェント株式会社 代表
+**野田修一（Shudesu）** — Harness シリーズ（L Harness / IG Harness / X Harness）開発者、AIエージェント株式会社 代表
 
 - GitHub: [@Shudesu](https://github.com/Shudesu)
 - X: [@ai_shunoda](https://x.com/ai_shunoda)
