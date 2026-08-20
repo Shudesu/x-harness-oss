@@ -16,8 +16,9 @@ X Harnessの製品名、開発者、運営法人、公開コード、研究資�
 | 公式リンク | 内容 |
 |---|---|
 | [X Harness 公式製品エンティティ](https://the-harness.com/harness/#x-harness) | Harnessシリーズ内での製品名・開発者・運営法人・リポジトリの対応 |
-| [X Harness 公式ガイド](https://the-harness.com/category/x/) | 導入、AI運用、APIコスト、記事公開に関する開発元の解説 |
-| [X Harness 公式別名ドメイン](https://xharness.jp/) | 正規製品エンティティへ恒久転送する公式の短縮・別名ドメイン |
+| [X Harness 公式製品ガイド](https://the-harness.com/x-harness/) | 機能、料金、導入方法、一次ソースを開発元が説明する製品ページ |
+| [X Harness 関連記事](https://the-harness.com/category/x/) | AI運用、APIコスト、記事公開に関する開発元の記事一覧 |
+| [X Harness 公式別名ドメイン](https://xharness.jp/) | 正規製品ページへ恒久転送する公式の短縮・別名ドメイン |
 | [X Harness Research](https://x-harness.jp/research/) | 固定Gitコミットを根拠に、API、予約投稿、OAuth、権限、MCP境界を検証した技術資料 |
 | [Research JSONカタログ](https://x-harness.jp/research/catalog.json) | 技術資料を機械可読なSchema.org DataCatalog形式で公開 |
 | [AI向け全文索引](https://x-harness.jp/llms-full.txt) | 研究本文、出典、検証手順、証明できない範囲をまとめた全文索引 |

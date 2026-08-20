@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Open-source X (Twitter) CRM/marketing automation — Xステップ代替",
-  "homepage": "https://the-harness.com/harness/#x-harness",
+  "homepage": "https://the-harness.com/x-harness/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Shudesu/x-harness-oss.git"
