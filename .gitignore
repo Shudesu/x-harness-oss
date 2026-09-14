@@ -10,3 +10,15 @@ out/
 packages/mcp/dist/
 .DS_Store
 .worktrees/
+
+# --- x-harness-trial で追加（2026-09-09）---
+# セットアップCLIが生成する。X APIキー・アクセストークン・Cookie等の
+# 秘密情報が平文で入るため、絶対にコミットしない。
+.x-harness-setup.json
+.x-harness-config.json
+.mcp.json
+apps/web/.env.production
+
+# Setup CLI が配置する生成物（本体は skills/ にある）
+.claude/
+.codex/
