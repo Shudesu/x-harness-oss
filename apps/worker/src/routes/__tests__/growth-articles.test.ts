@@ -267,3 +267,35 @@ describe('/api/growth/articles routes', () => {
     expect(setGrowthArticleStatusMock).toHaveBeenCalledWith({}, 'art1', 'discarded');
   });
 });
+
+describe('article studio safeguards', () => {
+  beforeEach(() => { vi.clearAllMocks(); getGrowthArticleMock.mockResolvedValue({ ...mockArticle }); });
+  it('filters the repository query by selected account', async () => {
+    const res = await growthArticles.request('http://local/api/growth/articles?xAccountId=acc2', {}, env);
+    expect(res.status).toBe(200);
+    expect(getGrowthArticlesMock).toHaveBeenCalledWith({}, { status: undefined, xAccountId: 'acc2' });
+  });
+  it('rejects blank source content without saving it', async () => {
+    const res = await growthArticles.request('http://local/api/growth/articles', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ xAccountId: 'acc1', title: ' ', bodyMd: 'body' }),
+    }, env);
+    expect(res.status).toBe(400);
+    expect(createGrowthArticleMock).not.toHaveBeenCalled();
+  });
+  it('does not edit an X draft that would publish the old remote content', async () => {
+    getGrowthArticleMock.mockResolvedValueOnce({ ...mockArticle, x_article_draft_id: 'remote1' });
+    const res = await growthArticles.request('http://local/api/growth/articles/art1', {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ bodyMd: 'new content' }),
+    }, env);
+    expect(res.status).toBe(409);
+    expect(updateGrowthArticleMock).not.toHaveBeenCalled();
+  });
+  it('rejects empty edits', async () => {
+    const res = await growthArticles.request('http://local/api/growth/articles/art1', {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: '' }),
+    }, env);
+    expect(res.status).toBe(400);
+    expect(updateGrowthArticleMock).not.toHaveBeenCalled();
+  });
+});

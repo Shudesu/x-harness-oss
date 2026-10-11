@@ -77,11 +77,11 @@ const createGrowthDraftMock = vi.fn(async (_db: any, d: any) => ({
 
 vi.mock('@x-harness/db', async (importOriginal) => ({
   ...(await importOriginal<any>()),
-  upsertSourceCandidate: (...a: any[]) => upsertSourceCandidateMock(...a),
-  getSourceCandidates: (...a: any[]) => getSourceCandidatesMock(...a),
-  getSourceCandidate: (...a: any[]) => getSourceCandidateMock(...a),
-  setSourceCandidateStatus: (...a: any[]) => setSourceCandidateStatusMock(...a),
-  createGrowthDraft: (...a: any[]) => createGrowthDraftMock(...a),
+  upsertSourceCandidate: (...a: Parameters<typeof upsertSourceCandidateMock>) => upsertSourceCandidateMock(...a),
+  getSourceCandidates: (...a: Parameters<typeof getSourceCandidatesMock>) => getSourceCandidatesMock(...a),
+  getSourceCandidate: (...a: Parameters<typeof getSourceCandidateMock>) => getSourceCandidateMock(...a),
+  setSourceCandidateStatus: (...a: Parameters<typeof setSourceCandidateStatusMock>) => setSourceCandidateStatusMock(...a),
+  createGrowthDraft: (...a: Parameters<typeof createGrowthDraftMock>) => createGrowthDraftMock(...a),
 }));
 
 import { growthSources } from '../growth-sources.js';

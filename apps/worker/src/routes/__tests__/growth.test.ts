@@ -18,7 +18,7 @@ const getGrowthDraftsMock = vi.fn(async () => []);
 // Far-future slot so resolveApprovedSlot passes it through unchanged.
 const FUTURE_SLOT = '2099-01-01T08:00:00+09:00';
 
-const getGrowthDraftMock = vi.fn(async (_db: any, id: string) => ({
+const getGrowthDraftMock = vi.fn(async (_db: any, id: string): Promise<any> => ({
   id,
   x_account_id: 'acc1',
   type: 'pillar',
@@ -31,15 +31,15 @@ const getGrowthDraftMock = vi.fn(async (_db: any, id: string) => ({
   updated_at: '2026-07-11 00:00:00',
 }));
 
-const updateGrowthDraftMock = vi.fn(async () => {});
+const updateGrowthDraftMock = vi.fn(async (..._args: any[]) => {});
 
-const setGrowthDraftStatusMock = vi.fn(async () => {});
+const setGrowthDraftStatusMock = vi.fn(async (..._args: any[]) => {});
 
-const upsertGrowthDigestMock = vi.fn(async () => {});
+const upsertGrowthDigestMock = vi.fn(async (..._args: any[]) => {});
 
-const getLatestGrowthDigestMock = vi.fn(async () => null);
+const getLatestGrowthDigestMock = vi.fn(async (..._args: any[]): Promise<{date: string; payload: string} | null> => null);
 
-const getGrowthDigestByDateMock = vi.fn(async () => null);
+const getGrowthDigestByDateMock = vi.fn(async (..._args: any[]): Promise<{date: string; payload: string} | null> => null);
 
 // Pass-through by default; tests override to simulate a bumped/rolled slot.
 const resolveFreeSlotMock = vi.fn(async (..._a: any[]) => _a[2] as string);
@@ -59,16 +59,16 @@ const createScheduledPostMock = vi.fn(async (...args: any[]) => ({
 
 vi.mock('@x-harness/db', async (importOriginal) => ({
   ...(await importOriginal<any>()),
-  createGrowthDraft: (...a: any[]) => createGrowthDraftMock(...a),
-  getGrowthDrafts: (...a: any[]) => getGrowthDraftsMock(...a),
-  getGrowthDraft: (...a: any[]) => getGrowthDraftMock(...a),
-  updateGrowthDraft: (...a: any[]) => updateGrowthDraftMock(...a),
-  setGrowthDraftStatus: (...a: any[]) => setGrowthDraftStatusMock(...a),
-  upsertGrowthDigest: (...a: any[]) => upsertGrowthDigestMock(...a),
-  getLatestGrowthDigest: (...a: any[]) => getLatestGrowthDigestMock(...a),
-  getGrowthDigestByDate: (...a: any[]) => getGrowthDigestByDateMock(...a),
-  createScheduledPost: (...a: any[]) => createScheduledPostMock(...a),
-  resolveFreeSlot: (...a: any[]) => resolveFreeSlotMock(...a),
+  createGrowthDraft: (...a: Parameters<typeof createGrowthDraftMock>) => createGrowthDraftMock(...a),
+  getGrowthDrafts: (...a: Parameters<typeof getGrowthDraftsMock>) => getGrowthDraftsMock(...a),
+  getGrowthDraft: (...a: Parameters<typeof getGrowthDraftMock>) => getGrowthDraftMock(...a),
+  updateGrowthDraft: (...a: Parameters<typeof updateGrowthDraftMock>) => updateGrowthDraftMock(...a),
+  setGrowthDraftStatus: (...a: Parameters<typeof setGrowthDraftStatusMock>) => setGrowthDraftStatusMock(...a),
+  upsertGrowthDigest: (...a: Parameters<typeof upsertGrowthDigestMock>) => upsertGrowthDigestMock(...a),
+  getLatestGrowthDigest: (...a: Parameters<typeof getLatestGrowthDigestMock>) => getLatestGrowthDigestMock(...a),
+  getGrowthDigestByDate: (...a: Parameters<typeof getGrowthDigestByDateMock>) => getGrowthDigestByDateMock(...a),
+  createScheduledPost: (...a: Parameters<typeof createScheduledPostMock>) => createScheduledPostMock(...a),
+  resolveFreeSlot: (...a: Parameters<typeof resolveFreeSlotMock>) => resolveFreeSlotMock(...a),
 }));
 
 import { growth } from '../growth.js';

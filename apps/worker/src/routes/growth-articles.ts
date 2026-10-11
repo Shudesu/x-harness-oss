@@ -62,8 +62,14 @@ growthArticles.post('/api/growth/articles', async (c) => {
     sourceTweetIds?: string[];
   }>();
   const { xAccountId, title, bodyMd, imageUrl, theme, sourceTweetIds } = body;
-  if (!xAccountId || !title || !bodyMd) {
+  if (typeof xAccountId !== 'string' || !xAccountId.trim() || typeof title !== 'string' || !title.trim() || typeof bodyMd !== 'string' || !bodyMd.trim()) {
     return c.json({ success: false, error: 'Missing required fields: xAccountId, title, bodyMd' }, 400);
+  }
+  if ((imageUrl !== undefined && typeof imageUrl !== 'string') || (theme !== undefined && typeof theme !== 'string') || (sourceTweetIds !== undefined && (!Array.isArray(sourceTweetIds) || sourceTweetIds.some(id => typeof id !== 'string')))) {
+    return c.json({ success: false, error: 'Invalid optional article fields' }, 400);
+  }
+  if (!await getXAccountById(c.env.DB, xAccountId)) {
+    return c.json({ success: false, error: 'X account not found' }, 404);
   }
   const article = await createGrowthArticle(c.env.DB, {
     xAccountId,
@@ -79,7 +85,8 @@ growthArticles.post('/api/growth/articles', async (c) => {
 // GET /api/growth/articles — list articles with optional status filter
 growthArticles.get('/api/growth/articles', async (c) => {
   const status = c.req.query('status');
-  const articles = await getGrowthArticles(c.env.DB, { status });
+  const xAccountId = c.req.query('xAccountId');
+  const articles = await getGrowthArticles(c.env.DB, { status, ...(xAccountId ? { xAccountId } : {}) });
   return c.json({ success: true, data: articles });
 });
 
@@ -91,7 +98,15 @@ growthArticles.patch('/api/growth/articles/:id', async (c) => {
   if (article.status !== 'draft') {
     return c.json({ success: false, error: 'Article is not a draft' }, 409);
   }
+  if (article.x_article_draft_id) {
+    return c.json({ success: false, error: 'X draft already created; create a new article to change its content' }, 409);
+  }
   const body = await c.req.json<{ title?: string; bodyMd?: string; imageUrl?: string }>();
+  if ((body.title !== undefined && (typeof body.title !== 'string' || !body.title.trim())) ||
+      (body.bodyMd !== undefined && (typeof body.bodyMd !== 'string' || !body.bodyMd.trim())) ||
+      (body.imageUrl !== undefined && typeof body.imageUrl !== 'string')) {
+    return c.json({ success: false, error: 'Invalid article fields' }, 400);
+  }
   await updateGrowthArticle(c.env.DB, id, { title: body.title, bodyMd: body.bodyMd, imageUrl: body.imageUrl });
   const updated = await getGrowthArticle(c.env.DB, id);
   return c.json({ success: true, data: updated });
