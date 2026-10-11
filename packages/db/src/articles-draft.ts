@@ -51,13 +51,17 @@ export async function createGrowthArticle(
 
 export async function getGrowthArticles(
   db: D1Database,
-  opts: { status?: string } = {},
+  opts: { status?: string; xAccountId?: string } = {},
 ): Promise<DbGrowthArticle[]> {
   const conditions: string[] = [];
   const binds: unknown[] = [];
   if (opts.status) {
     conditions.push('status = ?');
     binds.push(opts.status);
+  }
+  if (opts.xAccountId) {
+    conditions.push('x_account_id = ?');
+    binds.push(opts.xAccountId);
   }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const result = await db
