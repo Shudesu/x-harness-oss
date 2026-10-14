@@ -679,4 +679,53 @@ posts.post('/api/quotes/sync', async (c) => {
   }
 });
 
+// GET /api/posts/:id/metrics — public metrics for a single tweet (billed: $0.005/post)
+//
+// NOTE: keep this and the `/api/posts/:id` route below the fixed-path GET routes
+// declared earlier in this file (/api/posts/scheduled, /search, /history, /mentions).
+// Hono matches routes in registration order, so a `:id` pattern registered above them
+// would swallow those paths and break them.
+posts.get('/api/posts/:id/metrics', async (c) => {
+  const tweetId = c.req.param('id');
+  const xAccountId = c.req.query('xAccountId');
+  let account;
+  if (xAccountId) {
+    account = await getXAccountById(c.env.DB, xAccountId);
+  } else {
+    const accounts = await getXAccounts(c.env.DB);
+    account = accounts[0] || null;
+  }
+  if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
+  const xClient = buildXClient(account);
+  try {
+    const tweet = await xClient.getTweet(tweetId);
+    c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'get_tweet'));
+    return c.json({ success: true, data: tweet.public_metrics ?? null });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message ?? 'Failed to fetch tweet metrics' }, 500);
+  }
+});
+
+// GET /api/posts/:id — single tweet with metrics (billed: $0.005/post)
+posts.get('/api/posts/:id', async (c) => {
+  const tweetId = c.req.param('id');
+  const xAccountId = c.req.query('xAccountId');
+  let account;
+  if (xAccountId) {
+    account = await getXAccountById(c.env.DB, xAccountId);
+  } else {
+    const accounts = await getXAccounts(c.env.DB);
+    account = accounts[0] || null;
+  }
+  if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
+  const xClient = buildXClient(account);
+  try {
+    const tweet = await xClient.getTweet(tweetId);
+    c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'get_tweet'));
+    return c.json({ success: true, data: tweet });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message ?? 'Failed to fetch tweet' }, 500);
+  }
+});
+
 export { posts };
