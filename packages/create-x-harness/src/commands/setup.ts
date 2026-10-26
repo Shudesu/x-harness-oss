@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
@@ -35,6 +36,7 @@ function saveState(repoDir: string, state: SetupState): void {
   writeFileSync(
     getStatePath(repoDir),
     JSON.stringify(state, null, 2) + "\n",
+    {mode:0o600},
   );
 }
 
@@ -185,7 +187,14 @@ export async function runSetup(repoDir: string): Promise<void> {
 
   // Step 8: Set secrets
   if (!isDone(state, "secrets")) {
+    // Preserve this key in the existing setup state across retries.
+    if (!state.encryptionKey) {
+      const existing=JSON.parse(await wrangler(['secret','list','--name',workerName])) as Array<{name:string}>;
+      if(!existing.some(s=>s.name==='ENCRYPTION_KEY')){state.encryptionKey=randomBytes(32).toString('base64');saveState(repoDir,state);}
+    }
     await setSecrets({
+      encryptionKey:state.encryptionKey,
+      xaiApiKey:process.env.XAI_API_KEY,
       workerName,
       apiKey: state.apiKey!,
       xAccessToken: state.xAccessToken!,
@@ -248,6 +257,7 @@ export async function runSetup(repoDir: string): Promise<void> {
       projectName: adminProjectName,
     });
     state.adminUrl = adminUrl;
+    await wrangler(['secret','put','ADMIN_ORIGIN','--name',workerName],{input:adminUrl});
     markDone(state, "admin");
     saveState(repoDir, state);
   } else {
@@ -278,7 +288,7 @@ export async function runSetup(repoDir: string): Promise<void> {
   // Step 11.5: Optional free-scraping setup (twitter-cli cookie auth).
   // Tokens are intentionally NOT persisted to the setup state file — cookies
   // must never land in plain JSON on disk beyond .mcp.json itself.
-  const scraperTokens = await promptScraperSetup();
+  const scraperTokens = process.argv.includes('--enable-scraper') ? await promptScraperSetup() : null;
   installSkills(repoDir);
 
   // Step 12: Generate MCP config (always)

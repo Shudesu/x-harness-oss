@@ -1,3 +1,5 @@
+import { decryptSecret, recordSpend } from '@x-harness/db';
+import { buildXClient } from '../services/x-client.js';
 import { Hono } from 'hono';
 import { getXAccounts, getXAccountById, insertXaaEvent, getXaaEvents } from '@x-harness/db';
 import type { Env } from '../index.js';
@@ -29,12 +31,13 @@ xaa.get('/webhook/xaa', async (c) => {
 
   // Use the first active account's consumer_secret
   const accounts = await getXAccounts(c.env.DB);
-  const account = accounts[0] ?? null;
+  const accountId=c.req.query('accountId');
+  const account = (accountId ? accounts.find(a=>a.id===accountId) : accounts.length===1?accounts[0]:null) ?? null;
   if (!account || !account.consumer_secret) {
     return c.json({ success: false, error: 'No active X account with consumer_secret configured' }, 500);
   }
 
-  const responseToken = await hmacSha256(account.consumer_secret, crcToken);
+  const responseToken = await hmacSha256(await decryptSecret(account.consumer_secret,c.env.ENCRYPTION_KEY), crcToken);
   return c.json({ response_token: responseToken });
 });
 
@@ -53,7 +56,9 @@ function timingSafeEqual(a: string, b: string): boolean {
 // Instead, X signs the payload: x-twitter-webhooks-signature =
 // "sha256=" + base64(HMAC-SHA256(consumer_secret, raw_body)).
 xaa.post('/webhook/xaa', async (c) => {
+  if(Number(c.req.header('Content-Length'))>1048576)return c.json({success:false},413);
   const rawBody = await c.req.text();
+  if(rawBody.length>1048576)return c.json({success:false},413);
   let body: Record<string, unknown>;
   try {
     body = JSON.parse(rawBody) as Record<string, unknown>;
@@ -61,7 +66,8 @@ xaa.post('/webhook/xaa', async (c) => {
     return c.json({ success: false, error: 'Invalid JSON body' }, 400);
   }
 
-  const eventType = (body.event_type as string | undefined)
+  const envelope = body.data && typeof body.data === 'object' && !Array.isArray(body.data) ? body.data as Record<string,unknown> : body;
+  const eventType = (envelope.event_type as string | undefined)
     ?? ('direct_message_events' in body ? 'dm' : 'unknown');
 
   // Verify the signature against active accounts' consumer secrets.
@@ -69,13 +75,17 @@ xaa.post('/webhook/xaa', async (c) => {
   // pollute the events table / consume D1 storage.
   const signature = c.req.header('x-twitter-webhooks-signature');
   let verified = false;
+  let verifiedAccountId: string|undefined;
   if (signature) {
     const accounts = await getXAccounts(c.env.DB);
     for (const acct of accounts) {
       if (!acct.consumer_secret) continue;
-      const expected = await hmacSha256(acct.consumer_secret, rawBody);
+      const expected = await hmacSha256(await decryptSecret(acct.consumer_secret,c.env.ENCRYPTION_KEY), rawBody);
       if (timingSafeEqual(expected, signature)) {
+        if(body.for_user_id && body.for_user_id !== acct.x_user_id) continue;
+        const selected=c.req.query('accountId');if(selected && selected!==acct.id)continue;
         verified = true;
+        verifiedAccountId=acct.id;
         break;
       }
     }
@@ -88,7 +98,7 @@ xaa.post('/webhook/xaa', async (c) => {
     // activity is queryable via GET /api/xaa/events. Fire-and-forget — the
     // webhook must respond within 10s no matter what.
     c.executionCtx.waitUntil(
-      insertXaaEvent(c.env.DB, eventType, body).catch((err) => console.error('[XAA] persist failed:', err)),
+      persistVerifiedEvent(c.env.DB,verifiedAccountId!,eventType,body).catch(()=>console.error('[XAA] persist failed')),
     );
   }
 
@@ -136,21 +146,22 @@ xaa.post('/api/xaa/webhook', async (c) => {
     return c.json({ success: false, error: 'WORKER_URL environment variable not set' }, 500);
   }
 
-  const webhookUrl = `${workerUrl.replace(/\/$/, '')}/webhook/xaa`;
+  const webhookUrl = `${workerUrl.replace(/\/$/, '')}/webhook/xaa?accountId=${encodeURIComponent(account.id)}`;
 
   try {
-    const res = await fetch('https://api.x.com/2/webhooks', {
+    const xClient=await buildXClient(c.env,account,'xaa-management');
+    const res = await xClient.fetchRaw('https://api.x.com/2/webhooks', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${account.access_token}`,
+        Authorization: `Bearer ${await decryptSecret(account.access_token,c.env.ENCRYPTION_KEY)}`,
       },
       body: JSON.stringify({ url: webhookUrl }),
     });
 
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
-      return c.json({ success: false, error: 'X API error', details: data }, res.status as 400 | 401 | 403 | 500);
+      return c.json({ success: false, error: 'X API error' }, res.status as 400 | 401 | 403 | 500);
     }
 
     return c.json({ success: true, data });
@@ -184,18 +195,19 @@ xaa.post('/api/xaa/subscribe', async (c) => {
   }
 
   try {
-    const res = await fetch('https://api.x.com/2/activity/subscriptions', {
+    const xClient=await buildXClient(c.env,account,'xaa-management');
+    const res = await xClient.fetchRaw('https://api.x.com/2/activity/subscriptions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${account.access_token}`,
+        Authorization: `Bearer ${await decryptSecret(account.access_token,c.env.ENCRYPTION_KEY)}`,
       },
       body: JSON.stringify({ webhook_id: webhookId, event_types: [eventType] }),
     });
 
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
-      return c.json({ success: false, error: 'X API error', details: data }, res.status as 400 | 401 | 403 | 500);
+      return c.json({ success: false, error: 'X API error' }, res.status as 400 | 401 | 403 | 500);
     }
 
     return c.json({ success: true, data });
@@ -220,15 +232,16 @@ xaa.get('/api/xaa/subscriptions', async (c) => {
   }
 
   try {
-    const res = await fetch('https://api.x.com/2/activity/subscriptions', {
+    const xClient=await buildXClient(c.env,account,'xaa-management');
+    const res = await xClient.fetchRaw('https://api.x.com/2/activity/subscriptions', {
       headers: {
-        Authorization: `Bearer ${account.access_token}`,
+        Authorization: `Bearer ${await decryptSecret(account.access_token,c.env.ENCRYPTION_KEY)}`,
       },
     });
 
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
-      return c.json({ success: false, error: 'X API error', details: data }, res.status as 400 | 401 | 403 | 500);
+      return c.json({ success: false, error: 'X API error' }, res.status as 400 | 401 | 403 | 500);
     }
 
     return c.json({ success: true, data });
@@ -254,10 +267,11 @@ xaa.delete('/api/xaa/subscriptions/:id', async (c) => {
   }
 
   try {
-    const res = await fetch(`https://api.x.com/2/activity/subscriptions/${subscriptionId}`, {
+    const xClient=await buildXClient(c.env,account,'xaa-management');
+    const res = await xClient.fetchRaw(`https://api.x.com/2/activity/subscriptions/${encodeURIComponent(subscriptionId)}`, {
       method: 'DELETE',
       headers: {
-        Authorization: `Bearer ${account.access_token}`,
+        Authorization: `Bearer ${await decryptSecret(account.access_token,c.env.ENCRYPTION_KEY)}`,
       },
     });
 
@@ -267,7 +281,7 @@ xaa.delete('/api/xaa/subscriptions/:id', async (c) => {
 
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
-      return c.json({ success: false, error: 'X API error', details: data }, res.status as 400 | 401 | 403 | 500);
+      return c.json({ success: false, error: 'X API error' }, res.status as 400 | 401 | 403 | 500);
     }
 
     return c.json({ success: true, data });
@@ -277,3 +291,27 @@ xaa.delete('/api/xaa/subscriptions/:id', async (c) => {
 });
 
 export { xaa };
+
+async function persistVerifiedEvent(db:D1Database,accountId:string,eventType:string,body:Record<string,unknown>){
+  await insertXaaEvent(db,eventType,body);
+  const envelope=body.data && typeof body.data==='object' && !Array.isArray(body.data)?body.data as Record<string,any>:body as Record<string,any>;
+  const tweets=Array.isArray(body.tweet_create_events)?[...body.tweet_create_events]:[];
+  if(eventType==='post.create' && envelope.payload?.id) {
+    const post=envelope.payload;
+    const user=envelope.includes?.users?.find((u:any)=>u.id===post.author_id);
+    tweets.push({id_str:post.id,in_reply_to_status_id_str:post.in_reply_to_tweet_id ?? post.referenced_tweets?.find((t:any)=>t.type==='replied_to')?.id,text:post.text,user:{id_str:post.author_id,screen_name:user?.username ?? '',name:user?.name ?? ''}});
+  }
+  const eventPrices:Record<string,number>={'follow.follow':.01,'follow.unfollow':.01,'mute.mute':.001,'mute.unmute':.001,'block.block':.001,'block.unblock':.001,'dm.received':.01,'chat.received':.01,'news.new':.005,'spaces.start':.005,'spaces.end':.005};
+  const price=eventType.startsWith('profile.update.') ? 0.005 : eventPrices[eventType];
+  if(price && envelope.event_uuid){const first=await db.prepare('INSERT OR IGNORE INTO ai_locks(id,expires_at) VALUES (?,?) RETURNING id').bind(`xaa:${accountId}:${new Date().toISOString().slice(0,10)}:${envelope.event_uuid}`,Date.now()+86400000).first();if(first)await recordSpend(db,{accountId,feature:'xaa',endpoint:'/webhook/xaa',resourceType:eventType,units:1,unitCost:price});}
+
+  for(const raw of tweets){
+    const tweet=raw as {id_str?:string;in_reply_to_status_id_str?:string;text?:string;user?:{id_str?:string;screen_name?:string;name?:string}};
+    if(!tweet.id_str || !tweet.user?.id_str)continue;
+    const gates=(await db.prepare("SELECT id FROM engagement_gates WHERE x_account_id=? AND post_id=? AND is_active=1 AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))").bind(accountId,tweet.in_reply_to_status_id_str ?? '').all<{id:string}>()).results;
+    for(const gate of gates) await db.prepare('INSERT OR IGNORE INTO reply_trigger_queue(gate_id,tweet_id,json,created_at) VALUES (?,?,?,?)').bind(gate.id,tweet.id_str,JSON.stringify({id:tweet.user.id_str,username:tweet.user.screen_name ?? '',name:tweet.user.name ?? '',text:tweet.text ?? ''}),Date.now()).run();
+    const key=`xaa-post:${accountId}:${new Date().toISOString().slice(0,10)}:${tweet.id_str}`;
+    const first=await db.prepare('INSERT OR IGNORE INTO ai_locks(id,expires_at) VALUES (?,?) RETURNING id').bind(key,Date.now()+86400000).first();
+    if(first)await recordSpend(db,{accountId,feature:'xaa',endpoint:'/webhook/xaa',resourceType:'webhook_post',units:1,unitCost:.005});
+  }
+}

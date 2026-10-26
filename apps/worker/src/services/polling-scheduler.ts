@@ -63,16 +63,17 @@ export function getPhaseLabel(gate: DbEngagementGate): string {
 
 export function calculateNextPollAt(gate: DbEngagementGate): string {
   const now = Date.now();
+  const interval=(base:number)=>Math.min(base*2**Math.max(0,(gate.consecutive_empty_polls ?? 0)-1),3600000)+Math.floor(Math.random()*30000);
 
   if (gate.polling_strategy === 'constant') {
-    return new Date(now + CONSTANT_INTERVAL_MS).toISOString();
+    return new Date(now + interval(CONSTANT_INTERVAL_MS)).toISOString();
   }
 
   // hot_window: determine interval from current phase using expires_at
   const ageMs = getHotWindowAgeMs(gate);
   for (const phase of HOT_WINDOW_PHASES) {
     if (ageMs <= phase.maxAgeMs) {
-      return new Date(now + phase.intervalMs).toISOString();
+      return new Date(now + interval(phase.intervalMs)).toISOString();
     }
   }
 

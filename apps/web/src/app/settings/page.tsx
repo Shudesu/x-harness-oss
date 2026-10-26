@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { fetchApi } from '@/lib/api'
+import {useCurrentAccountId} from '@/hooks/use-selected-account'
+import AiPanel from '@/components/ai-panel'
 import Header from '@/components/layout/header'
 
 interface LineConnection {
@@ -13,6 +15,13 @@ interface LineConnection {
 }
 
 export default function SettingsPage() {
+  const accountId=useCurrentAccountId()
+  const [dailyDigest,setDailyDigest]=useState(false)
+  const [ignoreBudget,setIgnoreBudget]=useState(false)
+  const [xBudget,setXBudget]=useState('50')
+  const [aiBudget,setAiBudget]=useState('5')
+  const [aiModel,setAiModel]=useState('grok-4.3')
+  const [budgetError,setBudgetError]=useState('')
   const [connections, setConnections] = useState<LineConnection[]>([])
   const [loading, setLoading] = useState(true)
   const [autoEnabled, setAutoEnabled] = useState(false)
@@ -38,6 +47,11 @@ export default function SettingsPage() {
       const res = await fetchApi<{ success: boolean; data: Record<string, string> }>('/api/settings')
       if (res.success) {
         setAutoEnabled(res.data.auto_features_enabled === 'true')
+        setXBudget(res.data.x_monthly_budget_usd ?? '50')
+        setDailyDigest(res.data.ai_digest_enabled==='true')
+        setIgnoreBudget(res.data.scheduled_posts_ignore_budget==='true')
+        setAiBudget(res.data.xai_monthly_budget_usd ?? '5')
+        setAiModel(res.data.xai_model ?? 'grok-4.3')
       }
     } catch { /* ignore */ }
     setAutoLoading(false)
@@ -47,10 +61,10 @@ export default function SettingsPage() {
     const newValue = !autoEnabled
     if (newValue && !confirm(
       '⚠️ 自動機能を有効にすると X API 使用料が発生します。\n\n' +
-      '・エンゲージメントゲートの自動ポーリング（$0.005/回）\n' +
-      '・予約投稿の自動実行（$0.010/回）\n' +
+      '・ゲートの取得リソース数に応じた課金\n' +
+      '・予約投稿はこの設定と独立して実行\n' +
       '・ステップシーケンスの自動実行\n\n' +
-      '5分ごとに課金が発生します。有効にしますか？'
+      '設定した予算までAPIを利用します。有効にしますか？'
     )) return
     setAutoSaving(true)
     try {
@@ -91,18 +105,10 @@ export default function SettingsPage() {
   const handleTest = async (conn: LineConnection) => {
     setTestResults(prev => ({ ...prev, [conn.id]: '...' }))
     try {
-      // Need to fetch full connection with api_key
-      const full = await fetchApi<{ success: boolean; data: LineConnection }>(`/api/line-connections/${conn.id}`)
-      if (!full.success || !full.data.api_key) {
-        setTestResults(prev => ({ ...prev, [conn.id]: '❌ API Key が取得できません' }))
-        return
-      }
-      const res = await fetch(`${conn.worker_url}/api/friends?limit=1`, {
-        headers: { Authorization: `Bearer ${full.data.api_key}` },
-      })
+      const res = await fetchApi<{success:boolean}>(`/api/line-connections/${conn.id}/proxy/friends?limit=1`)
       setTestResults(prev => ({
         ...prev,
-        [conn.id]: res.ok ? '✅ 接続OK' : `❌ ${res.status}`,
+        [conn.id]: res.success ? '✅ 接続OK' : '❌ 接続失敗',
       }))
     } catch (err) {
       setTestResults(prev => ({ ...prev, [conn.id]: `❌ ${err}` }))
@@ -111,16 +117,20 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <Header title="L Harness 設定" description="自動機能・L Harness 接続の管理" />
+      <Header title="設定" description="自動機能・L Harness 接続の管理" />
 
       <div className="max-w-2xl space-y-6">
+        <section className="bg-white border rounded p-5 space-y-3"><h2>API予算とAI設定</h2><label className="block"><input type="checkbox" checked={dailyDigest} onChange={async e=>{const value=e.target.checked;try{await fetchApi('/api/settings',{method:'PUT',body:JSON.stringify({ai_digest_enabled:String(value)})});setDailyDigest(value)}catch(err){setBudgetError(err instanceof Error?err.message:'保存失敗')}}}/>毎朝8時にダイジェストを生成</label><label className="block"><input type="checkbox" checked={ignoreBudget} onChange={async e=>{const value=e.target.checked;try{await fetchApi('/api/settings',{method:'PUT',body:JSON.stringify({scheduled_posts_ignore_budget:String(value)})});setIgnoreBudget(value)}catch(err){setBudgetError(err instanceof Error?err.message:'保存失敗')}}}/>予算到達後も明示的に予約した投稿を実行</label><label className="block">X 月予算（USD）<input type="number" min="0" value={xBudget} onChange={e=>setXBudget(e.target.value)} className="border p-2"/></label><label className="block">AI 月予算（USD）<input type="number" min="0" value={aiBudget} onChange={e=>setAiBudget(e.target.value)} className="border p-2"/></label><label className="block">モデル<select value={aiModel} onChange={e=>setAiModel(e.target.value)}><option>grok-4.3</option><option>grok-4.7</option></select></label><button onClick={async()=>{try{await fetchApi('/api/settings',{method:'PUT',body:JSON.stringify({x_monthly_budget_usd:xBudget,xai_monthly_budget_usd:aiBudget,xai_model:aiModel})});setBudgetError('保存しました')}catch(e){setBudgetError(e instanceof Error?e.message:'保存失敗')}}} className="border px-3 py-2">予算・モデルを保存</button><p role="status">{budgetError}</p><p>Grokは任意です。サーバーで XAI_API_KEY を設定すると有効になります。自動ダイジェストは ai_digest_enabled 設定で有効化できます。</p></section>
+        <section className="border rounded bg-white p-5"><h2>フォロワー同期</h2><p>通常更新は直近エンゲージャーのプロフィールを更新します。新規フォロワーの全件発見は全件同期を使用してください。</p><button className="border p-2" onClick={async()=>{try{await fetchApi(`/api/x-accounts/${accountId}/followers/sync`,{method:'POST',body:'{}'});setBudgetError('更新候補を同期しました')}catch(e){setBudgetError(e instanceof Error?e.message:'同期失敗')}}}>更新候補のみ同期</button><button className="border p-2" onClick={async()=>{try{const stats=await fetchApi<{data:{current:{followersCount:number}|null}}>(`/api/x-accounts/${accountId}/stats`);const n=stats.data.current?.followersCount;const message=n===undefined?'フォロワー数が未取得です。全件同期は取得人数に応じて課金されます。':'全件同期は最大目安 $'+(n*.01).toFixed(2)+'（'+n+'人 × $0.01、保存済み人数による推定）です。';if(!confirm(message+' 続行しますか？'))return;await fetchApi(`/api/x-accounts/${accountId}/followers/sync?full=1`,{method:'POST',body:JSON.stringify({confirmFull:true})});setBudgetError('全件同期しました')}catch(e){setBudgetError(e instanceof Error?e.message:'同期失敗')}}}>全件同期（料金を確認）</button></section>
+        <section className="border rounded bg-white p-5"><h2>X OAuth 2.0 接続</h2><p>サーバーでOAuthクライアントを設定後、Xの認可画面で接続します。</p><button className="border rounded px-3 py-2" onClick={async()=>{try{const r=await fetchApi<{data:{authorizationUrl:string}}>('/api/x/oauth/start',{method:'POST'});window.location.assign(r.data.authorizationUrl)}catch(e){setBudgetError(e instanceof Error?e.message:'接続開始失敗')}}}>Xを接続・再接続</button></section>
+        <AiPanel />
         {/* 自動機能トグル */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold text-gray-800">自動機能</h2>
               <p className="text-xs text-gray-500 mt-1">
-                エンゲージメントゲート・予約投稿・ステップシーケンスの自動実行
+                エンゲージメントゲート・ステップシーケンスの自動実行
               </p>
             </div>
             {autoLoading ? (
@@ -146,7 +156,7 @@ export default function SettingsPage() {
           {autoEnabled && !autoLoading && (
             <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
               <p className="text-xs text-green-700">
-                <strong>オン</strong> — 5分ごとに自動実行されます。X API 使用料が発生します（Read: $0.005/回、Write: $0.010/回）。
+                <strong>オン</strong> — 5分ごとに自動実行されます。取得リソース数と送信内容に応じたX API料金が発生します。予算と機能別内訳はダッシュボードで確認できます。
               </p>
             </div>
           )}

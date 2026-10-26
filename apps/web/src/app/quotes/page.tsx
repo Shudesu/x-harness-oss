@@ -81,7 +81,6 @@ function QuoteRow({ quote, xAccountId, actions }: { quote: MentionReply; xAccoun
   return (
     <div className="flex items-start gap-3 py-3">
       {quote.authorProfileImageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
         <img src={quote.authorProfileImageUrl} alt="" className="w-9 h-9 rounded-full shrink-0 bg-gray-100" />
       ) : (
         <div className="w-9 h-9 rounded-full shrink-0 bg-gray-200 flex items-center justify-center text-gray-400 text-xs font-bold">

@@ -35,8 +35,8 @@ describe('parseScheduledAtMs', () => {
 describe('resolveFreeSlot', () => {
   const FUTURE = '2099-01-01T08:00:00+09:00';
 
-  it('keeps a free future slot in its original string form', async () => {
-    expect(await resolveFreeSlot(stubDb([]), 'acc1', FUTURE)).toBe(FUTURE);
+  it('normalizes a free future slot without changing its instant', async () => {
+    expect(await resolveFreeSlot(stubDb([]), 'acc1', FUTURE)).toBe('2099-01-01T08:00:00.000+09:00');
   });
 
   it('bumps by 1h steps off a claimed slot', async () => {
@@ -65,10 +65,10 @@ describe('resolveFreeSlot', () => {
 
   it('leaves a stale slot untouched without rollStale (post-ASAP contract)', async () => {
     const stale = '2020-01-01T12:00:00+09:00';
-    expect(await resolveFreeSlot(stubDb([]), 'acc1', stale)).toBe(stale);
+    expect(await resolveFreeSlot(stubDb([]), 'acc1', stale)).toBe('2020-01-01T12:00:00.000+09:00');
   });
 
-  it('returns unparseable input unchanged', async () => {
-    expect(await resolveFreeSlot(stubDb([]), 'acc1', 'garbage')).toBe('garbage');
+  it('rejects unparseable input', async () => {
+    await expect(resolveFreeSlot(stubDb([]), 'acc1', 'garbage')).rejects.toThrow('Invalid scheduledAt');
   });
 });

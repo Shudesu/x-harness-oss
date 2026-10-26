@@ -1,3 +1,4 @@
+import { buildXClient } from '../services/x-client.js';
 import { Hono } from 'hono';
 import { XClient, XApiRateLimitError } from '@x-harness/x-sdk';
 import type { ArticleContentState, ArticleContentBlock, ArticleEntity } from '@x-harness/x-sdk';
@@ -16,17 +17,6 @@ export function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-export function buildXClient(account: { consumer_key: string | null; consumer_secret: string | null; access_token: string; access_token_secret: string | null }): XClient {
-  return account.consumer_key && account.consumer_secret && account.access_token_secret
-    ? new XClient({
-        type: 'oauth1',
-        consumerKey: account.consumer_key,
-        consumerSecret: account.consumer_secret,
-        accessToken: account.access_token,
-        accessTokenSecret: account.access_token_secret,
-      })
-    : new XClient(account.access_token);
-}
 
 // Convert markdown-lite body text into DraftJS-style content blocks.
 // Supported per line-group: "# " → header-one, "## " → header-two,
@@ -267,12 +257,19 @@ async function loadArticleMedia(
   if (!/^https:\/\//.test(url)) {
     throw new InlineImageError(`Article image URL must be https: ${url}`);
   }
-  const res = await fetch(url);
+  const parsed = new URL(url);
+  if(parsed.username||parsed.password||parsed.hostname==='localhost'||parsed.hostname.endsWith('.local')||/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[)/.test(parsed.hostname)) throw new InlineImageError('Image host not allowed');
+  const res = await fetch(url,{redirect:'error',signal:AbortSignal.timeout(15000)});
   if (!res.ok) throw new InlineImageError(`Failed to fetch article image (${res.status}): ${url}`);
-  return {
-    data: await res.arrayBuffer(),
-    contentType: res.headers.get('content-type') ?? 'image/png',
-  };
+  const contentType=(res.headers.get('content-type') ?? '').split(';')[0];
+  if(!['image/png','image/jpeg','image/webp','image/gif'].includes(contentType)) throw new InlineImageError('Unsupported image content type');
+  const limit=10*1024*1024;
+  if(Number(res.headers.get('content-length'))>limit) throw new InlineImageError('Image exceeds 10MB');
+  const reader=res.body?.getReader();if(!reader)throw new InlineImageError('Empty image');
+  const chunks:Uint8Array[]=[];let total=0;
+  for(;;){const {value,done}=await reader.read();if(done)break;total+=value.length;if(total>limit){await reader.cancel();throw new InlineImageError('Image exceeds 10MB');}chunks.push(value);}
+  const data=new Uint8Array(total);let offset=0;for(const chunk of chunks){data.set(chunk,offset);offset+=chunk.length;}
+  return {data:data.buffer,contentType};
 }
 
 // Upload the Growth article's 5:2 header image as the X Article cover.
@@ -338,7 +335,7 @@ articles.post('/api/articles/draft', async (c) => {
 
   const account = await getXAccountById(c.env.DB, xAccountId);
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
-  const xClient = buildXClient(account);
+  const xClient = await buildXClient(c.env, account, 'articles');
 
   try {
     // Inline images are uploaded first — explicitly, not inline in the call —
@@ -378,7 +375,7 @@ articles.post('/api/articles/:id/publish', async (c) => {
 
   const account = await getXAccountById(c.env.DB, xAccountId);
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
-  const xClient = buildXClient(account);
+  const xClient = await buildXClient(c.env, account, 'articles');
 
   try {
     const result = await xClient.publishArticle(articleId);
@@ -400,7 +397,7 @@ articles.get('/api/news/search', async (c) => {
     ? await getXAccountById(c.env.DB, xAccountId)
     : (await import('@x-harness/db').then((m) => m.getXAccounts(c.env.DB)))[0] ?? null;
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
-  const xClient = buildXClient(account);
+  const xClient = await buildXClient(c.env, account, 'articles');
 
   try {
     const result = await xClient.searchNews(query, maxResults);
@@ -420,7 +417,7 @@ articles.get('/api/news/:id', async (c) => {
     ? await getXAccountById(c.env.DB, xAccountId)
     : (await import('@x-harness/db').then((m) => m.getXAccounts(c.env.DB)))[0] ?? null;
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
-  const xClient = buildXClient(account);
+  const xClient = await buildXClient(c.env, account, 'articles');
 
   try {
     const story = await xClient.getNews(newsId);

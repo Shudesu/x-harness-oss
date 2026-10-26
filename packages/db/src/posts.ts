@@ -14,6 +14,7 @@ export interface DbScheduledPost {
 }
 
 export async function createScheduledPost(db: D1Database, xAccountId: string, text: string, scheduledAt: string, mediaIds?: string[], quoteTweetId?: string): Promise<DbScheduledPost> {
+  scheduledAt = normalizeScheduledAt(scheduledAt);
   const id = crypto.randomUUID();
   const now = jstNow();
   const result = await db
@@ -57,7 +58,7 @@ export async function resolveFreeSlot(
   opts: { rollStale?: boolean } = {},
 ): Promise<string> {
   const requestedMs = parseScheduledAtMs(requestedAt);
-  if (Number.isNaN(requestedMs)) return requestedAt;
+  if (!Number.isFinite(requestedMs)) throw new Error('Invalid scheduledAt');
   let slotMs = requestedMs;
   if (opts.rollStale && slotMs <= Date.now()) slotMs = Date.now() + STALE_GRACE_MS;
   const taken = (await getScheduledPosts(db, { status: 'scheduled', xAccountId }))
@@ -67,13 +68,13 @@ export async function resolveFreeSlot(
     slotMs += SLOT_BUMP_MS;
   }
   // Untouched slot keeps its original string form (format contract with callers).
-  return slotMs === requestedMs ? requestedAt : toJstString(new Date(slotMs));
+  return toJstString(new Date(slotMs));
 }
 
 export async function getDueScheduledPosts(db: D1Database): Promise<DbScheduledPost[]> {
   const now = jstNow();
   const result = await db
-    .prepare("SELECT * FROM scheduled_posts WHERE status = 'scheduled' AND scheduled_at <= ? ORDER BY scheduled_at ASC")
+    .prepare("SELECT * FROM scheduled_posts WHERE status = 'scheduled' AND julianday(scheduled_at) <= julianday(?) AND NOT EXISTS (SELECT 1 FROM scheduled_post_claims WHERE post_id = scheduled_posts.id) ORDER BY julianday(scheduled_at) ASC")
     .bind(now)
     .all<DbScheduledPost>();
   return result.results;
@@ -89,4 +90,19 @@ export async function updateScheduledPostStatus(db: D1Database, id: string, stat
 
 export async function deleteScheduledPost(db: D1Database, id: string): Promise<void> {
   await db.prepare('DELETE FROM scheduled_posts WHERE id = ?').bind(id).run();
+}
+
+export function normalizeScheduledAt(value: string): string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/.test(value)) throw new Error('Invalid scheduledAt');
+  const datePart=value.slice(0,10);
+  const dateCheck=new Date(`${datePart}T00:00:00Z`);
+  if(!Number.isFinite(dateCheck.getTime()) || dateCheck.toISOString().slice(0,10)!==datePart)throw new Error('Invalid scheduledAt');
+  const ms = parseScheduledAtMs(value);
+  if (!Number.isFinite(ms)) throw new Error('Invalid scheduledAt');
+  return toJstString(new Date(ms));
+}
+
+export async function claimScheduledPost(db: D1Database, id: string): Promise<boolean> {
+  const row = await db.prepare("INSERT OR IGNORE INTO scheduled_post_claims (post_id, claimed_at) SELECT id, ? FROM scheduled_posts WHERE id = ? AND status = 'scheduled' RETURNING post_id").bind(new Date().toISOString(), id).first();
+  return !!row;
 }

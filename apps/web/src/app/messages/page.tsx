@@ -351,7 +351,6 @@ export default function MessagesPage() {
                   `}
                 >
                   {conv.participantProfileImageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={conv.participantProfileImageUrl}
                       alt={conv.participantUsername ?? ''}
@@ -416,7 +415,6 @@ export default function MessagesPage() {
                 ← 戻る
               </button>
               {selectedConv.participantProfileImageUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img src={selectedConv.participantProfileImageUrl} alt="" className="w-7 h-7 rounded-full bg-gray-100" />
               )}
               <span className="text-sm font-semibold text-gray-800">

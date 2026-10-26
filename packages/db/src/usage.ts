@@ -30,41 +30,6 @@ export interface GateUsage {
   estimatedCost: number;
 }
 
-// X API Pay-Per-Use pricing (as of Feb 2026)
-// https://docs.x.com/x-api/getting-started/pricing
-const COST_BY_ENDPOINT: Record<string, number> = {
-  // Read operations — $0.005 per request
-  engagement_gate_poll: 0.005,
-  get_user_tweets: 0.005,
-  search_mentions: 0.005,
-  search_own_replies: 0.005,
-  get_quote_tweets: 0.005,
-  sync_quotes: 0.005,
-  dm_events: 0.005,
-  verify_get_user: 0.005,
-  verify_get_followers: 0.005,
-  verify_get_retweeted_by: 0.005,
-  verify_get_liking_users: 0.005,
-  verify_search_replies: 0.005,
-  user_search: 0.005,
-  news_search: 0.005,
-  news_get: 0.005,
-  // Write operations — $0.010 per request
-  create_tweet: 0.010,
-  delete_tweet: 0.010,
-  like_tweet: 0.010,
-  retweet: 0.010,
-  upload_media: 0.010,
-  dm_send: 0.010,
-  article_draft: 0.010,
-  article_publish: 0.010,
-};
-const DEFAULT_COST = 0.005;
-
-function costForEndpoint(endpoint: string): number {
-  return COST_BY_ENDPOINT[endpoint] ?? DEFAULT_COST;
-}
-
 export async function incrementApiUsage(db: D1Database, xAccountId: string, endpoint: string): Promise<void> {
   return incrementApiUsageBy(db, xAccountId, endpoint, 1);
 }
@@ -131,9 +96,15 @@ export async function getUsageSummary(
   for (const row of rows.results) {
     byEndpoint.push({ endpoint: row.endpoint, count: row.total });
     totalRequests += row.total;
-    totalCost += row.total * costForEndpoint(row.endpoint);
+
   }
 
+  const spendConditions=['source = ?']; const spendBinds:unknown[]=['x'];
+  if(xAccountId){spendConditions.push('x_account_id = ?');spendBinds.push(xAccountId);}
+  if(startDate){spendConditions.push('date_utc >= ?');spendBinds.push(startDate);}
+  if(endDate){spendConditions.push('date_utc <= ?');spendBinds.push(endDate);}
+  const spend=await db.prepare(`SELECT COALESCE(SUM(cost_usd),0) AS total FROM api_spend_ledger WHERE ${spendConditions.join(' AND ')}`).bind(...spendBinds).first<{total:number}>();
+  totalCost=spend?.total ?? 0;
   return {
     totalRequests,
     totalCost,
@@ -161,7 +132,7 @@ export async function getDailyUsage(db: D1Database, xAccountId?: string, days = 
   return rows.results.map((row) => ({
     date: row.date,
     totalRequests: row.total,
-    totalCost: row.total * DEFAULT_COST,
+    totalCost: 0, // No resource-level history exists in legacy counters.
   }));
 }
 
@@ -176,6 +147,6 @@ export async function getUsageByGate(db: D1Database): Promise<GateUsage[]> {
     post_id: row.post_id,
     trigger_type: row.trigger_type,
     api_calls_total: row.api_calls_total,
-    estimatedCost: row.api_calls_total * costForEndpoint(row.trigger_type === 'follow' ? 'engagement_gate_poll' : 'engagement_gate_poll'),
+    estimatedCost: 0, // Legacy requests cannot establish billable units.
   }));
 }

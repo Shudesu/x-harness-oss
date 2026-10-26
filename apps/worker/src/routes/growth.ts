@@ -146,4 +146,9 @@ growth.get('/api/growth/digest/latest', async (c) => {
   return c.json({ success: true, data: { date: row.date, payload } });
 });
 
+growth.get('/api/growth/digest',async c=>{
+ const accountId=c.req.query('xAccountId');if(!accountId)return c.json({success:false,error:'xAccountId required'},400);
+ const row=await c.env.DB.prepare("SELECT json,created_at FROM ai_outputs WHERE x_account_id=? AND feature='digest' ORDER BY created_at DESC LIMIT 1").bind(accountId).first<{json:string;created_at:string}>();
+ return c.json({success:true,data:row?{...JSON.parse(row.json),createdAt:row.created_at}:null});
+});
 export { growth };

@@ -1,5 +1,6 @@
 import * as p from "@clack/prompts";
-import { readdirSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { wrangler, WranglerError } from "../lib/wrangler.js";
 
@@ -51,46 +52,15 @@ export async function createDatabase(
     }
   }
 
-  // Run base schema first, then migrations
-  const schemaFile = join(repoDir, "packages/db/schema.sql");
-  const migrationsDir = join(repoDir, "packages/db/migrations");
-  const migrationFiles = readdirSync(migrationsDir)
-    .filter((f) => f.endsWith(".sql"))
-    .sort();
-
-  const totalFiles = 1 + migrationFiles.length;
-  s.start(`テーブル作成中（${totalFiles} files）...`);
-
-  // Base schema (CREATE IF NOT EXISTS -- safe to re-run)
-  try {
-    await wrangler([
-      "d1",
-      "execute",
-      databaseName,
-      "--remote",
-      "--file",
-      schemaFile,
-    ]);
-  } catch {
-    // May fail if tables exist with different schema -- continue to migrations
-  }
-
-  // Migration files
-  for (const file of migrationFiles) {
-    try {
-      await wrangler([
-        "d1",
-        "execute",
-        databaseName,
-        "--remote",
-        "--file",
-        join(migrationsDir, file),
-      ]);
-    } catch {
-      // Already applied -- continue
-    }
-  }
-  s.stop("テーブル作成完了");
+  // Versioned fresh-install migrations. Legacy databases require the documented
+  // schema audit and baseline adoption, never exception-driven blind retries.
+  const directory=mkdtempSync(join(tmpdir(),'xh-db-'));
+  const config=join(directory,'wrangler.json');
+  writeFileSync(config,JSON.stringify({name:'x-harness-bootstrap',compatibility_date:'2026-10-26',d1_databases:[{binding:'DB',database_name:databaseName,database_id:databaseId,migrations_dir:join(repoDir,'packages/db/bootstrap')}]}));
+  s.start('バージョン管理されたDBマイグレーションを適用中...');
+  try { await wrangler(['d1','migrations','apply',databaseName,'--remote','--config',config]); }
+  finally { rmSync(directory,{recursive:true,force:true}); }
+  s.stop('DBマイグレーション完了');
 
   return { databaseId, databaseName };
 }

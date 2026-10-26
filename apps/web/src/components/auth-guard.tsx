@@ -13,7 +13,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       return
     }
 
-    const key = localStorage.getItem('xh_api_key')
+    const key = sessionStorage.getItem('xh_session')
     if (!key) {
       router.replace('/login')
       return

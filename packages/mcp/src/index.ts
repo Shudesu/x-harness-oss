@@ -25,7 +25,9 @@ const API_KEY = process.env.X_HARNESS_API_KEY ?? '';
 
 const client = new XHarnessClient(API_URL, API_KEY);
 
+const aiToolDefs=['digest','research','drafts','triage','best-times'].map(feature=>({name:`ai_${feature.replace('-','_')}`,description:`Grok ${feature} (optional BYO key; budget applies, never sends posts)`,inputSchema:{type:'object' as const,properties:{xAccountId:{type:'string'},theme:{type:'string'},handles:{type:'array',items:{type:'string'},maxItems:20},keywords:{type:'array',items:{type:'string'}},tweetIds:{type:'array',items:{type:'string'},maxItems:100},days:{type:'integer',minimum:1,maximum:30}},required:['xAccountId']}}));
 const allTools = [
+  ...aiToolDefs,
   ...postToolDefs,
   ...engagementToolDefs,
   ...userToolDefs,
@@ -37,7 +39,7 @@ const allTools = [
   ...campaignToolDefs,
   ...usageToolDefs,
   ...articleToolDefs,
-  ...scrapeToolDefs,
+  ...(process.env.X_HARNESS_ENABLE_SCRAPER === 'true' ? scrapeToolDefs : []),
   ...growthToolDefs,
 ];
 
@@ -51,6 +53,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   const a = (args ?? {}) as Record<string, any>;
   try {
+    if(name.startsWith('ai_')) {
+      if(!aiToolDefs.some(t=>t.name===name)) throw new Error('Unknown AI tool');
+      const result=await client.post(`/api/ai/${name.slice(3).replace('_','-')}`,a);
+      return {content:[{type:'text',text:JSON.stringify(result)}]};
+    }
+    if(name.startsWith('scrape_') && process.env.X_HARNESS_ENABLE_SCRAPER !== 'true') throw new Error('Scraper is disabled; use ai_research');
     let result: any;
     switch (name) {
       case 'create_post':
@@ -133,7 +141,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         result = await client.get(`/api/users/lookup?${a.username ? `username=${a.username}` : `userId=${a.userId}`}`);
         break;
       case 'search_users':
-        result = await client.get(`/api/users/search?query=${encodeURIComponent(a.query)}`);
+        result = await client.get(`/api/users/search?q=${encodeURIComponent(a.query)}`);
         break;
       case 'get_followers':
         result = await client.get(`/api/followers?xAccountId=${a.xAccountId}`);

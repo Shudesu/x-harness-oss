@@ -1,3 +1,4 @@
+import { hashApiKey } from './crypto.js';
 import { jstNow } from './utils.js';
 
 export interface DbStaffMember {
@@ -19,9 +20,9 @@ export async function createStaffMember(
   const now = jstNow();
   const result = await db
     .prepare(
-      'INSERT INTO staff_members (id, name, role, api_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING *',
+      'INSERT INTO staff_members (id, name, role, api_key, api_key_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *',
     )
-    .bind(id, name, role, apiKey, now, now)
+    .bind(id, name, role, `revoked:${id}`, await hashApiKey(apiKey), now, now)
     .first<DbStaffMember>();
   return result!;
 }
@@ -44,10 +45,13 @@ export async function getStaffMemberByApiKey(
   db: D1Database,
   apiKey: string,
 ): Promise<DbStaffMember | null> {
-  return db
-    .prepare('SELECT * FROM staff_members WHERE api_key = ? AND is_active = 1')
-    .bind(apiKey)
-    .first<DbStaffMember>();
+  const hash = await hashApiKey(apiKey);
+  const member = await db.prepare('SELECT * FROM staff_members WHERE api_key_hash = ? AND is_active = 1').bind(hash).first<DbStaffMember>();
+  if (member) return member;
+  // Upgrade legacy keys on successful authentication without changing the key.
+  const legacy = await db.prepare('SELECT * FROM staff_members WHERE api_key_hash IS NULL AND api_key = ? AND is_active = 1').bind(apiKey).first<DbStaffMember>();
+  if (legacy) await db.prepare('UPDATE staff_members SET api_key_hash = ?, api_key = ? WHERE id = ? AND api_key_hash IS NULL').bind(hash, `revoked:${legacy.id}`, legacy.id).run();
+  return legacy;
 }
 
 export async function updateStaffMember(

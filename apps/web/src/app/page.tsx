@@ -1,4 +1,6 @@
 'use client'
+import SpendPanel from '@/components/spend-panel'
+import AiPanel from '@/components/ai-panel'
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
@@ -142,6 +144,8 @@ export default function DashboardPage() {
 
   return (
     <div>
+      <SpendPanel />
+      <AiPanel />
       <Header title="ダッシュボード" description="X Harness の概要" product="X" />
 
       {error && (

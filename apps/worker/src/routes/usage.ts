@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getUsageSummary, getDailyUsage, getUsageByGate } from '@x-harness/db';
+import { getMonthSpend, getSpendBreakdown, UNIT_PRICES, getUsageSummary, getDailyUsage, getUsageByGate } from '@x-harness/db';
 import type { Env } from '../index.js';
 
 const usage = new Hono<Env>();
@@ -48,6 +48,7 @@ usage.get('/api/usage/by-gate', async (c) => {
       triggerType: g.trigger_type,
       apiCallsTotal: g.api_calls_total,
       estimatedCost: g.estimatedCost,
+      estimatedCostAvailable: false,
     }));
     return c.json({ success: true, data: serialized });
   } catch (err: any) {
@@ -55,4 +56,12 @@ usage.get('/api/usage/by-gate', async (c) => {
   }
 });
 
+usage.get('/api/usage/spend',async c=>{
+  const spent=await getMonthSpend(c.env.DB);
+  const rows=(await c.env.DB.prepare("SELECT key,value FROM settings WHERE key IN ('x_monthly_budget_usd','x_unit_prices')").all<{key:string;value:string}>()).results;
+  const config=Object.fromEntries(rows.map(r=>[r.key,r.value]));
+  let unitPrices={...UNIT_PRICES};if(config.x_unit_prices){try{const custom=JSON.parse(config.x_unit_prices);for(const [k,v] of Object.entries(custom))if(k in unitPrices&&typeof v==='number'&&Number.isFinite(v)&&v>=0)unitPrices[k]=v;}catch{}}
+  const budget=Number(config.x_monthly_budget_usd ?? 50);const now=new Date();const days=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth()+1,0)).getUTCDate();
+  return c.json({success:true,data:{spent,budget,projected:spent/now.getUTCDate()*days,breakdown:await getSpendBreakdown(c.env.DB),unitPrices,estimate:true}});
+});
 export { usage };

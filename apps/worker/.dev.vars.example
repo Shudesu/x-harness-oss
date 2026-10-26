@@ -1,0 +1,10 @@
+API_KEY=replace-with-a-local-only-key
+ENCRYPTION_KEY=replace-with-base64-32-random-bytes
+WORKER_URL=http://localhost:8787
+ADMIN_ORIGIN=http://localhost:3002
+# Optional; do not copy production credentials to local development.
+# XAI_API_KEY=
+XAI_MODEL=grok-4.3
+XAI_MONTHLY_BUDGET_USD=5
+# X_OAUTH_CLIENT_ID=
+# X_OAUTH_CLIENT_SECRET=

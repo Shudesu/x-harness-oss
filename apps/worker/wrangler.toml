@@ -4,8 +4,9 @@ compatibility_date = "2024-12-01"
 workers_dev = true
 
 # Set via: wrangler secret put API_KEY
-# Set via: wrangler secret put X_ACCESS_TOKEN
-# Set via: wrangler secret put X_REFRESH_TOKEN
+# Set via: wrangler secret put ENCRYPTION_KEY (base64, 32 random bytes)
+# Optional: wrangler secret put XAI_API_KEY
+# ADMIN_ORIGIN must list the dashboard origin(s), comma-separated.
 
 [vars]
 WORKER_URL = "https://x-harness-worker.your-subdomain.workers.dev"
@@ -14,6 +15,7 @@ WORKER_URL = "https://x-harness-worker.your-subdomain.workers.dev"
 binding = "DB"
 database_name = "x-harness"
 database_id = "YOUR_D1_DATABASE_ID"
+migrations_dir = "../../packages/db/bootstrap"
 
 [triggers]
 crons = ["*/5 * * * *"]

@@ -19,3 +19,5 @@ export type {
   CreateArticleDraftParams,
   XNewsStory,
 } from './types.js';
+
+export type { RequestMeta, UsageEvent, XClientHooks } from "./client.js";

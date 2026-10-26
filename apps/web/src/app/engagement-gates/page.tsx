@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { api, type EngagementGate, type Delivery } from '@/lib/api'
+import { fetchApi, api, type EngagementGate, type Delivery } from '@/lib/api'
 import Header from '@/components/layout/header'
 import { useCurrentAccountId } from '@/hooks/use-selected-account'
 
@@ -41,6 +41,10 @@ function InlineCreateForm({ onCreated, xAccountId }: InlineCreateFormProps) {
   const [error, setError] = useState('')
   const [postId, setPostId] = useState('')
   const [triggerType, setTriggerType] = useState('repost')
+  const [deliveryMethod,setDeliveryMethod]=useState('dm')
+  const [recipientEstimate,setRecipientEstimate]=useState(100)
+  const [prices,setPrices]=useState<Record<string,number>>({})
+  useEffect(()=>{fetchApi<{data:{unitPrices:Record<string,number>}}>('/api/usage/spend').then(r=>setPrices(r.data.unitPrices)).catch(()=>{})},[])
   const [actionType, setActionType] = useState('verify_only')
   const [template, setTemplate] = useState('')
   const [pollingStrategy, setPollingStrategy] = useState('hot_window')
@@ -55,6 +59,7 @@ function InlineCreateForm({ onCreated, xAccountId }: InlineCreateFormProps) {
         postId,
         triggerType,
         actionType,
+        deliveryMethod,
         template,
         pollingStrategy,
       } as Partial<EngagementGate>)
@@ -104,6 +109,7 @@ function InlineCreateForm({ onCreated, xAccountId }: InlineCreateFormProps) {
       </div>
       <div className="mb-3">
         <label className="block text-xs text-gray-500 mb-1">テンプレート</label>
+        {actionType !== 'verify_only' && <div className="space-y-2"><label>配布方法<select value={deliveryMethod} onChange={e=>setDeliveryMethod(e.target.value)} className="border p-2"><option value="dm">DM（既定）</option><option value="reply_no_link">URLなし返信</option><option value="reply_with_link">URL付き返信</option></select></label><label>予定配布数<input type="number" min="1" value={recipientEstimate} onChange={e=>setRecipientEstimate(Math.max(1,Number(e.target.value)||1))} className="border p-2 w-24"/></label>{Object.keys(prices).length>0&&<p className={deliveryMethod==='reply_with_link'?'text-amber-800':'text-gray-600'}>送信のみの推定: ${(recipientEstimate*(prices[deliveryMethod==='dm'?'dm_create':deliveryMethod==='reply_with_link'?'post_create_url':'post_create']??0)).toFixed(2)}。判定に使う取得料金は別途発生します。</p>}</div>}
         <textarea className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-xs bg-white" rows={2} placeholder="DM/メンションのテンプレート文" value={template} onChange={(e) => setTemplate(e.target.value)} />
       </div>
       <div className="flex justify-end">

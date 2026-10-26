@@ -1,8 +1,8 @@
 {
   "name": "x-harness-oss",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "private": true,
-  "description": "Open-source X (Twitter) CRM/marketing automation — Xステップ代替",
+  "description": "Open-source X (Twitter) CRM/marketing automation \u2014 X\u30b9\u30c6\u30c3\u30d7\u4ee3\u66ff",
   "homepage": "https://the-harness.com/x-harness/",
   "repository": {
     "type": "git",
@@ -12,7 +12,7 @@
     "url": "https://github.com/Shudesu/x-harness-oss/issues"
   },
   "author": {
-    "name": "野田修一 (Shudesu)",
+    "name": "\u91ce\u7530\u4fee\u4e00 (Shudesu)",
     "url": "https://the-harness.com/noda-shuichi/"
   },
   "scripts": {
@@ -29,15 +29,26 @@
     "db:migrate:018:local": "wrangler d1 execute x-harness --file=packages/db/migrations/018-growth-article-x-draft.sql --local",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint apps packages",
+    "changeset": "changeset",
+    "version:check": "node scripts/check-version.mjs"
   },
   "packageManager": "pnpm@9.15.4",
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.3",
+    "eslint": "^10.13.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.2"
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "pnpm": {
+    "overrides": {
+      "postcss": "^8.5.18"
+    }
+  }
 }

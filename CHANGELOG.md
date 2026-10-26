@@ -1,3 +1,12 @@
+## 0.6.0 — Unreleased
+
+- Normalize scheduled times, claim scheduled sends, and run explicit schedules independently of optional automation.
+- Add role enforcement, scoped public search quotas, short-lived dashboard sessions, credential encryption/migration and OAuth PKCE/refresh.
+- Add resource spend estimates, application budget guards, delivery choices and signed webhook reply ingestion.
+- Add optional BYO Grok digest, triage, drafts, research, best-time explanations, Web controls and MCP tools.
+- Repair SDK builds and fresh DB initialization; update vulnerable dependencies; add CI, lint and Changesets.
+- Historical release dates below are retained; their discrepancies were not rewritten without verified release evidence.
+
 # Changelog
 
 ## [0.5.0] - 2026-07-18

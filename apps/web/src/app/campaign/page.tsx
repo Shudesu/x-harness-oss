@@ -271,10 +271,10 @@ export default function CampaignPage() {
     }
     const resolve = async () => {
       try {
-        const res = await fetchApi<{ success: boolean; data: { worker_url: string; api_key: string } }>(`/api/line-connections/${selectedConnectionId}`)
+        const res = await fetchApi<{ success: boolean; data: { worker_url: string; hasApiKey: boolean } }>(`/api/line-connections/${selectedConnectionId}`)
         if (res.success) {
           setLineUrl(res.data.worker_url)
-          setLineApiKey(res.data.api_key)
+          setLineApiKey(res.data.hasApiKey ? 'configured' : '')
         }
       } catch { /* silent */ }
     }
@@ -333,9 +333,9 @@ export default function CampaignPage() {
     let cancelled = false
     const controller = new AbortController()
     const lhUrl = lineUrl.replace(/\/$/, '')
-    const lhKey = lineApiKey
+    const lhKey = sessionStorage.getItem('xh_session') || ''
     setTemplateLoading(true)
-    fetch(`${lhUrl}/api/message-templates`, {
+    fetch(`${API_URL}/api/line-connections/${selectedConnectionId}/proxy/message-templates`, {
       headers: { Authorization: `Bearer ${lhKey}` },
       signal: controller.signal,
     })
@@ -365,9 +365,9 @@ export default function CampaignPage() {
     let cancelled = false
     const controller = new AbortController()
     const lhUrl = lineUrl.replace(/\/$/, '')
-    const lhKey = lineApiKey
+    const lhKey = sessionStorage.getItem('xh_session') || ''
     setPoolsLoading(true)
-    fetch(`${lhUrl}/api/traffic-pools`, {
+    fetch(`${API_URL}/api/line-connections/${selectedConnectionId}/proxy/traffic-pools`, {
       headers: { Authorization: `Bearer ${lhKey}` },
       signal: controller.signal,
     })
@@ -399,9 +399,9 @@ export default function CampaignPage() {
     let cancelled = false
     const controller = new AbortController()
     const lhUrl = lineUrl.replace(/\/$/, '')
-    const lhKey = lineApiKey
+    const lhKey = sessionStorage.getItem('xh_session') || ''
     setFormsLoading(true)
-    fetch(`${lhUrl}/api/forms`, {
+    fetch(`${API_URL}/api/line-connections/${selectedConnectionId}/proxy/forms`, {
       headers: { Authorization: `Bearer ${lhKey}` },
       signal: controller.signal,
     })
@@ -491,7 +491,7 @@ export default function CampaignPage() {
         // a. ゲートだけ先に作成（inactive、仮postId）
         const prepRes = await fetch(`${xWorkerUrl}/api/engagement-gates`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('xh_api_key')}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionStorage.getItem('xh_session')}` },
           body: JSON.stringify({
             xAccountId: accountId,
             postId: `pending-${Date.now()}`,
@@ -514,10 +514,10 @@ export default function CampaignPage() {
 
         try {
           const lhUrl = lineUrl.replace(/\/$/, '')
-          const lhHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${lineApiKey}` }
+          const lhHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionStorage.getItem('xh_session') || ''}` }
 
           // b. LINE Harness でタグ作成（直接呼び出し）
-          const tagRes = await fetch(`${lhUrl}/api/tags`, {
+          const tagRes = await fetch(`${API_URL}/api/line-connections/${selectedConnectionId}/proxy/tags`, {
             method: 'POST', headers: lhHeaders,
             body: JSON.stringify({ name: `x-gate-${gateId.slice(0, 8)}` }),
           })
@@ -528,7 +528,7 @@ export default function CampaignPage() {
           let formId = selectedFormId
           if (!formId) {
             // 自動生成
-            const formRes = await fetch(`${lhUrl}/api/forms`, {
+            const formRes = await fetch(`${API_URL}/api/line-connections/${selectedConnectionId}/proxy/forms`, {
               method: 'POST', headers: lhHeaders,
               body: JSON.stringify({
                 name: `${new Date().toISOString().slice(0, 10)} ${text.slice(0, 20).replace(/\n/g, ' ')}...`,

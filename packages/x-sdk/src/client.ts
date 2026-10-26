@@ -2,11 +2,18 @@ import type { XUser, XTweet, XApiResponse, CreateTweetParams, XClientConfig, XTw
 import { buildOAuth1Header } from './oauth1.js';
 import type { OAuth1Config } from './oauth1.js';
 
+export interface RequestMeta { endpoint: string; method: string; body?: unknown; }
+export interface UsageEvent extends RequestMeta { data: unknown; }
+export interface XClientHooks {
+  beforeRequest?(meta: RequestMeta): Promise<void>;
+  onUsage?(usage: UsageEvent): Promise<void>;
+  refreshToken?(): Promise<string>;
+}
 export class XClient {
-  private readonly config: XClientConfig;
+  private config: XClientConfig;
   private readonly baseUrl = 'https://api.x.com/2';
 
-  constructor(config: XClientConfig | string) {
+  constructor(config: XClientConfig | string, private readonly hooks: XClientHooks = {}) {
     // Backwards compatible: string = bearer token
     this.config = typeof config === 'string' ? { type: 'bearer', token: config } : config;
   }
@@ -62,9 +69,14 @@ export class XClient {
   }
 
   async getTweets(tweetIds: string[]): Promise<XTweetWithMetrics[]> {
-    const params = new URLSearchParams({ ids: tweetIds.join(','), 'tweet.fields': 'author_id,created_at,public_metrics' });
-    const res = await this.get<{ data: XTweetWithMetrics[] }>(`/tweets?${params}`);
-    return res.data;
+    const ids = [...new Set(tweetIds)];
+    const output: XTweetWithMetrics[] = [];
+    for (let i=0;i<ids.length;i+=100) {
+      const params = new URLSearchParams({ids:ids.slice(i,i+100).join(','),'tweet.fields':'author_id,created_at,public_metrics'});
+      const res = await this.get<{data?:XTweetWithMetrics[]}>(`/tweets?${params}`);
+      output.push(...(res.data ?? []));
+    }
+    return output;
   }
 
   async getQuoteTweets(tweetId: string, paginationToken?: string): Promise<XApiResponse<XTweetSearchResult[]>> {
@@ -150,7 +162,13 @@ export class XClient {
     } else {
       headers.set('Authorization', `Bearer ${this.config.token}`);
     }
-    return fetch(url, { ...init, headers });
+    const target = new URL(url);
+    if (target.origin !== 'https://api.x.com' || !target.pathname.startsWith('/2/')) throw new Error('Untrusted X API URL');
+    const meta = {endpoint:target.pathname.slice(2),method:init.method ?? 'GET'};
+    await this.hooks.beforeRequest?.(meta);
+    const response = await fetch(url,{...init,headers,redirect:'error',signal:AbortSignal.timeout(30000)});
+    if (response.ok) await this.hooks.onUsage?.({...meta,data:{}});
+    return response;
   }
 
   /**
@@ -179,7 +197,7 @@ export class XClient {
 
     if (!res.ok) {
       const text = await res.text();
-      throw new XApiError(`Media upload failed: ${res.status} ${text}`, res.status);
+      throw new XApiError(`Media upload failed (${res.status})`, res.status);
     }
 
     const raw = await res.text();
@@ -210,7 +228,7 @@ export class XClient {
         throw new XApiRateLimitError(resetAt ? Number(resetAt) : undefined);
       }
       const text = await res.text();
-      if (!res.ok) throw new XApiError(`Video ${step} failed: ${res.status} ${text}`, res.status);
+      if (!res.ok) throw new XApiError(`Video ${step} failed (${res.status})`, res.status);
       try { return text ? JSON.parse(text) : {}; } catch {
         throw new XApiError(`Video ${step}: invalid JSON: ${text.slice(0, 200)}`, res.status);
       }
@@ -252,7 +270,7 @@ export class XClient {
       await new Promise((r) => setTimeout(r, waitSecs * 1000));
       const sr = await this.fetchRaw(`${url}?command=STATUS&media_id=${mediaId}`, { method: 'GET' });
       const stext = await sr.text();
-      if (!sr.ok) throw new XApiError(`Video STATUS failed: ${sr.status} ${stext}`, sr.status);
+      if (!sr.ok) throw new XApiError(`Video STATUS failed (${sr.status})`, sr.status);
       const sdata = JSON.parse(stext) as { data?: { processing_info?: { state: string; check_after_secs?: number } } };
       info = sdata.data?.processing_info;
     }
@@ -265,9 +283,13 @@ export class XClient {
   }
 
   async getUsersByIds(userIds: string[]): Promise<XUser[]> {
-    if (userIds.length === 0) return [];
-    const res = await this.get<{ data: XUser[] }>(`/users?ids=${userIds.join(',')}&user.fields=profile_image_url,public_metrics`);
-    return res.data ?? [];
+    const ids = [...new Set(userIds)];
+    const output: XUser[] = [];
+    for (let i=0;i<ids.length;i+=100) {
+      const res = await this.get<{data?:XUser[]}>(`/users?ids=${ids.slice(i,i+100).join(',')}&user.fields=profile_image_url,public_metrics`);
+      output.push(...(res.data ?? []));
+    }
+    return output;
   }
 
   async getUserByUsername(username: string): Promise<XUser> {
@@ -333,8 +355,8 @@ export class XClient {
     await this.request('DELETE', `/users/${userId}/following/${targetUserId}`);
   }
 
-  async searchUsers(query: string): Promise<XApiResponse<XUser[]>> {
-    const params = new URLSearchParams({ query, 'user.fields': 'profile_image_url,public_metrics', max_results: '100' });
+  async searchUsers(query: string, maxResults = 10): Promise<XApiResponse<XUser[]>> {
+    const params = new URLSearchParams({ query, 'user.fields': 'profile_image_url,public_metrics', max_results: String(Math.min(20, Math.max(1, Math.floor(maxResults) || 10))) });
     return this.get<XApiResponse<XUser[]>>(`/users/search?${params}`);
   }
 
@@ -406,7 +428,9 @@ export class XClient {
     return this.request<T>('POST', path, body);
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async request<T>(method: string, path: string, body?: unknown, refreshed = false): Promise<T> {
+    const meta = {endpoint:path.split('?')[0],method,body};
+    await this.hooks.beforeRequest?.(meta);
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -423,7 +447,11 @@ export class XClient {
       options.body = JSON.stringify(body);
     }
 
-    const res = await fetch(url, options);
+    const res = await fetch(url, {...options, signal:AbortSignal.timeout(30000)});
+    if (res.status === 401 && !refreshed && this.config.type !== 'oauth1' && this.hooks.refreshToken) {
+      this.config = {type:'bearer',token:await this.hooks.refreshToken()};
+      return this.request<T>(method,path,body,true);
+    }
 
     if (res.status === 429) {
       const resetAt = res.headers.get('x-rate-limit-reset');
@@ -431,11 +459,12 @@ export class XClient {
     }
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new XApiError(`X API ${method} ${path} failed: ${res.status} ${text}`, res.status);
+      throw new XApiError(`X API request failed (${res.status})`, res.status);
     }
 
-    return res.json() as Promise<T>;
+    const data = res.status === 204 ? {} : await res.json();
+    await this.hooks.onUsage?.({...meta,data});
+    return data as T;
   }
 }
 
