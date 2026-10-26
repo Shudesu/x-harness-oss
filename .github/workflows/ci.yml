@@ -23,7 +23,7 @@ jobs:
       WRANGLER_SEND_METRICS: 'false'
       NEXT_TELEMETRY_DISABLED: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
       - uses: pnpm/action-setup@v4
