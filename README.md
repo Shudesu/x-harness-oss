@@ -1,11 +1,11 @@
-## v0.6.0 — security / cost / optional Grok
+## v0.6.1 — security / cost / optional Grok
 
-Release notes: [v0.6.0](docs/releases/v0.6.0.md). Maintainers: [release procedure](docs/RELEASING.md).
+Release notes: [v0.6.1](docs/releases/v0.6.1.md). Maintainers: [release procedure](docs/RELEASING.md).
 
-This is a GitHub source release. npm publishing is separate; `npx create-x-harness@latest` may still use the preceding npm release. For v0.6.0, build the CLI from the tagged checkout:
+This is a GitHub source release. npm publishing is separate; `npx create-x-harness@latest` may still use the preceding npm release. For v0.6.1, build the CLI from the tagged checkout:
 
 ```sh
-git clone --branch v0.6.0 https://github.com/Shudesu/x-harness-oss.git
+git clone --branch v0.6.1 https://github.com/Shudesu/x-harness-oss.git
 cd x-harness-oss
 pnpm install --frozen-lockfile
 pnpm --filter create-x-harness build
