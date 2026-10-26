@@ -4,6 +4,15 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+        default: ''
+      release_tag:
+        type: string
+        required: false
+        default: ''
 permissions:
   contents: read
 jobs:
@@ -15,12 +24,19 @@ jobs:
       NEXT_TELEMETRY_DISABLED: '1'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22.22.2'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Check explicitly requested release tag
+        if: inputs.release_tag != ''
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: GITHUB_REF_TYPE=tag GITHUB_REF_NAME="$RELEASE_TAG" node scripts/check-version.mjs
       - run: pnpm release:check
       - name: Apply fresh migrations in local D1
         run: pnpm --filter worker exec wrangler d1 migrations apply x-harness --local --persist-to ../../.local/d1-ci

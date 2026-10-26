@@ -3,15 +3,23 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing annotated tag to verify and publish (never moved)
+        type: string
+        required: true
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.release_tag || github.ref }}
   cancel-in-progress: false
 jobs:
   verify:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.release_tag, 'v'))
     uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.release_tag || github.ref }}
+      release_tag: ${{ inputs.release_tag || github.ref_name }}
   publish:
     needs: verify
     runs-on: ubuntu-latest
@@ -21,15 +29,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.release_tag || github.ref }}
       - name: Publish only a verified main-branch commit
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          # checkout can replace the local annotated ref with its peeled commit.
+          # Restore only local refs from origin; never rewrite a published remote tag.
+          git fetch --no-tags origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG" "+refs/heads/main:refs/remotes/origin/main"
+          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
           git merge-base --is-ancestor HEAD origin/main
           test "$(git cat-file -t "$RELEASE_TAG")" = tag
-          node scripts/check-version.mjs
+          GITHUB_REF_TYPE=tag GITHUB_REF_NAME="$RELEASE_TAG" node scripts/check-version.mjs
           notes="docs/releases/$RELEASE_TAG.md"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release already exists; published notes are not overwritten."

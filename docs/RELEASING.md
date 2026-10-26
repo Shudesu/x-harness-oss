@@ -16,7 +16,7 @@ git tag -a v0.6.1 <検証済みmainのコミット> -m 'X Harness v0.6.1'
 git push origin refs/tags/v0.6.1
 ```
 
-Release workflowが再検証し、タグと版番号の一致、注釈付きタグ、mainの履歴内のコミットであることを確認してからGitHub Releaseを公開します。失敗時は公開されません。認証やCI障害を直した後は同じタグのworkflowを再実行できます。公開済みリリースは自動で上書きしません。
+Release workflowが再検証し、タグと版番号の一致、注釈付きタグ、mainの履歴内のコミットであることを確認してからGitHub Releaseを公開します。失敗時は公開されません。認証やCI障害を直した後は同じタグのworkflowを再実行できます。公開workflowそのものを修正した場合は、最新mainのRelease workflowを`release_tag=v0.6.0`のように指定して手動実行します。検証・公開とも指定タグをcheckoutし、タグを移動せずに再検証します。公開済みリリースは自動で上書きしません。
 
 ## 配信との区別
 
