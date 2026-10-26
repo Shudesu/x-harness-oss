@@ -119,7 +119,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         result = await client.del(`/api/posts/${a.tweetId}?xAccountId=${encodeURIComponent(a.xAccountId)}`);
         break;
       case 'get_post':
-        result = await client.get(`/api/posts/${a.tweetId}`);
+        result = await client.get(`/api/posts/${encodeURIComponent(a.tweetId)}${a.xAccountId ? `?xAccountId=${encodeURIComponent(a.xAccountId)}` : ''}`);
         break;
       case 'search_posts':
         result = await client.get(`/api/posts/search?query=${encodeURIComponent(a.query)}`);
@@ -200,7 +200,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         result = await client.get(`/api/step-sequences${a.xAccountId ? `?xAccountId=${a.xAccountId}` : ''}`);
         break;
       case 'get_post_metrics':
-        result = await client.get(`/api/posts/${a.tweetId}/metrics`);
+        result = await client.get(`/api/posts/${encodeURIComponent(a.tweetId)}/metrics${a.xAccountId ? `?xAccountId=${encodeURIComponent(a.xAccountId)}` : ''}`);
         break;
       case 'get_gate_analytics':
         result = await client.get(`/api/engagement-gates/${a.gateId}/analytics`);

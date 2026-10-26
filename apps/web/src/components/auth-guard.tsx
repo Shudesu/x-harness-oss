@@ -8,6 +8,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [checked, setChecked] = useState(false)
 
   useEffect(() => {
+    localStorage.removeItem('xh_api_key')
     if (pathname === '/login') {
       setChecked(true)
       return

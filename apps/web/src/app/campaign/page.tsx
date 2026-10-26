@@ -551,7 +551,7 @@ export default function CampaignPage() {
           // （古い LINE Harness で /api/tracked-links が無い、ネットワークエラー、非 JSON レスポンス等のケースに備える）
           let ref = `campaign-${Date.now().toString(36)}`
           try {
-            const trackedLinkRes = await fetch(`${lhUrl}/api/tracked-links`, {
+            const trackedLinkRes = await fetch(`${API_URL}/api/line-connections/${selectedConnectionId}/proxy/tracked-links`, {
               method: 'POST',
               headers: lhHeaders,
               body: JSON.stringify({

@@ -1,5 +1,5 @@
 import { buildXClient } from '../services/x-client.js';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { XClient } from '@x-harness/x-sdk';
 import { createScheduledPost, getScheduledPosts, deleteScheduledPost, getXAccountById, getXAccounts, incrementApiUsage, normalizeScheduledAt, resolveFreeSlot, saveQuoteTweets, getQuoteTweetsByAccount, getQuoteTweetsBySource, getLatestDiscoveredAt, recordAction, getActions } from '@x-harness/db';
 import type { SaveQuoteTweetInput } from '@x-harness/db';
@@ -672,5 +672,22 @@ posts.post('/api/quotes/sync', async (c) => {
     return c.json({ success: false, error: err.message ?? 'Failed to sync quotes' }, 500);
   }
 });
+
+async function readPost(c: Context<Env>, metricsOnly: boolean) {
+  const id = c.req.param('id') ?? '';
+  if (!/^\d{1,25}$/.test(id)) return c.json({ success: false, error: 'Invalid post ID' }, 400);
+  const accountId = c.req.query('xAccountId');
+  const accounts = accountId ? [] : await getXAccounts(c.env.DB);
+  if (!accountId && accounts.length > 1) return c.json({ success: false, error: 'xAccountId required for multiple accounts' }, 400);
+  const account = accountId ? await getXAccountById(c.env.DB, accountId) : accounts[0];
+  if (!account || !account.is_active) return c.json({ success: false, error: 'X account not found' }, 404);
+  const client = await buildXClient(c.env, account, 'post-lookup');
+  const tweet = await client.getTweet(id);
+  return c.json({ success: true, data: metricsOnly ? tweet.public_metrics ?? {} : tweet });
+}
+
+// Keep these after named collection routes such as /history and /scheduled.
+posts.get('/api/posts/:id/metrics', c => readPost(c, true));
+posts.get('/api/posts/:id', c => readPost(c, false));
 
 export { posts };

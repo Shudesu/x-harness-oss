@@ -5,6 +5,7 @@ import { join, resolve, dirname } from "node:path";
 interface McpConfigOptions {
   workerUrl: string;
   apiKey: string;
+  mcpEntry?: string;
   scraperTokens?: { authToken: string; ct0: string } | null;
 }
 
@@ -47,8 +48,8 @@ export function generateMcpConfig(options: McpConfigOptions): void {
   const mcpJsonPath = join(cwd, ".mcp.json");
 
   const newServerConfig = {
-    command: "npx",
-    args: ["-y", "@x-harness/mcp@latest"],
+    command: options.mcpEntry ? "node" : "npx",
+    args: options.mcpEntry ? [resolve(options.mcpEntry)] : ["-y", "@x-harness/mcp@latest"],
     env: {
       X_HARNESS_API_URL: options.workerUrl,
       X_HARNESS_API_KEY: options.apiKey,

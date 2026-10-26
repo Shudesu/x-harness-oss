@@ -1,5 +1,6 @@
 'use client'
 
+import { APP_VERSION } from '@x-harness/shared/version'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -219,7 +220,7 @@ export default function Sidebar() {
 
       {/* フッター */}
       <div className="px-6 py-4 border-t border-gray-200 space-y-3">
-        <p className="text-xs text-gray-400">X Harness v{process.env.APP_VERSION || '0.0.0'}</p>
+        <a className="text-xs text-gray-400 hover:underline" href={`https://github.com/Shudesu/x-harness-oss/releases/tag/v${APP_VERSION}`} target="_blank" rel="noopener noreferrer">X Harness v{APP_VERSION}</a>
         <button
           onClick={() => {
             sessionStorage.removeItem('xh_session')

@@ -1,4 +1,19 @@
-## 0.6.0 security / cost / optional Grok update (unreleased)
+## v0.6.0 — security / cost / optional Grok
+
+Release notes: [v0.6.0](docs/releases/v0.6.0.md). Maintainers: [release procedure](docs/RELEASING.md).
+
+This is a GitHub source release. npm publishing is separate; `npx create-x-harness@latest` may still use the preceding npm release. For v0.6.0, build the CLI from the tagged checkout:
+
+```sh
+git clone --branch v0.6.0 https://github.com/Shudesu/x-harness-oss.git
+cd x-harness-oss
+pnpm install --frozen-lockfile
+pnpm --filter create-x-harness build
+node packages/create-x-harness/dist/index.js --repo-dir .
+```
+
+The source installer builds and configures the MCP server from this same checkout. Run setup only for a new environment; existing installations must follow the migration guide first.
+
 
 Read [the upgrade and validation guide](docs/operations/audit-20261026.md) before deploying over an existing database. Fresh installations use `packages/db/bootstrap`; historical installations must audit their actual schema before applying migration 019. Do not reapply historical ALTER migrations or run the fresh baseline on a populated database.
 
@@ -251,7 +266,7 @@ twitter-cli が PATH 外にある場合は `TWITTER_BIN` でフルパスを指�
 
 ### 前提条件
 
-- Node.js 20+
+- Node.js 22.13+
 - pnpm 9+
 - [Cloudflare アカウント](https://dash.cloudflare.com/sign-up)
 - [X Developer アカウント](https://developer.x.com/) (Pay-Per-Use 推奨)

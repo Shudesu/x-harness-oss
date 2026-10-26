@@ -12,6 +12,7 @@ import { deployAdmin } from "../steps/deploy-admin.js";
 import { setSecrets } from "../steps/secrets.js";
 import { generateMcpConfig } from "../steps/mcp-config.js";
 import { promptScraperSetup, installSkills, printCodexSnippet } from "../steps/scraper-setup.js";
+import { ensurePnpm, runPnpm } from "../lib/pnpm.js";
 import { generateApiKey } from "../lib/crypto.js";
 import { wrangler, setAccountId } from "../lib/wrangler.js";
 import type { SetupState } from "../lib/config.js";
@@ -272,7 +273,7 @@ export async function runSetup(repoDir: string): Promise<void> {
       "→ ユーザ認証設定 → セットアップ → アプリ情報",
       "",
       "  コールバックURI / リダイレクトURL（必須）:",
-      `    ${state.workerUrl}/auth/callback`,
+      `    ${state.workerUrl}/api/x/oauth/callback`,
       "",
       "  ウェブサイトURL（必須）:",
       `    ${state.adminUrl}`,
@@ -292,8 +293,10 @@ export async function runSetup(repoDir: string): Promise<void> {
   installSkills(repoDir);
 
   // Step 12: Generate MCP config (always)
-  generateMcpConfig({ workerUrl: state.workerUrl!, apiKey: state.apiKey!, scraperTokens });
-  printCodexSnippet({ workerUrl: state.workerUrl!, apiKey: state.apiKey!, scraperTokens });
+  const pnpmRunner = await ensurePnpm();
+  await runPnpm(pnpmRunner, ["--filter", "@x-harness/mcp", "build"], {cwd: repoDir});
+  generateMcpConfig({ workerUrl: state.workerUrl!, apiKey: state.apiKey!, scraperTokens, mcpEntry: join(repoDir,"packages/mcp/dist/index.js") });
+  printCodexSnippet({ workerUrl: state.workerUrl!, apiKey: state.apiKey!, scraperTokens, mcpEntry: join(repoDir,"packages/mcp/dist/index.js") });
 
   // Step 13: Show completion screen
   p.note(

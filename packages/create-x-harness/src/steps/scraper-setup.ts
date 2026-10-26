@@ -88,6 +88,7 @@ export function printCodexSnippet(options: {
   workerUrl: string;
   apiKey: string;
   scraperTokens: ScraperTokens | null;
+  mcpEntry?: string;
 }): void {
   const envLines = [
     `X_HARNESS_API_URL = "${options.workerUrl}"`,
@@ -104,8 +105,9 @@ export function printCodexSnippet(options: {
       "Codex CLI からも使う場合は ~/.codex/config.toml に追加してください:",
       "",
       "[mcp_servers.x-harness]",
-      'command = "npx"',
-      'args = ["-y", "@x-harness/mcp@latest"]',
+      options.mcpEntry ? 'command = "node"' : 'command = "npx"',
+      `args = ${JSON.stringify(options.mcpEntry ? [options.mcpEntry] : ['-y','@x-harness/mcp@latest'])}`,
+
       "",
       "[mcp_servers.x-harness.env]",
       ...envLines,

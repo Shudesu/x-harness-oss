@@ -35,6 +35,9 @@ importers:
       '@phosphor-icons/react':
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@x-harness/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       echarts:
         specifier: ^6.0.0
         version: 6.1.0

@@ -164,7 +164,7 @@ app.delete('/api/line-connections/:id', async (c) => {
 
 app.all('/api/line-connections/:id/proxy/:resource', async c => {
   const resource = c.req.param('resource');
-  if (!['tags','forms','friends','scenarios','message-templates','traffic-pools'].includes(resource)) return c.json({success:false,error:'Not found'},404);
+  if (!['tags','forms','friends','scenarios','message-templates','traffic-pools','tracked-links'].includes(resource)) return c.json({success:false,error:'Not found'},404);
   if (!['GET','POST'].includes(c.req.method)) return c.json({success:false,error:'Method not allowed'},405);
   const row = await c.env.DB.prepare('SELECT worker_url, api_key FROM line_connections WHERE id = ?').bind(c.req.param('id')).first<{worker_url:string;api_key:string}>();
   if (!row) return c.json({success:false,error:'Not found'},404);

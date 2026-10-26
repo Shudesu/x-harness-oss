@@ -130,3 +130,38 @@ it('queues current XAA reply envelopes only after signature verification and ded
  for(const sig of ['invalid',signature,signature]){await worker.fetch(new Request('https://worker.example/webhook/xaa?accountId=a',{method:'POST',headers:{'Content-Type':'application/json','x-twitter-webhooks-signature':sig},body}),{DB:db,API_KEY:'master'} as any,context);await Promise.all(pending);}
  expect(sqlite.prepare('SELECT COUNT(*) AS total FROM reply_trigger_queue').get()?.total).toBe(1);expect(sqlite.prepare("SELECT SUM(cost_usd) AS cost FROM api_spend_ledger WHERE feature='xaa'").get()?.cost).toBe(.005);
 });
+
+it('returns the same product version from health and release metadata',async()=>{
+ const {db}=database();const version=JSON.parse(readFileSync('package.json','utf8')).version;
+ const response=await request({DB:db,API_KEY:'master'},'/api/health');
+ expect((await response.json() as any).data.version).toBe(version);
+ expect(JSON.parse(readFileSync('apps/web/public/version.json','utf8')).version).toBe(version);
+});
+
+it('proxies campaign tracked-link creation with the stored LINE credential',async()=>{
+ const {db,sqlite}=database();
+ const ciphertext=await encryptSecret('line-only-secret',key);
+ sqlite.prepare("INSERT INTO line_connections VALUES ('l','LINE','https://line.example',?,'now')").run(ciphertext);
+ const spy=vi.fn(async()=>new Response(JSON.stringify({success:true,data:{id:'tracked-1'}}),{status:201}));vi.stubGlobal('fetch',spy);
+ const response=await request({DB:db,API_KEY:'master',ENCRYPTION_KEY:key},'/api/line-connections/l/proxy/tracked-links','master','POST',{name:'Campaign',originalUrl:'https://line.example/auth/line'});
+ expect(response.status).toBe(201);expect(String(spy.mock.calls[0][0])).toBe('https://line.example/api/tracked-links');
+ const init=spy.mock.calls[0][1] as RequestInit;
+ expect(new Headers(init.headers).get('Authorization')).toBe('Bearer line-only-secret');expect(init.redirect).toBe('error');
+ expect(await response.text()).not.toContain('secret');
+});
+
+it('keeps the static setup guide usable while API CSP remains restrictive',async()=>{
+ const {db}=database(),env={DB:db,API_KEY:'master'};
+ const setup=await request(env,'/setup'),health=await request(env,'/api/health');
+ expect(setup.headers.get('Content-Security-Policy')).toContain("script-src 'unsafe-inline'");
+ expect(health.headers.get('Content-Security-Policy')).not.toContain('unsafe-inline');
+});
+
+it('serves post and metrics lookups without shadowing scheduled posts',async()=>{
+ const {db,sqlite}=database();seed(sqlite);
+ const spy=vi.fn(async()=>new Response(JSON.stringify({data:{id:'999',text:'example',public_metrics:{like_count:3}}})));vi.stubGlobal('fetch',spy);
+ const env={DB:db,API_KEY:'master'};
+ const post=await request(env,'/api/posts/999','master');expect(post.status).toBe(200);expect((await post.json() as any).data.id).toBe('999');
+ const metrics=await request(env,'/api/posts/999/metrics','master');expect(metrics.status).toBe(200);expect((await metrics.json() as any).data.like_count).toBe(3);
+ expect((await request(env,'/api/posts/scheduled','master')).status).toBe(200);expect(spy).toHaveBeenCalledTimes(2);
+});

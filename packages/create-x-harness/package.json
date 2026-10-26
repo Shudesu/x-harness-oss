@@ -1,6 +1,6 @@
 {
   "name": "create-x-harness",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Set up X Harness \u2014 AI-operated X (Twitter) marketing automation",
   "type": "module",
   "bin": {
@@ -27,5 +27,8 @@
   "license": "MIT",
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "node": ">=22.13.0"
   }
 }

@@ -4,6 +4,8 @@ import type { Env } from '../index.js';
 const setup = new Hono<Env>();
 
 setup.get('/setup', (c) => {
+  // This is fixed, non-interpolated HTML with its own inline guide controls.
+  c.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; frame-ancestors 'none'");
   return c.html(`<!DOCTYPE html>
 <html lang="ja">
 <head>

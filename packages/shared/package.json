@@ -10,5 +10,9 @@
   },
   "devDependencies": {
     "typescript": "^5.9.3"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./version": "./src/version.ts"
   }
 }

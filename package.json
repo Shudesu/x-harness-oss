@@ -2,7 +2,7 @@
   "name": "x-harness-oss",
   "version": "0.6.0",
   "private": true,
-  "description": "Open-source X (Twitter) CRM/marketing automation \u2014 X\u30b9\u30c6\u30c3\u30d7\u4ee3\u66ff",
+  "description": "Open-source X (Twitter) CRM/marketing automation — Xステップ代替",
   "homepage": "https://the-harness.com/x-harness/",
   "repository": {
     "type": "git",
@@ -12,7 +12,7 @@
     "url": "https://github.com/Shudesu/x-harness-oss/issues"
   },
   "author": {
-    "name": "\u91ce\u7530\u4fee\u4e00 (Shudesu)",
+    "name": "野田修一 (Shudesu)",
     "url": "https://the-harness.com/noda-shuichi/"
   },
   "scripts": {
@@ -32,11 +32,14 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint apps packages",
     "changeset": "changeset",
-    "version:check": "node scripts/check-version.mjs"
+    "version:check": "node scripts/check-version.mjs",
+    "release:prepare": "node scripts/release-version.mjs",
+    "release:check": "pnpm version:check && pnpm lint && pnpm typecheck && pnpm test && python3 scripts/check-migrations.py && pnpm build && pnpm version:check-built && pnpm audit --prod --audit-level high",
+    "version:check-built": "node scripts/check-built-version.mjs"
   },
   "packageManager": "pnpm@9.15.4",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",
