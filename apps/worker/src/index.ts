@@ -1,3 +1,9 @@
+import { captureClosedGateMetrics } from './services/gate-metrics.js';
+import { publicCampaigns } from './routes/public-campaigns.js';
+import { lineClaims,wakeClaimGate } from './routes/line-claims.js';
+import { gateFunnel } from './routes/gate-funnel.js';
+import { sendLineOutbox } from './services/line-events.js';
+export { GateClaimCoordinator } from './durable-objects/gate-claim-coordinator.js';
 import { oauth } from './routes/oauth.js';
 import { maintenance } from './routes/maintenance.js';
 import { ai } from './routes/ai.js';
@@ -38,6 +44,7 @@ import { processStepSequences } from './services/step-processor.js';
 export type Env = {
   Bindings: {
     DB: D1Database;
+    GATE_CLAIMS?: DurableObjectNamespace;
     API_KEY: string;
     X_OAUTH_CLIENT_ID?: string;
     X_OAUTH_CLIENT_SECRET?: string;
@@ -89,6 +96,9 @@ app.route('/', oauth);
 app.route('/', maintenance);
 app.route('/', ai);
 app.route('/', health);
+app.route('/', lineClaims);
+app.route('/', publicCampaigns);
+app.route('/', gateFunnel);
 app.route('/', verify);
 app.route('/', engagementGates);
 app.route('/', followers);
@@ -142,18 +152,27 @@ app.get('/api/line-connections', async (c) => {
 app.get('/api/line-connections/:id', async (c) => {
   const row = await c.env.DB.prepare('SELECT * FROM line_connections WHERE id = ?').bind(c.req.param('id')).first<{ id: string; name: string; worker_url: string; api_key: string; created_at: string }>();
   if (!row) return c.json({ success: false, error: 'Not found' }, 404);
-  const {api_key, ...safe} = row;
-  return c.json({ success: true, data: {...safe, hasApiKey: !!api_key} });
+  const {api_key, integration_secret, ...safe} = row as typeof row & {integration_secret?:string};
+  return c.json({ success: true, data: {...safe, hasApiKey: !!api_key,hasIntegrationSecret:!!integration_secret} });
 });
 
 app.post('/api/line-connections', async (c) => {
-  const body = await c.req.json<{ name: string; workerUrl: string; apiKey: string }>();
+  const body = await c.req.json<{ name: string; workerUrl: string; apiKey: string; integrationSecret?:string;lineAccountId?:string }>();
   if (!body.name || !body.workerUrl || !body.apiKey) return c.json({ success: false, error: 'name, workerUrl, apiKey required' }, 400);
   let target: URL; try { target = new URL(body.workerUrl); } catch { return c.json({success:false,error:'Invalid URL'},400); }
   if (target.protocol !== 'https:' || target.username || target.password || target.search || target.hash) return c.json({success:false,error:'HTTPS URL required'},400);
+  if(body.integrationSecret && (typeof body.integrationSecret!=='string'||body.integrationSecret.length<32))return c.json({success:false,error:'Integration secret must have at least 32 characters'},400);
   const id = crypto.randomUUID();
   await c.env.DB.prepare('INSERT INTO line_connections (id, name, worker_url, api_key, created_at) VALUES (?, ?, ?, ?, datetime(\'now\'))').bind(id, body.name, body.workerUrl.replace(/\/$/, ''), await encryptSecret(body.apiKey, c.env.ENCRYPTION_KEY)).run();
+  if(body.integrationSecret)await c.env.DB.prepare('UPDATE line_connections SET integration_secret=?,line_account_id=? WHERE id=?').bind(await encryptSecret(body.integrationSecret,c.env.ENCRYPTION_KEY),body.lineAccountId??null,id).run();
   return c.json({ success: true, data: { id, name: body.name, workerUrl: body.workerUrl } }, 201);
+});
+
+app.put('/api/line-connections/:id/integration',async c=>{
+ const body=await c.req.json<{integrationSecret:string;lineAccountId?:string}>();
+ if(typeof body.integrationSecret!=='string'||body.integrationSecret.length<32||body.integrationSecret.length>512)return c.json({success:false,error:'Integration secret must be 32–512 characters'},400);
+ const updated=await c.env.DB.prepare('UPDATE line_connections SET integration_secret=?,line_account_id=? WHERE id=? RETURNING id').bind(await encryptSecret(body.integrationSecret,c.env.ENCRYPTION_KEY),body.lineAccountId??null,c.req.param('id')).first();
+ return c.json({success:!!updated},updated?200:404);
 });
 
 app.delete('/api/line-connections/:id', async (c) => {
@@ -164,7 +183,8 @@ app.delete('/api/line-connections/:id', async (c) => {
 
 app.all('/api/line-connections/:id/proxy/:resource', async c => {
   const resource = c.req.param('resource');
-  if (!['tags','forms','friends','scenarios','message-templates','traffic-pools','tracked-links'].includes(resource)) return c.json({success:false,error:'Not found'},404);
+  if (!['tags','forms','friends','scenarios','message-templates','traffic-pools','tracked-links','line-accounts'].includes(resource)) return c.json({success:false,error:'Not found'},404);
+  if(resource==='line-accounts'&&c.req.method!=='GET')return c.json({success:false,error:'Method not allowed'},405);
   if (!['GET','POST'].includes(c.req.method)) return c.json({success:false,error:'Method not allowed'},405);
   const row = await c.env.DB.prepare('SELECT worker_url, api_key FROM line_connections WHERE id = ?').bind(c.req.param('id')).first<{worker_url:string;api_key:string}>();
   if (!row) return c.json({success:false,error:'Not found'},404);
@@ -172,6 +192,7 @@ app.all('/api/line-connections/:id/proxy/:resource', async c => {
   if (url.protocol !== 'https:') return c.json({success:false,error:'HTTPS required'},400);
   url.search = new URL(c.req.url).search;
   const response = await fetch(url,{method:c.req.method,redirect:'error',headers:{'Content-Type':'application/json',Authorization:`Bearer ${await decryptSecret(row.api_key,c.env.ENCRYPTION_KEY)}`},...(c.req.method === 'POST' ? {body:await c.req.text()} : {}),signal:AbortSignal.timeout(15000)});
+  if(resource==='line-accounts'&&response.ok){const json=await response.json() as {success:boolean;data?:Array<{id:string;name:string}>};return c.json({success:json.success,data:(json.data??[]).map(a=>({id:a.id,name:a.name}))});}
   return new Response(await response.text(),{status:response.status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
 });
 
@@ -213,6 +234,10 @@ async function scheduled(
     } catch(err) { console.error('Account scheduled job failed',account.id,err instanceof Error?err.name:'error'); }
   }
   if(autoEnabled) await processStepSequences(env.DB,async id=>{const a=dbAccounts.find(a=>a.id===id);return a?buildXClient(env,a,'step'):null;});
+  const pendingGates=(await env.DB.prepare("SELECT g.id FROM engagement_gates g WHERE g.gate_mode='line_first' AND g.is_active=1 AND g.gate_state='active' AND (EXISTS(SELECT 1 FROM claim_codes cc WHERE cc.gate_id=g.id AND cc.status IN ('awaiting_reply','provisional','matched')) OR EXISTS(SELECT 1 FROM gate_participants p WHERE p.gate_id=g.id AND p.status='verified' AND p.finalized_at IS NULL)) ORDER BY COALESCE(g.last_code_check_at,0) LIMIT 10").all<{id:string}>()).results;
+  for(const gate of pendingGates){try{await wakeClaimGate(env,gate.id);}catch{console.error('Claim poll deferred',gate.id);}}
+  await sendLineOutbox(env);
+  await captureClosedGateMetrics(env);
   await env.DB.prepare('DELETE FROM rate_counters WHERE window_start < ?').bind(Date.now()-2*86400000).run();
   await env.DB.prepare('DELETE FROM user_search_cache WHERE fetched_at < ?').bind(Date.now()-86400000).run();
 

@@ -227,29 +227,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'delete_staff':
         result = await client.del(`/api/staff/${encodeURIComponent(a.id)}`);
         break;
-      case 'create_campaign': {
-        const conditions = a.conditions ?? {};
-        const gatePayload: Record<string, any> = {
-          xAccountId: a.xAccountId,
-          postId: a.postId,
-          triggerType: 'reply',
-          actionType: 'verify_only',
-          template: '',
-          ...(conditions.requireLike !== undefined ? { requireLike: conditions.requireLike } : {}),
-          ...(conditions.requireRepost !== undefined ? { requireRepost: conditions.requireRepost } : {}),
-          ...(a.lineHarnessUrl ? { lineHarnessUrl: a.lineHarnessUrl } : {}),
-          ...(a.lineHarnessApiKey ? { lineHarnessApiKey: a.lineHarnessApiKey } : {}),
-          ...(a.formId ? { formId: a.formId } : {}),
-          ...(a.ref ? { ref: a.ref } : {}),
-        };
-        const gate = await client.post<{ id: string }>('/api/engagement-gates', gatePayload);
-        const lineBase = (a.lineHarnessUrl || process.env.LINE_HARNESS_URL || '').replace(/\/$/, '');
-        const campaignLink = a.ref && lineBase
-          ? `${lineBase}/r/${encodeURIComponent(a.ref)}${a.formId ? `?form=${encodeURIComponent(a.formId)}` : ''}`
-          : null;
-        result = { gate, campaignLink };
+      case 'create_campaign':
+        result=await client.post('/api/campaigns',{...a,mode:'line_first'});
         break;
-      }
+      case 'get_gate_funnel':
+        result=await client.get(`/api/engagement-gates/${encodeURIComponent(a.gateId)}/funnel`);
+        break;
       case 'get_usage_summary': {
         const qs = new URLSearchParams();
         if (a.xAccountId) qs.set('xAccountId', a.xAccountId);

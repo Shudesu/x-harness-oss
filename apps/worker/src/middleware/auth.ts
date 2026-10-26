@@ -2,9 +2,10 @@ import type { Context, Next } from 'hono';
 import type { Env } from '../index.js';
 import { authenticate } from '../services/session.js';
 export function isPublicPath(path: string): boolean {
-  return ['/api/health','/api/auth/session','/api/x/oauth/callback','/webhook/xaa','/api/users/search','/setup'].includes(path)
+  return ['/api/health','/api/auth/session','/api/x/oauth/callback','/webhook/xaa','/setup'].includes(path)
     || /^\/api\/tokens\/[^/]+\/resolve$/.test(path) || path.startsWith('/api/growth/img/')
-    || /^\/api\/engagement-gates\/[^/]+\/verify$/.test(path);
+    || /^\/api\/integrations\/line-harness\/(claims(?:\/check)?|events)$/.test(path)
+    || /^\/c\/[a-z0-9-]+(?:\/(go|og\.png))?$/.test(path);
 }
 export async function authMiddleware(c: Context<Env>, next: Next): Promise<Response | void> {
   const path = new URL(c.req.url).pathname;

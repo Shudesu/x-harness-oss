@@ -118,6 +118,14 @@ export class XClient {
     return this.get<XApiResponse<XUser[]>>(`/tweets/${tweetId}/retweeted_by?${params}`);
   }
 
+  async searchClaimReplies(query:string, options:{sinceId?:string;nextToken?:string;startTime?:string}={}) {
+    const params=new URLSearchParams({query,max_results:'100','tweet.fields':'created_at,author_id,conversation_id,referenced_tweets,entities','user.fields':'username,created_at,protected,public_metrics','expansions':'author_id'});
+    if(options.sinceId)params.set('since_id',options.sinceId);
+    if(options.nextToken)params.set('next_token',options.nextToken);
+    if(options.startTime)params.set('start_time',options.startTime);
+    return this.get<{data?:Array<{id:string;text:string;author_id:string;created_at:string;conversation_id?:string;referenced_tweets?:Array<{type:string;id:string}>;entities?:{urls?:Array<{url?:string;expanded_url?:string}>;mentions?:Array<{username:string}>}}>;includes?:{users?:Array<{id:string;username:string;created_at?:string;protected?:boolean;public_metrics?:{followers_count?:number}}>};meta?:{next_token?:string}}>(`/tweets/search/recent?${params}`);
+  }
+
   async searchRecentTweets(query: string, sinceId?: string, paginationToken?: string, maxResults = 100): Promise<XApiResponse<XTweetSearchResult[]>> {
     // Pay-per-use bills $0.005 per post RETURNED — cap max_results to what the caller actually needs
     const params = new URLSearchParams({

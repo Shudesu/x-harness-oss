@@ -1,6 +1,6 @@
 {
   "name": "worker",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
@@ -8,10 +8,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@resvg/resvg-wasm": "^2.6.2",
     "@x-harness/db": "workspace:*",
     "@x-harness/shared": "workspace:*",
     "@x-harness/x-sdk": "workspace:*",
-    "hono": "^4.13.14"
+    "hono": "^4.13.14",
+    "satori": "0.18.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241205.0",

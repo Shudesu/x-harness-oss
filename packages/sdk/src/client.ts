@@ -1,3 +1,4 @@
+import {CampaignsResource} from './resources/campaigns.js';
 import { HttpClient } from './http.js';
 import { EngagementGatesResource } from './resources/engagement-gates.js';
 import { FollowersResource } from './resources/followers.js';
@@ -11,6 +12,7 @@ export class XHarness {
   readonly followers: FollowersResource;
   readonly tags: TagsResource;
   readonly posts: PostsResource;
+  readonly campaigns: CampaignsResource;
   readonly users: UsersResource;
 
   constructor(config: XHarnessConfig) {
@@ -24,6 +26,7 @@ export class XHarness {
     this.followers = new FollowersResource(http);
     this.tags = new TagsResource(http);
     this.posts = new PostsResource(http);
+    this.campaigns = new CampaignsResource(http);
     this.users = new UsersResource(http);
   }
 }

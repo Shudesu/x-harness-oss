@@ -22,6 +22,11 @@ export async function processEngagementGates(
   const gates = xAccountId ? allGates.filter((g) => g.x_account_id === xAccountId) : allGates;
 
   for (const gate of gates) {
+    if((gate as any).gate_mode==='line_first')continue;
+    if(gate.action_type==='dm'||gate.action_type==='mention_post'&&(gate.trigger_type!=='reply'||!!gate.link)){
+      await db.prepare("UPDATE engagement_gates SET is_active=0,pause_reason='legacy_delivery_requires_migration' WHERE id=?").bind(gate.id).run();
+      continue;
+    }
     if(gate.line_harness_api_key) gate.line_harness_api_key=await decryptSecret(gate.line_harness_api_key,encryptionKey);
     try {
       // Check expiry first
@@ -138,10 +143,6 @@ async function processOneGate(
       if (gate.lottery_enabled) {
         const won = Math.random() * 100 < gate.lottery_rate;
         if (!won) {
-          if (gate.lottery_lose_template) {
-            const loseText = varyTemplate(gate.lottery_lose_template.replaceAll('{username}', user.username));
-            await deliverGate(xClient,gate,user.id,user.username,loseText.replaceAll('{link}',''));
-          }
           await updateDeliveryStatus(db, delivery.id, 'delivered');
           continue;
         }
@@ -170,9 +171,6 @@ async function processOneGate(
         followingCount: user.public_metrics?.following_count,
       });
 
-      if (gate.line_harness_url && gate.line_harness_api_key) {
-        triggerLineHarness(gate.line_harness_url, gate.line_harness_api_key, gate.line_harness_tag, gate.line_harness_scenario_id, user.username).catch(() => {});
-      }
     } catch (err) {
       if (err instanceof XApiRateLimitError) {
         // Mark pending delivery as failed before re-throwing to prevent permanent suppression
@@ -261,10 +259,6 @@ async function processReplyTriggerGate(
       if (gate.lottery_enabled) {
         const won = Math.random() * 100 < gate.lottery_rate;
         if (!won) {
-          if (gate.lottery_lose_template) {
-            const loseText = varyTemplate(gate.lottery_lose_template.replaceAll('{username}', user.username));
-            await deliverGate(xClient,gate,user.id,user.username,loseText.replaceAll('{link}',''));
-          }
           await updateDeliveryStatus(db, delivery.id, 'delivered');
           continue;
         }
@@ -290,9 +284,6 @@ async function processReplyTriggerGate(
         followingCount: user.publicMetrics?.following_count,
       });
 
-      if (gate.line_harness_url && gate.line_harness_api_key) {
-        triggerLineHarness(gate.line_harness_url, gate.line_harness_api_key, gate.line_harness_tag, gate.line_harness_scenario_id, user.username).catch(() => {});
-      }
     } catch (err) {
       if (err instanceof XApiRateLimitError) {
         await updateDeliveryStatus(db, delivery.id, 'failed').catch(() => {});
@@ -384,21 +375,8 @@ function appendRef(link: string, ref: string): string {
   }
 }
 
-async function triggerLineHarness(
-  apiUrl: string, apiKey: string, tag: string | null, scenarioId: string | null, xUsername: string,
-): Promise<void> {
-  if (tag) {
-    if(new URL(apiUrl).protocol!=='https:') throw new Error('HTTPS required');
-    await fetch(`${apiUrl}/api/friends/tag-by-metadata`, {
-      redirect:'error',
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ metadataKey: 'x_username', metadataValue: xUsername, tagName: tag }),
-    });
-  }
-}
-
 async function deliverGate(client:XClient,gate:DbEngagementGate,id:string,username:string,text:string):Promise<string> {
+  if(gate.link && gate.action_type==='mention_post')throw new Error('Public reward-token links are disabled');
   const method=gate.delivery_method ?? (gate.action_type==='dm'?'dm':'reply_with_link');
   if(method==='dm') {
     try {await client.sendDm(id,text);return 'dm';}

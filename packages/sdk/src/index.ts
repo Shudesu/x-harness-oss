@@ -12,3 +12,5 @@ export type {
   User,
   CreateGateInput,
 } from './types.js';
+
+export type {LineFirstCampaignInput} from './resources/campaigns.js';

@@ -42,7 +42,20 @@ database_name = "${options.d1DatabaseName}"
 database_id = "${options.d1DatabaseId}"
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["* * * * *"]
+
+[[durable_objects.bindings]]
+name = "GATE_CLAIMS"
+class_name = "GateClaimCoordinator"
+
+[[migrations]]
+tag = "gate-claims-v1"
+new_sqlite_classes = ["GateClaimCoordinator"]
+
+[[rules]]
+type = "Data"
+globs = ["**/*.ttf"]
+fallthrough = true
 `;
   writeFileSync(tomlPath, deployToml);
 
