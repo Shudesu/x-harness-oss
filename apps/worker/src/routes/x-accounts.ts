@@ -1,3 +1,6 @@
+import { syncFollowers } from '../services/follower-sync.js';
+import { encryptSecret } from '@x-harness/db';
+import { buildXClient } from '../services/x-client.js';
 import { Hono } from 'hono';
 import { createXAccount, getXAccounts, getXAccountById, updateXAccount, getEngagementGates, getSnapshots, hasSnapshotForToday, recordSnapshot } from '@x-harness/db';
 import { XClient } from '@x-harness/x-sdk';
@@ -12,6 +15,8 @@ function serialize(a: any) {
     username: a.username,
     displayName: a.display_name,
     isActive: !!a.is_active,
+    needsReauth: !!a.needs_reauth,
+    tokenExpiresAt: a.token_expires_at,
     createdAt: a.created_at,
   };
 }
@@ -22,6 +27,9 @@ xAccounts.post('/api/x-accounts', async (c) => {
     username: string;
     accessToken: string;
     refreshToken?: string;
+    oauthClientId?: string;
+    oauthClientSecret?: string;
+    tokenExpiresAt?: number;
     displayName?: string;
     consumerKey?: string;
     consumerSecret?: string;
@@ -30,7 +38,9 @@ xAccounts.post('/api/x-accounts', async (c) => {
   if (!body.xUserId || !body.username || !body.accessToken) {
     return c.json({ success: false, error: 'Missing required fields' }, 400);
   }
+  for(const field of ['accessToken','refreshToken','consumerSecret','accessTokenSecret'] as const) if(body[field]) body[field]=await encryptSecret(body[field]!,c.env.ENCRYPTION_KEY);
   const account = await createXAccount(c.env.DB, body);
+  if(body.oauthClientId) await c.env.DB.prepare('UPDATE x_accounts SET oauth_client_id=?,oauth_client_secret=?,token_expires_at=? WHERE id=?').bind(body.oauthClientId,body.oauthClientSecret?await encryptSecret(body.oauthClientSecret,c.env.ENCRYPTION_KEY):null,body.tokenExpiresAt ?? null,account.id).run();
   return c.json({ success: true, data: serialize(account) }, 201);
 });
 
@@ -46,7 +56,7 @@ xAccounts.get('/api/x-accounts', async (c) => {
     polling: {
       activeGates: activeGates.length,
       totalApiCalls,
-      estimatedTotalCost: `$${(totalApiCalls * 0.005).toFixed(2)}`,
+      estimatedTotalCost: '支出台帳を参照',
       gates: activeGates.map((g) => ({
         id: g.id,
         postId: g.post_id,
@@ -63,6 +73,9 @@ xAccounts.put('/api/x-accounts/:id', async (c) => {
   const body = await c.req.json<{
     accessToken?: string;
     refreshToken?: string;
+    oauthClientId?: string;
+    oauthClientSecret?: string;
+    tokenExpiresAt?: number;
     consumerKey?: string;
     consumerSecret?: string;
     accessTokenSecret?: string;
@@ -70,7 +83,9 @@ xAccounts.put('/api/x-accounts/:id', async (c) => {
   }>();
   const existing = await getXAccountById(c.env.DB, c.req.param('id'));
   if (!existing) return c.json({ success: false, error: 'Not found' }, 404);
+  for(const field of ['accessToken','refreshToken','consumerSecret','accessTokenSecret'] as const) if(body[field]) body[field]=await encryptSecret(body[field]!,c.env.ENCRYPTION_KEY);
   await updateXAccount(c.env.DB, c.req.param('id'), body);
+  if(body.oauthClientId) await c.env.DB.prepare('UPDATE x_accounts SET oauth_client_id=?,oauth_client_secret=?,token_expires_at=?,needs_reauth=0 WHERE id=?').bind(body.oauthClientId,body.oauthClientSecret?await encryptSecret(body.oauthClientSecret,c.env.ENCRYPTION_KEY):null,body.tokenExpiresAt ?? null,c.req.param('id')).run();
   return c.json({ success: true });
 });
 
@@ -123,15 +138,7 @@ xAccounts.post('/api/x-accounts/:id/snapshot', async (c) => {
   const already = await hasSnapshotForToday(c.env.DB, id);
   if (already) return c.json({ success: true, message: 'Already recorded today' });
 
-  const xClient = account.consumer_key && account.consumer_secret && account.access_token_secret
-    ? new XClient({
-        type: 'oauth1',
-        consumerKey: account.consumer_key,
-        consumerSecret: account.consumer_secret,
-        accessToken: account.access_token,
-        accessTokenSecret: account.access_token_secret,
-      })
-    : new XClient(account.access_token);
+  const xClient = await buildXClient(c.env, account, 'x-accounts');
 
   const me = await xClient.getMe();
   if (!me.public_metrics) return c.json({ success: false, error: 'No public_metrics' }, 500);
@@ -146,4 +153,11 @@ xAccounts.post('/api/x-accounts/:id/snapshot', async (c) => {
   return c.json({ success: true, data: me.public_metrics });
 });
 
+xAccounts.post('/api/x-accounts/:id/followers/sync',async c=>{
+ const account=await getXAccountById(c.env.DB,c.req.param('id'));if(!account)return c.json({success:false,error:'Not found'},404);
+ const full=c.req.query('full')==='1';const body=await c.req.json<{confirmFull?:boolean}>();
+ if(full&&!body.confirmFull)return c.json({success:false,error:'Explicit full-sync cost confirmation required'},400);
+ const client=await buildXClient(c.env,account,'follower-sync');await syncFollowers(c.env.DB,client,account.id,{full});
+ return c.json({success:true,data:{mode:full?'full':'recent-engagers'}});
+});
 export { xAccounts };

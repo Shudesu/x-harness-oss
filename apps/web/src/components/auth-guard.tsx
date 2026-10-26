@@ -8,12 +8,13 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [checked, setChecked] = useState(false)
 
   useEffect(() => {
+    localStorage.removeItem('xh_api_key')
     if (pathname === '/login') {
       setChecked(true)
       return
     }
 
-    const key = localStorage.getItem('xh_api_key')
+    const key = sessionStorage.getItem('xh_session')
     if (!key) {
       router.replace('/login')
       return

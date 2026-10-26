@@ -10,6 +10,10 @@ export interface DbXAccount {
   consumer_key: string | null;
   consumer_secret: string | null;
   access_token_secret: string | null;
+  token_expires_at: number | null;
+  needs_reauth: number;
+  oauth_client_id: string | null;
+  oauth_client_secret: string | null;
   is_active: number;
   created_at: string;
   updated_at: string;

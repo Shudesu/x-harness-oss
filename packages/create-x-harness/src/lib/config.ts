@@ -1,4 +1,5 @@
 export interface SetupState {
+  encryptionKey?: string;
   completedSteps: string[];
   accountId?: string;
   projectName?: string;

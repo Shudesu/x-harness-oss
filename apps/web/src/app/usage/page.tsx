@@ -1,4 +1,5 @@
 'use client'
+import SpendPanel from '@/components/spend-panel'
 
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
@@ -112,6 +113,7 @@ export default function UsagePage() {
 
   return (
     <div>
+      <SpendPanel />
       <Header title="API使用量" description="リクエスト数・コスト・ゲート別統計" />
 
       {error && (
@@ -299,7 +301,7 @@ export default function UsagePage() {
                         {row.apiCallsTotal.toLocaleString('ja-JP')}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                        {formatCost(row.estimatedCost)}
+                        {row.estimatedCostAvailable === false ? '台帳を参照' : formatCost(row.estimatedCost)}
                       </td>
                     </tr>
                   ))}

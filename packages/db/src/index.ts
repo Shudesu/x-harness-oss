@@ -15,3 +15,5 @@ export * from './xaa-events.js';
 export * from './growth.js';
 export * from './sources.js';
 export * from './articles-draft.js';
+export * from './crypto.js';
+export * from './spend.js';

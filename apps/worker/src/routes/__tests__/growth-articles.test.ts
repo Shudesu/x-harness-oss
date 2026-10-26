@@ -58,6 +58,8 @@ vi.mock('@x-harness/x-sdk', async (importOriginal) => ({
   },
 }));
 
+vi.mock('../../services/x-client.js',()=>({buildXClient:async()=>({createArticleDraft:createArticleDraftMock,publishArticle:publishArticleMock,uploadMedia:uploadMediaMock})}));
+
 vi.mock('@x-harness/db', async (importOriginal) => ({
   ...(await importOriginal<any>()),
   createGrowthArticle: (...a: any[]) => (createGrowthArticleMock as any)(...a),

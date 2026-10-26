@@ -1,10 +1,11 @@
 import * as p from "@clack/prompts";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, appendFileSync, chmodSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 
 interface McpConfigOptions {
   workerUrl: string;
   apiKey: string;
+  mcpEntry?: string;
   scraperTokens?: { authToken: string; ct0: string } | null;
 }
 
@@ -47,8 +48,8 @@ export function generateMcpConfig(options: McpConfigOptions): void {
   const mcpJsonPath = join(cwd, ".mcp.json");
 
   const newServerConfig = {
-    command: "npx",
-    args: ["-y", "@x-harness/mcp@latest"],
+    command: options.mcpEntry ? "node" : "npx",
+    args: options.mcpEntry ? [resolve(options.mcpEntry)] : ["-y", "@x-harness/mcp@latest"],
     env: {
       X_HARNESS_API_URL: options.workerUrl,
       X_HARNESS_API_KEY: options.apiKey,
@@ -106,11 +107,14 @@ export function generateMcpConfig(options: McpConfigOptions): void {
   newServerConfig.env = { ...previousEnv, ...newServerConfig.env };
   mcpConfig.mcpServers[serverName] = newServerConfig;
 
+  const root = findGitRoot(cwd);
+  if(root && !gitignoresMcpJson(root,cwd)) appendFileSync(join(root,'.gitignore'),'\n.mcp.json\n');
   // Wrap the actual write in try/catch so a local FS failure (read-only
   // checkout, perm error, full disk) does NOT abort an otherwise successful
   // remote deployment at the very end of setup.
   try {
-    writeFileSync(mcpJsonPath, JSON.stringify(mcpConfig, null, 2) + "\n");
+    writeFileSync(mcpJsonPath, JSON.stringify(mcpConfig, null, 2) + "\n", {mode:0o600});
+    chmodSync(mcpJsonPath,0o600);
     p.log.success(`.mcp.json に MCP 設定を追加しました（${serverName}）`);
   } catch (error: any) {
     p.log.warn(

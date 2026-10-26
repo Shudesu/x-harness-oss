@@ -1,0 +1,97 @@
+## 0.6.0 — Unreleased
+
+- Normalize scheduled times, claim scheduled sends, and run explicit schedules independently of optional automation.
+- Add role enforcement, scoped public search quotas, short-lived dashboard sessions, credential encryption/migration and OAuth PKCE/refresh.
+- Add resource spend estimates, application budget guards, delivery choices and signed webhook reply ingestion.
+- Add optional BYO Grok digest, triage, drafts, research, best-time explanations, Web controls and MCP tools.
+- Repair SDK builds and fresh DB initialization; update vulnerable dependencies; add CI, lint and Changesets.
+- Historical release dates below are retained; their discrepancies were not rewritten without verified release evidence.
+
+# Changelog
+
+## [0.5.0] - 2026-07-18
+
+### Added
+- **記事のインライン画像自動アップロード** — `create_article` の body に段落として書いた `![キャプション](https://...)` を Worker が fetch → X メディアアップロード → 画像 entity に自動変換。markdown を渡すだけで画像込みの長文記事 draft が作れる(実記事の公開まで検証済み)
+- **X Articles API 実測ガイド** — undocumented な `content_state` 書き側スキーマのフィールドノート(`docs/manual/07-articles-api.md`): entity data スキーマ(image/post/link/markdown/emoji/divider)、snake_case 必須、レート制限実測(draft 10件/24h・**400エラーでも消費**、publish 5件/24h)、スキーマ解読テクニック
+- SDK に `ArticleEntity` 型を追加、`cover_media.media_category` 対応
+
+### Changed
+- **記事公開の要件記載を修正: Premium+ → X Premium** — Articles の公開は 2026-01-07 に Premium+ 限定から全 Premium プランへ開放済み(実測: Premium アカウントで publish 成功)。ドキュメント・ツール説明を実態に合わせた
+
+### Fixed
+- **記事の太字が反映されないバグ** — inline style の書き側 enum は小文字 `bold`(`Bold` はバリデータに拒否される)。`**太字**` が正しく反映されるようになった
+- 記事タイトルと同一の冒頭 `# 見出し` を自動除去(タイトル二重表示の防止)
+- 画像 URL が到達不能な場合は draft 作成前に 400 で fail-fast(貴重な 10件/24h の draft 枠を守る)。括弧を含む画像 URL に対応
+
+## [0.4.0] - 2026-07-16
+
+### Added
+- **無料スクレイピング収集(scrape_* MCP ツール)** — twitter-cli(Cookie 認証)ラップで X API 読み取り課金ゼロ
+  - `scrape_user_posts` / `scrape_search` / `scrape_post`(fxtwitter, /video/1 embedUrl)/ `scrape_user`
+- **growth 系 MCP ツール** — `add_growth_source` / `list_growth_sources` / `save_growth_article` / `list_growth_articles` / `add_growth_draft`
+- **同梱スキル(Claude Code / Codex 両対応)** — `x-growth-discover`(ネタ発見)/ `x-growth-article`(長文記事)/ `x-growth-video`(動画引用投稿、承認/フルオート)
+- **create-x-harness** — 無料収集セットアップ(auth_token/ct0)、スキル自動インストール、Codex config スニペット表示
+
+### Changed
+- 有料の X API 読み取りツールの description に課金注意と scrape_* への誘導を追加
+
+## [0.3.0] - 2026-04-05
+
+### Added
+- **管理画面 Phase 2** — ダッシュボード全面リニューアル
+  - グローバルアカウント切替（サイドバーで選択、全ページ連動）
+  - DM管理ページ（プロフィール表示、検索、ページネーション、E2E暗号化注記）
+  - リプライ管理ページ（元ツイート表示、ワンクリックいいね/リポスト/返信、自分のリプライ表示）
+  - 引用ツイートページ（自動検出、DB永続化、引用RTアクション、メトリクス表示）
+  - キャンペーンウィザード（投稿→条件→LINE連携→プレビューの4ステップ）
+  - 投稿管理ページ（メディアアップロード、Premium文字数制限対応）
+  - API使用量ページ（エンドポイント別、ゲート別、日次チャート）
+  - スタッフ管理ページ（4ロール RBAC）
+- **フォロワー数トラッキング** — 日次 cron スナップショット、推移グラフ、7日/30日増減
+- **エンゲージメントアクション永続化** — いいね/リポスト/返信状態をDBに記録、リロードしても復元
+- **引用ツイート DB 永続化** — X API 7日制限を超えて引用RTを蓄積
+- **MCP ツール拡張** — 30ツールに拡張（DM、スタッフ、使用量、キャンペーン）
+- **メディアアップロード** — 画像/動画対応、MP4は自動で `tweet_video` カテゴリ
+- **X Activity API (XAA)** — Webhook 受信 + サブスクリプション管理
+- **LINE Harness 連携強化** — キャンペーンウィザードで URL/API Key 直接入力、フォーム自動作成
+
+### Security
+- API Key 漏洩防止（LINE Harness API Key、Staff API Key のブラウザ露出を修正）
+- Webhook バイパス修正（`_webhookVerified` クライアント送信防止）
+- Staff RBAC 強化（viewer ロールの mutating 操作をブロック）
+- QR コードプロキシ（ref トークンの第三者漏洩防止）
+- エンゲージメントゲートから `line_harness_api_key` 除外
+
+### Fixed
+- Subscription ルートパス不一致（全404だった問題を修正）
+- DM 送信レスポンス形状を DmMessage に統一
+- Usage パラメータ名不一致（from/to → startDate/endDate/days）
+- MCP reply_to_post / get_usage_summary のエンドポイント修正
+- Daily usage ソート順を ASC に修正
+- `{link}` プレースホルダーの未置換防止
+- .env.production 追加で localhost フォールバック防止
+
+## [0.2.0] - 2026-04-01
+
+### Added
+- Reply-trigger architecture with cached condition verification
+- Verify API endpoint for LINE Harness integration
+- Multi-condition gates (reply + like + repost + follow)
+- Dashboard UI for reply-trigger gate creation
+
+### Changed
+- Engagement gate processing now uses `since_id` for reply detection
+- Reduced X API costs from ~$86/mo to ~$3-5/mo per gate
+
+### Fixed
+- Removed hardcoded personal URL from MCP server
+
+## [0.1.0] - 2026-03-26
+
+### Added
+- Initial MVP: Engagement Gates, Follower Management, Tags
+- Scheduled Posts, Step Sequences
+- TypeScript SDK, MCP Server, Dashboard
+- Stealth design (jitter, rate limiting, template variation)
+- LINE Harness integration (one-way tagging)

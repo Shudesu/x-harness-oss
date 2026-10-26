@@ -1,3 +1,5 @@
+import { publicRateLimit, takeQuota } from '../services/rate-limit.js';
+import { buildXClient } from '../services/x-client.js';
 import { Hono } from 'hono';
 import { getFollowers, getFollowerById, getFollowerCount, addTagToFollower, removeTagFromFollower, getFollowerTags, getTagById, getXAccounts, incrementApiUsage, getEndpointUsageForDate } from '@x-harness/db';
 import type { Env } from '../index.js';
@@ -34,18 +36,18 @@ function serialize(row: any) {
 
 // Local followers-table search, shared by /api/followers/search and the
 // daily-cap fallback of /api/users/search.
-async function searchLocalFollowers(db: D1Database, q: string, limit: number): Promise<FollowerSearchResult[]> {
+async function searchLocalFollowers(db: D1Database, q: string, limit: number, accountId?: string): Promise<FollowerSearchResult[]> {
   const pattern = `%${q}%`;
   const result = await db.prepare(
     `SELECT x_user_id, username, display_name, profile_image_url
      FROM followers
-     WHERE (username LIKE ? OR display_name LIKE ?)
+     WHERE (? IS NULL OR x_account_id=?) AND (username LIKE ? OR display_name LIKE ?)
      ORDER BY
        CASE WHEN username LIKE ? THEN 0 ELSE 1 END,
        username ASC
      LIMIT ?`,
   )
-    .bind(pattern, pattern, `${q}%`, limit)
+    .bind(accountId ?? null, accountId ?? null, pattern, pattern, `${q}%`, limit)
     .all<{ x_user_id: string; username: string; display_name: string; profile_image_url: string | null }>();
 
   return (result.results ?? []).map((r) => ({
@@ -59,18 +61,22 @@ async function searchLocalFollowers(db: D1Database, q: string, limit: number): P
 // This endpoint is public (LIFF browsers call it without auth), so each
 // request spends real X API money. Cap it per day and degrade to the local
 // followers table when the cap is hit.
-const USER_SEARCH_DEFAULT_DAILY_LIMIT = 300;
+const USER_SEARCH_DEFAULT_DAILY_LIMIT = 50;
 
 // Public live user search endpoint — calls X API directly (called from LIFF browser)
 followers.get('/api/users/search', async (c) => {
   const q = (c.req.query('q') ?? '').trim();
-  const limit = Math.min(Number(c.req.query('limit') ?? '5'), 20);
+  if(q.length>50) return c.json({success:false,error:'Query too long'},400);
+  const limit = Math.min(20,Math.max(1,Math.floor(Number(c.req.query('limit')))||5));
 
-  // Single characters match too broadly to be worth a billable API call
-  if (q.length < 2) {
-    return c.json({ success: true, data: [] as FollowerSearchResult[] });
-  }
-
+  const gateId = c.req.query('gateId');
+  const gate = gateId ? await c.env.DB.prepare('SELECT x_account_id, expires_at FROM engagement_gates WHERE id=? AND is_active=1').bind(gateId).first<{x_account_id:string;expires_at:string|null}>() : null;
+  if (!c.get('staffRole') && (!gate || (gate.expires_at && Date.parse(gate.expires_at)<=Date.now()))) return c.json({success:false,error:'Active gate required'},404);
+  if(!await publicRateLimit(c,'user-search',5,50)) return c.json({success:false,error:'Too many requests'},429);
+  if(q.length<2) return c.json({success:true,data:[]});
+  const cacheKey=`${gate?.x_account_id ?? 'admin'}:${q.toLowerCase()}:${limit}`;
+  const cached = await c.env.DB.prepare('SELECT json FROM user_search_cache WHERE cache_key=? AND fetched_at>?').bind(cacheKey,Date.now()-86400000).first<{json:string}>();
+  if(cached) return c.json({success:true,data:JSON.parse(cached.json),cached:true});
   try {
     // Absent/invalid env → default; explicit 0 disables paid search entirely.
     const envLimit = c.env.USER_SEARCH_DAILY_LIMIT;
@@ -78,13 +84,13 @@ followers.get('/api/users/search', async (c) => {
     const dailyLimit = Number.isFinite(parsedLimit) && parsedLimit >= 0 ? parsedLimit : USER_SEARCH_DEFAULT_DAILY_LIMIT;
 
     if (dailyLimit === 0) {
-      const data = await searchLocalFollowers(c.env.DB, q, limit);
+      const data = await searchLocalFollowers(c.env.DB, q, limit, gate?.x_account_id);
       return c.json({ success: true, data, capped: true });
     }
 
     const { XClient } = await import('@x-harness/x-sdk');
     const accounts = await getXAccounts(c.env.DB);
-    const account = accounts[0] ?? null;
+    const account = (gate ? accounts.find(a=>a.id===gate.x_account_id) : accounts[0]) ?? null;
     if (!account) {
       return c.json({ success: true, data: [] as FollowerSearchResult[] });
     }
@@ -98,23 +104,15 @@ followers.get('/api/users/search', async (c) => {
     const usedToday = await getEndpointUsageForDate(c.env.DB, 'user_search_quota');
     if (usedToday > dailyLimit) {
       console.warn(`[user-search] daily cap reached (${usedToday}/${dailyLimit}), falling back to local search`);
-      const data = await searchLocalFollowers(c.env.DB, q, limit);
+      const data = await searchLocalFollowers(c.env.DB, q, limit, gate?.x_account_id);
       return c.json({ success: true, data, capped: true });
     }
 
-    const xClient = account.consumer_key && account.consumer_secret && account.access_token_secret
-      ? new XClient({
-          type: 'oauth1',
-          consumerKey: account.consumer_key,
-          consumerSecret: account.consumer_secret,
-          accessToken: account.access_token,
-          accessTokenSecret: account.access_token_secret,
-        })
-      : new XClient(account.access_token);
+    const xClient = await buildXClient(c.env, account, 'followers');
 
-    // Track billable spend just before the call — failures are billed too
+    // Request telemetry is separate from the response resource spend ledger.
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'user_search'));
-    const result = await xClient.searchUsers(q);
+    const result = await xClient.searchUsers(q, limit);
     const users = (result.data ?? []).slice(0, limit);
 
     const data: FollowerSearchResult[] = users.map((u: any) => ({
@@ -124,23 +122,25 @@ followers.get('/api/users/search', async (c) => {
       profileImageUrl: u.profile_image_url ?? null,
     }));
 
+    await c.env.DB.prepare('INSERT INTO user_search_cache(cache_key,json,fetched_at) VALUES (?,?,?) ON CONFLICT(cache_key) DO UPDATE SET json=excluded.json,fetched_at=excluded.fetched_at').bind(cacheKey,JSON.stringify(data),Date.now()).run();
     return c.json({ success: true, data });
   } catch {
-    // Graceful degradation — return empty on X API error
-    return c.json({ success: true, data: [] as FollowerSearchResult[] });
+    console.error('[user-search] upstream unavailable; returning cached local matches');
+    return c.json({ success: true, data: await searchLocalFollowers(c.env.DB,q,limit,gate?.x_account_id), fallback:true });
   }
 });
 
-// Public search endpoint — no auth required (called from LIFF browser)
+// CRM search requires authentication; public LIFF uses gate-scoped /api/users/search.
 followers.get('/api/followers/search', async (c) => {
   const q = (c.req.query('q') ?? '').trim();
-  const limit = Math.min(Number(c.req.query('limit') ?? '5'), 20);
+  if(q.length>50) return c.json({success:false,error:'Query too long'},400);
+  const limit = Math.min(20,Math.max(1,Math.floor(Number(c.req.query('limit')))||5));
 
   if (!q) {
     return c.json({ success: true, data: [] as FollowerSearchResult[] });
   }
 
-  const data = await searchLocalFollowers(c.env.DB, q, limit);
+  const data = await searchLocalFollowers(c.env.DB, q, limit, c.req.query('xAccountId'));
   return c.json({ success: true, data });
 });
 

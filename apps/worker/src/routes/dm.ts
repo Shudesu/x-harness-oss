@@ -1,3 +1,4 @@
+import { buildXClient } from '../services/x-client.js';
 import { Hono } from 'hono';
 import { XClient } from '@x-harness/x-sdk';
 import { getXAccounts, getXAccountById, incrementApiUsage } from '@x-harness/db';
@@ -6,17 +7,6 @@ import type { Env } from '../index.js';
 const dm = new Hono<Env>();
 
 // Helper: build XClient from account record
-function buildXClient(account: { consumer_key: string | null; consumer_secret: string | null; access_token: string; access_token_secret: string | null }): XClient {
-  return account.consumer_key && account.consumer_secret && account.access_token_secret
-    ? new XClient({
-        type: 'oauth1',
-        consumerKey: account.consumer_key,
-        consumerSecret: account.consumer_secret,
-        accessToken: account.access_token,
-        accessTokenSecret: account.access_token_secret,
-      })
-    : new XClient(account.access_token);
-}
 
 // Helper: extract participantId from a 1:1 conversation ID (format: "userId1-userId2")
 // Returns null for group conversations (IDs with more than one hyphen-separated segment pair)
@@ -44,7 +34,7 @@ dm.get('/api/dm/conversations', async (c) => {
     account = accounts[0] ?? null;
   }
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
-  const xClient = buildXClient(account);
+  const xClient = await buildXClient(c.env, account, 'dm');
   try {
     const res = await xClient.getDmEvents(undefined, cursor ?? undefined);
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'dm_events'));
@@ -120,7 +110,7 @@ dm.get('/api/dm/conversations/:conversationId/messages', async (c) => {
     account = accounts[0] ?? null;
   }
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
-  const xClient = buildXClient(account);
+  const xClient = await buildXClient(c.env, account, 'dm');
   try {
     const res = await xClient.getDmEvents(conversationId, cursor ?? undefined);
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'dm_events'));
@@ -168,7 +158,7 @@ dm.post('/api/dm/send', async (c) => {
     account = accounts[0] ?? null;
   }
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
-  const xClient = buildXClient(account);
+  const xClient = await buildXClient(c.env, account, 'dm');
   try {
     const result = await xClient.sendDm(participantId, text);
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'dm_send'));

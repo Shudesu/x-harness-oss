@@ -1,0 +1,289 @@
+-- Fresh installations only. Do not run against a legacy database.
+CREATE TABLE api_usage_logs (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  request_count INTEGER NOT NULL DEFAULT 0,
+  date TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(x_account_id, endpoint, date)
+);
+CREATE TABLE engagement_actions (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  tweet_id TEXT NOT NULL,
+  action_type TEXT NOT NULL CHECK (action_type IN ('like', 'repost', 'reply')),
+  created_at TEXT NOT NULL,
+  UNIQUE(x_account_id, tweet_id, action_type)
+);
+CREATE TABLE engagement_gate_deliveries (
+  id TEXT PRIMARY KEY,
+  gate_id TEXT NOT NULL REFERENCES engagement_gates(id) ON DELETE CASCADE,
+  x_user_id TEXT NOT NULL,
+  x_username TEXT,
+  delivered_post_id TEXT,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('delivered', 'failed', 'pending')),
+  token TEXT,
+  consumed_at TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(gate_id, x_user_id)
+);
+CREATE TABLE "engagement_gates" (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  post_id TEXT NOT NULL,
+  trigger_type TEXT NOT NULL CHECK (trigger_type IN ('like', 'repost', 'reply', 'follow', 'quote')),
+  action_type TEXT NOT NULL CHECK (action_type IN ('mention_post', 'dm', 'verify_only')),
+  template TEXT NOT NULL,
+  link TEXT,
+  is_active INTEGER DEFAULT 1,
+  line_harness_url TEXT,
+  line_harness_api_key TEXT,
+  line_harness_tag TEXT,
+  line_harness_scenario_id TEXT,
+  lottery_enabled INTEGER DEFAULT 0,
+  lottery_rate INTEGER DEFAULT 100,
+  lottery_win_template TEXT,
+  lottery_lose_template TEXT,
+  polling_strategy TEXT DEFAULT 'hot_window' CHECK (polling_strategy IN ('hot_window', 'constant', 'manual')),
+  expires_at TEXT,
+  next_poll_at TEXT,
+  api_calls_total INTEGER DEFAULT 0,
+  require_like INTEGER DEFAULT 0,
+  require_repost INTEGER DEFAULT 0,
+  require_follow INTEGER DEFAULT 0,
+  last_reply_since_id TEXT,
+  reply_keyword TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE follower_id_cache (
+  x_account_id TEXT NOT NULL,
+  follower_x_user_id TEXT NOT NULL,
+  cached_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (x_account_id, follower_x_user_id)
+);
+CREATE TABLE follower_snapshots (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  followers_count INTEGER NOT NULL,
+  following_count INTEGER NOT NULL,
+  tweet_count INTEGER NOT NULL DEFAULT 0,
+  recorded_at TEXT NOT NULL,
+  FOREIGN KEY (x_account_id) REFERENCES x_accounts(id)
+);
+CREATE TABLE follower_tags (
+  follower_id TEXT NOT NULL REFERENCES followers(id) ON DELETE CASCADE,
+  tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (follower_id, tag_id)
+);
+CREATE TABLE followers (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  x_user_id TEXT NOT NULL,
+  username TEXT,
+  display_name TEXT,
+  profile_image_url TEXT,
+  follower_count INTEGER,
+  following_count INTEGER,
+  is_following INTEGER DEFAULT 1,
+  is_followed INTEGER DEFAULT 0,
+  user_id TEXT,
+  metadata TEXT DEFAULT '{}',
+  first_seen_at TEXT NOT NULL,
+  unfollowed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(x_account_id, x_user_id)
+);
+CREATE TABLE growth_articles (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body_md TEXT NOT NULL,
+  image_url TEXT,
+  theme TEXT,
+  source_tweet_ids TEXT,
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft','published','discarded')),
+  x_article_draft_id TEXT,
+  published_article_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE growth_digests (
+  date TEXT PRIMARY KEY,
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE growth_drafts (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  text TEXT NOT NULL,
+  quote_tweet_id TEXT,
+  scheduled_at TEXT NOT NULL,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'scheduled', 'rejected')),
+  scheduled_post_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE quote_tweets (
+  id TEXT PRIMARY KEY,
+  source_tweet_id TEXT NOT NULL,
+  x_account_id TEXT NOT NULL,
+  author_id TEXT NOT NULL,
+  author_username TEXT,
+  author_display_name TEXT,
+  author_profile_image_url TEXT,
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  discovered_at TEXT NOT NULL,
+  FOREIGN KEY (x_account_id) REFERENCES x_accounts(id)
+);
+CREATE TABLE replier_cache (
+  gate_id TEXT NOT NULL,
+  x_user_id TEXT NOT NULL,
+  username TEXT NOT NULL,
+  display_name TEXT DEFAULT '',
+  profile_image_url TEXT,
+  eligible INTEGER NOT NULL DEFAULT 0,
+  conditions_json TEXT,
+  cached_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (gate_id, x_user_id)
+);
+CREATE TABLE scheduled_posts (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  media_ids TEXT,
+  quote_tweet_id TEXT,
+  scheduled_at TEXT NOT NULL,
+  status TEXT DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'posted', 'failed')),
+  posted_tweet_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE source_candidates (
+  id TEXT PRIMARY KEY,
+  source_tweet_id TEXT NOT NULL UNIQUE,
+  author TEXT NOT NULL,
+  author_url TEXT,
+  text_en TEXT NOT NULL,
+  text_ja TEXT NOT NULL,
+  summary_ja TEXT,
+  suggested_quote_text TEXT,
+  video_url TEXT,
+  views INTEGER DEFAULT 0,
+  likes INTEGER DEFAULT 0,
+  theme TEXT,
+  transcript TEXT,
+  status TEXT DEFAULT 'new' CHECK (status IN ('new', 'drafted', 'dismissed')),
+  discovered_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE staff_members (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'editor', 'viewer')),
+  api_key TEXT NOT NULL UNIQUE,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE step_enrollments (
+  id TEXT PRIMARY KEY,
+  sequence_id TEXT NOT NULL REFERENCES step_sequences(id) ON DELETE CASCADE,
+  x_user_id TEXT NOT NULL,
+  x_username TEXT,
+  current_step INTEGER DEFAULT 0,
+  next_run_at TEXT,
+  status TEXT DEFAULT 'active' CHECK (status IN ('active', 'completed', 'cancelled')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(sequence_id, x_user_id)
+);
+CREATE TABLE step_messages (
+  id TEXT PRIMARY KEY,
+  sequence_id TEXT NOT NULL REFERENCES step_sequences(id) ON DELETE CASCADE,
+  step_order INTEGER NOT NULL,
+  delay_minutes INTEGER NOT NULL,
+  action_type TEXT NOT NULL CHECK (action_type IN ('mention_post', 'dm')),
+  template TEXT NOT NULL,
+  link TEXT,
+  condition_tag TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE step_sequences (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE tags (
+  id TEXT PRIMARY KEY,
+  x_account_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  color TEXT DEFAULT '#3B82F6',
+  created_at TEXT NOT NULL,
+  UNIQUE(x_account_id, name)
+);
+CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  email TEXT,
+  phone TEXT,
+  metadata TEXT DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE x_accounts (
+  id TEXT PRIMARY KEY,
+  x_user_id TEXT UNIQUE NOT NULL,
+  username TEXT NOT NULL,
+  display_name TEXT,
+  access_token TEXT NOT NULL,
+  refresh_token TEXT,
+  consumer_key TEXT,
+  consumer_secret TEXT,
+  access_token_secret TEXT,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE xaa_events (
+  id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  received_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_deliveries_gate_id ON engagement_gate_deliveries(gate_id);
+CREATE INDEX idx_followers_x_user_id ON followers(x_user_id);
+CREATE INDEX idx_followers_user_id ON followers(user_id);
+CREATE INDEX idx_follower_tags_tag_id ON follower_tags(tag_id);
+CREATE INDEX idx_scheduled_posts_status ON scheduled_posts(status);
+CREATE UNIQUE INDEX idx_deliveries_token ON engagement_gate_deliveries(token);
+CREATE INDEX idx_step_messages_sequence ON step_messages(sequence_id, step_order);
+CREATE INDEX idx_follower_snapshots_account_date ON follower_snapshots(x_account_id, recorded_at);
+CREATE INDEX idx_quote_tweets_source ON quote_tweets(source_tweet_id);
+CREATE INDEX idx_quote_tweets_account ON quote_tweets(x_account_id, discovered_at DESC);
+CREATE INDEX idx_engagement_actions_account ON engagement_actions(x_account_id);
+CREATE INDEX idx_growth_drafts_status ON growth_drafts(status);
+CREATE INDEX idx_source_candidates_status ON source_candidates(status);
+CREATE INDEX idx_growth_articles_status ON growth_articles(status);
+CREATE INDEX idx_step_enrollments_next_run ON step_enrollments(next_run_at, status);
+CREATE INDEX idx_engagement_gates_active ON engagement_gates(is_active);
+CREATE INDEX idx_engagement_gates_next_poll ON engagement_gates(next_poll_at, is_active);
+CREATE INDEX idx_staff_api_key ON staff_members (api_key);
+CREATE INDEX idx_usage_account_date ON api_usage_logs (x_account_id, date);
+CREATE INDEX idx_replier_cache_gate_eligible
+  ON replier_cache (gate_id, eligible);
+CREATE INDEX idx_xaa_events_type_time ON xaa_events (event_type, received_at DESC);

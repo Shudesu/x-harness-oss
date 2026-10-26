@@ -308,7 +308,7 @@ describe('uploadArticleCover', () => {
     const xClient = { uploadMedia: vi.fn() } as any;
     try {
       await expect(uploadArticleCover('https://example.com/not-an-image', xClient)).rejects.toThrow(
-        /cover must be a non-GIF image/,
+        /Unsupported image content type/,
       );
       expect(xClient.uploadMedia).not.toHaveBeenCalled();
     } finally {

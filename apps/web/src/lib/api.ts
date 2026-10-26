@@ -2,7 +2,7 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8787
 
 export function getApiKey(): string {
   if (typeof window === 'undefined') return '';
-  return localStorage.getItem('xh_api_key') || '';
+  return sessionStorage.getItem('xh_session') || '';
 }
 
 export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
@@ -14,6 +14,7 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
       ...options?.headers,
     },
   });
+  if (res.status === 401 && typeof window !== 'undefined') { sessionStorage.removeItem('xh_session'); window.location.assign('/login'); }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error((body as { error?: string }).error || `HTTP ${res.status}`);
@@ -41,6 +42,8 @@ export interface EngagementGate {
   postId: string;
   triggerType: string;
   actionType: string;
+  deliveryMethod?: string;
+  replyTemplates?: string[];
   template: string;
   link: string | null;
   isActive: boolean;
@@ -188,7 +191,7 @@ export interface DailyUsage { date: string; count: number; }
 
 export interface GateUsage {
   id: string; postId: string; triggerType: string;
-  apiCallsTotal: number; estimatedCost: number;
+  apiCallsTotal: number; estimatedCost: number; estimatedCostAvailable?: boolean;
 }
 
 
@@ -337,7 +340,8 @@ export const api = {
         headers: { Authorization: `Bearer ${getApiKey()}` },
         body: formData,
       });
-      if (!res.ok) {
+      if (res.status === 401 && typeof window !== 'undefined') { sessionStorage.removeItem('xh_session'); window.location.assign('/login'); }
+  if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error || `Media upload failed: HTTP ${res.status}`);
       }

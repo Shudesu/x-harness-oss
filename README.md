@@ -1,3 +1,31 @@
+## v0.6.0 — security / cost / optional Grok
+
+Release notes: [v0.6.0](docs/releases/v0.6.0.md). Maintainers: [release procedure](docs/RELEASING.md).
+
+This is a GitHub source release. npm publishing is separate; `npx create-x-harness@latest` may still use the preceding npm release. For v0.6.0, build the CLI from the tagged checkout:
+
+```sh
+git clone --branch v0.6.0 https://github.com/Shudesu/x-harness-oss.git
+cd x-harness-oss
+pnpm install --frozen-lockfile
+pnpm --filter create-x-harness build
+node packages/create-x-harness/dist/index.js --repo-dir .
+```
+
+The source installer builds and configures the MCP server from this same checkout. Run setup only for a new environment; existing installations must follow the migration guide first.
+
+
+Read [the upgrade and validation guide](docs/operations/audit-20261026.md) before deploying over an existing database. Fresh installations use `packages/db/bootstrap`; historical installations must audit their actual schema before applying migration 019. Do not reapply historical ALTER migrations or run the fresh baseline on a populated database.
+
+- `ENCRYPTION_KEY` is a required base64-encoded 32-byte key for new credential writes. Keep it stable across deployments. Existing secrets have an explicit, bounded migration command.
+- `ADMIN_ORIGIN` lists exact dashboard origins. Dashboard login exchanges the master/staff key for a 12-hour session; it never saves the master key.
+- Admin: settings, credentials, connections, staff, webhook administration, budgets. Editor: posts, gates, AI drafts/research. Viewer: reads. `/api/staff/me` is available to all authenticated roles. Public user search requires an active `gateId`; CRM search and replier lists require authentication.
+- Optional `XAI_API_KEY` enables Grok; default model is `grok-4.3`, AI budget $5/month. X API application guard defaults to $50/month. These are application stopping thresholds, not a guarantee about in-flight/provider charges; also configure provider spending limits. Prices are configurable estimates, not invoice reconciliation.
+- A scheduled post runs independently of optional discovery automation. A persistent claim prevents overlapping cron jobs from sending it twice; ambiguous failures require manual reconciliation.
+- New delivery choices default to DM. Existing campaigns keep their delivery method. No duplicate-detection evasion is performed.
+- AI outputs are drafts/analyses; they do not post or send messages. Daily digest is opt-in at 08:00 JST. Without Grok, research is a bounded X API search; other features use stored data or rules.
+- Scraper installation requires `--enable-scraper`; MCP scraper tools additionally require `X_HARNESS_ENABLE_SCRAPER=true`. `ai_research` is the default research alternative.
+
 # X Harness
 
 <p align="center">
@@ -238,7 +266,7 @@ twitter-cli が PATH 外にある場合は `TWITTER_BIN` でフルパスを指�
 
 ### 前提条件
 
-- Node.js 20+
+- Node.js 22.13+
 - pnpm 9+
 - [Cloudflare アカウント](https://dash.cloudflare.com/sign-up)
 - [X Developer アカウント](https://developer.x.com/) (Pay-Per-Use 推奨)

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
@@ -11,6 +12,7 @@ import { deployAdmin } from "../steps/deploy-admin.js";
 import { setSecrets } from "../steps/secrets.js";
 import { generateMcpConfig } from "../steps/mcp-config.js";
 import { promptScraperSetup, installSkills, printCodexSnippet } from "../steps/scraper-setup.js";
+import { ensurePnpm, runPnpm } from "../lib/pnpm.js";
 import { generateApiKey } from "../lib/crypto.js";
 import { wrangler, setAccountId } from "../lib/wrangler.js";
 import type { SetupState } from "../lib/config.js";
@@ -35,6 +37,7 @@ function saveState(repoDir: string, state: SetupState): void {
   writeFileSync(
     getStatePath(repoDir),
     JSON.stringify(state, null, 2) + "\n",
+    {mode:0o600},
   );
 }
 
@@ -185,7 +188,14 @@ export async function runSetup(repoDir: string): Promise<void> {
 
   // Step 8: Set secrets
   if (!isDone(state, "secrets")) {
+    // Preserve this key in the existing setup state across retries.
+    if (!state.encryptionKey) {
+      const existing=JSON.parse(await wrangler(['secret','list','--name',workerName])) as Array<{name:string}>;
+      if(!existing.some(s=>s.name==='ENCRYPTION_KEY')){state.encryptionKey=randomBytes(32).toString('base64');saveState(repoDir,state);}
+    }
     await setSecrets({
+      encryptionKey:state.encryptionKey,
+      xaiApiKey:process.env.XAI_API_KEY,
       workerName,
       apiKey: state.apiKey!,
       xAccessToken: state.xAccessToken!,
@@ -248,6 +258,7 @@ export async function runSetup(repoDir: string): Promise<void> {
       projectName: adminProjectName,
     });
     state.adminUrl = adminUrl;
+    await wrangler(['secret','put','ADMIN_ORIGIN','--name',workerName],{input:adminUrl});
     markDone(state, "admin");
     saveState(repoDir, state);
   } else {
@@ -262,7 +273,7 @@ export async function runSetup(repoDir: string): Promise<void> {
       "→ ユーザ認証設定 → セットアップ → アプリ情報",
       "",
       "  コールバックURI / リダイレクトURL（必須）:",
-      `    ${state.workerUrl}/auth/callback`,
+      `    ${state.workerUrl}/api/x/oauth/callback`,
       "",
       "  ウェブサイトURL（必須）:",
       `    ${state.adminUrl}`,
@@ -278,12 +289,14 @@ export async function runSetup(repoDir: string): Promise<void> {
   // Step 11.5: Optional free-scraping setup (twitter-cli cookie auth).
   // Tokens are intentionally NOT persisted to the setup state file — cookies
   // must never land in plain JSON on disk beyond .mcp.json itself.
-  const scraperTokens = await promptScraperSetup();
+  const scraperTokens = process.argv.includes('--enable-scraper') ? await promptScraperSetup() : null;
   installSkills(repoDir);
 
   // Step 12: Generate MCP config (always)
-  generateMcpConfig({ workerUrl: state.workerUrl!, apiKey: state.apiKey!, scraperTokens });
-  printCodexSnippet({ workerUrl: state.workerUrl!, apiKey: state.apiKey!, scraperTokens });
+  const pnpmRunner = await ensurePnpm();
+  await runPnpm(pnpmRunner, ["--filter", "@x-harness/mcp", "build"], {cwd: repoDir});
+  generateMcpConfig({ workerUrl: state.workerUrl!, apiKey: state.apiKey!, scraperTokens, mcpEntry: join(repoDir,"packages/mcp/dist/index.js") });
+  printCodexSnippet({ workerUrl: state.workerUrl!, apiKey: state.apiKey!, scraperTokens, mcpEntry: join(repoDir,"packages/mcp/dist/index.js") });
 
   // Step 13: Show completion screen
   p.note(

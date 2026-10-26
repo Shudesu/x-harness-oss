@@ -1,6 +1,6 @@
 {
   "name": "worker",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
@@ -8,14 +8,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "hono": "^4.6.0",
     "@x-harness/db": "workspace:*",
+    "@x-harness/shared": "workspace:*",
     "@x-harness/x-sdk": "workspace:*",
-    "@x-harness/shared": "workspace:*"
+    "hono": "^4.13.14"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241205.0",
     "typescript": "^5.9.3",
-    "wrangler": "^3.99.0"
+    "wrangler": "^4.152.0"
   }
 }

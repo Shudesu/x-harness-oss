@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { api } from '@/lib/api'
+import { api, fetchApi } from '@/lib/api'
 import type { MentionReply } from '@/lib/api'
 import Header from '@/components/layout/header'
 import ApiCostGate from '@/components/api-cost-gate'
@@ -27,6 +27,8 @@ interface ReplyRowProps {
 }
 
 function ReplyRow({ reply, xAccountId, onSuccess, actions }: ReplyRowProps) {
+  const [triage,setTriage]=useState<{text:string;priority:string}|null>(null)
+  const [triageBusy,setTriageBusy]=useState(false)
   const [replyOpen, setReplyOpen] = useState(false)
   const [replyText, setReplyText] = useState('')
   const [sending, setSending] = useState(false)
@@ -84,7 +86,6 @@ function ReplyRow({ reply, xAccountId, onSuccess, actions }: ReplyRowProps) {
     <div className={`flex items-start gap-3 py-3 ${isOwn ? 'bg-blue-50/50 rounded-lg px-3 -mx-3' : ''}`}>
       {/* Avatar */}
       {reply.authorProfileImageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={reply.authorProfileImageUrl}
           alt={reply.authorUsername ?? 'user'}
@@ -111,6 +112,7 @@ function ReplyRow({ reply, xAccountId, onSuccess, actions }: ReplyRowProps) {
         </div>
         <p className="text-sm text-gray-700 mb-2 break-words">{reply.text}</p>
 
+        <div className="flex gap-2 text-xs mb-2"><button disabled={triageBusy} className="border rounded px-2 py-1" onClick={async()=>{setTriageBusy(true);try{const r=await fetchApi<{data:{items:Array<{text:string;priority:string}>}}>('/api/ai/triage',{method:'POST',body:JSON.stringify({xAccountId,tweetIds:[reply.id]})});setTriage(r.data.items[0]??null)}catch(e){setError(e instanceof Error?e.message:'分類失敗')}finally{setTriageBusy(false)}}}>{triageBusy?'分類中…':'AI優先度・返信案'}</button>{triage&&<><span>優先度: {triage.priority}</span><button className="border rounded px-2 py-1" onClick={()=>{setReplyText(triage.text);setReplyOpen(true)}}>下書きを挿入</button></>}</div>
         {/* Quick engagement actions — hidden for own replies */}
         {!isOwn && <div className="flex items-center gap-2 mb-2">
           <button

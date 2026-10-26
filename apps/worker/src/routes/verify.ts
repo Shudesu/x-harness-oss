@@ -1,3 +1,5 @@
+import { publicRateLimit } from '../services/rate-limit.js';
+import { buildXClient } from '../services/x-client.js';
 import { Hono } from 'hono';
 import { getEngagementGateById, getDeliveredUserIds, getXAccounts, createDelivery, incrementApiUsage, incrementApiUsageBy, getEndpointUsageForDate } from '@x-harness/db';
 import type { Env } from '../index.js';
@@ -5,6 +7,14 @@ import { EngagementCache, checkConditions } from '../services/reply-trigger-cach
 import { XClient, XApiError, XApiRateLimitError } from '@x-harness/x-sdk';
 
 const verify = new Hono<Env>();
+verify.use('/api/engagement-gates/:id/verify', async (c,next) => {
+  await next();
+  if(!c.get('staffRole') && c.res.headers.get('Content-Type')?.includes('application/json')) {
+    const payload=await c.res.clone().json() as {data?:Record<string,unknown>};
+    if(payload.data) { delete payload.data.conditions; delete payload.data.alreadyDelivered; }
+    c.res=new Response(JSON.stringify(payload),{status:c.res.status,headers:c.res.headers});
+  }
+});
 
 // ─── Cache helpers ───
 
@@ -396,20 +406,12 @@ async function fetchAndCacheMetered(
 
 // ─── Helper: build XClient from gate's account ───
 
-async function buildXClientForGate(db: D1Database, gate: { x_account_id: string }) {
-  const accounts = await getXAccounts(db);
+async function buildXClientForGate(env: Env['Bindings'], gate: { x_account_id: string }) {
+  const accounts = await getXAccounts(env.DB);
   const account = accounts.find((a) => a.id === gate.x_account_id);
   if (!account) return null;
 
-  const xClient = account.consumer_key && account.consumer_secret && account.access_token_secret
-    ? new XClient({
-        type: 'oauth1',
-        consumerKey: account.consumer_key,
-        consumerSecret: account.consumer_secret,
-        accessToken: account.access_token,
-        accessTokenSecret: account.access_token_secret,
-      })
-    : new XClient(account.access_token);
+  const xClient = await buildXClient(env, account, 'verify');
 
   return { xClient, account };
 }
@@ -428,10 +430,11 @@ function triggerLabel(triggerType: string): string {
 // ─── GET /verify — check if a user meets all conditions ───
 
 verify.get('/api/engagement-gates/:id/verify', async (c) => {
+  if(!await publicRateLimit(c,'verify',10,100)) return c.json({success:false,error:'Too many requests'},429);
   const gateId = c.req.param('id');
   const username = c.req.query('username')?.replace('@', '').trim();
 
-  if (!username) {
+  if (!username || !/^[A-Za-z0-9_]{1,15}$/.test(username)) {
     return c.json({ success: false, error: 'username query parameter required' }, 400);
   }
 
@@ -442,6 +445,10 @@ verify.get('/api/engagement-gates/:id/verify', async (c) => {
     return c.json({ success: false, error: 'This gate has expired' }, 400);
   }
 
+  const negativeKey=`verify-missing:${gateId}:${username.toLowerCase()}`;
+  const ttl=Math.max(60000,Math.min(86400000,Number(c.env.VERIFY_NEGATIVE_TTL_MS)||21600000));
+  const negative=await c.env.DB.prepare('SELECT json FROM user_search_cache WHERE cache_key=? AND fetched_at>?').bind(negativeKey,Date.now()-ttl).first();
+  if(negative)return c.json({success:true,data:{eligible:false,cached:true,message:'Xアカウントが見つかりません'} });
   const deliveredIds = await getDeliveredUserIds(c.env.DB, gateId);
 
   // ─── Follow trigger: check replier_cache first, then D1 follower cache, then X API ───
@@ -477,7 +484,7 @@ verify.get('/api/engagement-gates/:id/verify', async (c) => {
     }
 
     // 2. Not in cache — resolve username and check follower_id_cache / X API
-    const clientResult = await buildXClientForGate(c.env.DB, gate);
+    const clientResult = await buildXClientForGate(c.env, gate);
     if (!clientResult) return c.json({ success: false, error: 'X account not found' }, 500);
 
     // This endpoint is public and each unknown username costs a billable
@@ -515,6 +522,7 @@ verify.get('/api/engagement-gates/:id/verify', async (c) => {
       }
     }
     if (!xUser) {
+      await c.env.DB.prepare('INSERT INTO user_search_cache(cache_key,json,fetched_at) VALUES (?,?,?) ON CONFLICT(cache_key) DO UPDATE SET fetched_at=excluded.fetched_at').bind(negativeKey,'{}',Date.now()).run();
       return c.json({
         success: true,
         data: { eligible: false, conditions: { follow: false, repost: null, like: null, reply: null }, message: 'Xアカウントが見つかりません' },
@@ -699,7 +707,7 @@ verify.get('/api/engagement-gates/:id/verify', async (c) => {
       }
       const updatedConditions = { ...match.conditions };
       let needsApiCheck = false;
-      const clientResult = await buildXClientForGate(c.env.DB, gate);
+      const clientResult = await buildXClientForGate(c.env, gate);
 
       // Try D1 follower_id_cache first (zero X API cost). Unlike the generic
       // followers table (which also holds delivered users from non-follow
@@ -796,7 +804,7 @@ verify.get('/api/engagement-gates/:id/verify', async (c) => {
         },
       });
     }
-    const clientForRefresh = await buildXClientForGate(c.env.DB, gate);
+    const clientForRefresh = await buildXClientForGate(c.env, gate);
     if (clientForRefresh) {
       try {
         const fresh = await fetchAndCacheDeduped(c.env.DB, clientForRefresh.xClient, gate, clientForRefresh.account.x_user_id);
@@ -830,7 +838,7 @@ verify.get('/api/engagement-gates/:id/verify', async (c) => {
   }
 
   // ─── Cache miss: fetch from X API ───
-  const clientResult = await buildXClientForGate(c.env.DB, gate);
+  const clientResult = await buildXClientForGate(c.env, gate);
   if (!clientResult) return c.json({ success: false, error: 'X account not found' }, 500);
 
   try {
@@ -893,7 +901,7 @@ verify.get('/api/engagement-gates/:id/repliers', async (c) => {
   }
 
   // ─── Cache miss: fetch and cache ───
-  const clientResult = await buildXClientForGate(c.env.DB, gate);
+  const clientResult = await buildXClientForGate(c.env, gate);
   if (!clientResult) return c.json({ success: false, error: 'X account not found' }, 500);
 
   try {

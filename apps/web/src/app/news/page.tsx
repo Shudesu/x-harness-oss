@@ -1,4 +1,5 @@
 'use client'
+import AiPanel from '@/components/ai-panel'
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -48,9 +49,10 @@ export default function NewsPage() {
 
   return (
     <div>
+      <AiPanel />
       <Header
         title="ニュース"
-        description="X上のブレイキングニュースを検索して記事ネタを収集（検索1回 $0.005）"
+        description="X上のブレイキングニュースを検索して記事ネタを収集（取得件数に応じたAPI課金）"
       />
 
       {/* 検索バー */}

@@ -10,11 +10,17 @@ export class EngagementCache {
 
   // Called once per actual X API request (per page). Cache hits never fire it,
   // so callers can meter billable usage accurately.
-  constructor(private onApiCall?: (endpoint: string) => void) {}
+  constructor(private onApiCall?: (endpoint: string) => void,private db?:D1Database) {}
+  private async persist(postId:string,kind:string,users:XUser[]) {
+    if(!this.db)return;
+    const gates=(await this.db.prepare('SELECT id FROM engagement_gates WHERE post_id=?').bind(postId).all<{id:string}>()).results;
+    for(const gate of gates)for(const user of users)await this.db.prepare('INSERT INTO engager_cache(gate_id,kind,user_id,username,first_seen_at) VALUES (?,?,?,?,?) ON CONFLICT(gate_id,kind,user_id) DO UPDATE SET username=excluded.username,first_seen_at=excluded.first_seen_at').bind(gate.id,kind,user.id,user.username,Date.now()).run();
+  }
 
   async getLikingUsers(xClient: XClient, postId: string): Promise<XUser[]> {
     if (this.likingUsers.has(postId)) return this.likingUsers.get(postId)!;
     const users = await this.fetchAllPages((token) => xClient.getLikingUsers(postId, token), 10, 'verify_get_liking_users');
+    await this.persist(postId,'like',users);
     this.likingUsers.set(postId, users);
     return users;
   }
@@ -22,6 +28,7 @@ export class EngagementCache {
   async getRetweetedBy(xClient: XClient, postId: string): Promise<XUser[]> {
     if (this.retweetedBy.has(postId)) return this.retweetedBy.get(postId)!;
     const users = await this.fetchAllPages((token) => xClient.getRetweetedBy(postId, token), 10, 'verify_get_retweeted_by');
+    await this.persist(postId,'repost',users);
     this.retweetedBy.set(postId, users);
     return users;
   }
@@ -86,6 +93,7 @@ export async function fetchNewReplies(
   xClient: XClient,
   gate: DbEngagementGate,
   maxPages = 10,
+  db?: D1Database,
 ): Promise<{ users: ReplyUser[]; newestId: string | null }> {
   const keyword = gate.reply_keyword ? ` "${gate.reply_keyword}"` : '';
   const query = `conversation_id:${gate.post_id} is:reply${keyword}`;
@@ -93,6 +101,10 @@ export async function fetchNewReplies(
 
   const seen = new Set<string>();
   const users: ReplyUser[] = [];
+  if(db){
+    const queued=(await db.prepare('SELECT json FROM reply_trigger_queue WHERE gate_id=? ORDER BY created_at LIMIT 100').bind(gate.id).all<{json:string}>()).results;
+    for(const row of queued){const u=JSON.parse(row.json);if(gate.reply_keyword&&!u.text.includes(gate.reply_keyword))continue;if(!seen.has(u.id)){seen.add(u.id);users.push(u);}}
+  }
   let newestId: string | null = null;
   let paginationToken: string | undefined;
   let page = 0;
@@ -109,8 +121,12 @@ export async function fetchNewReplies(
     }
 
     for (const tweet of result.data) {
-      if (!newestId || tweet.id > newestId) newestId = tweet.id;
-      if (seen.has(tweet.author_id)) continue;
+      if (!newestId || tweet.id.length > newestId.length || (tweet.id.length === newestId.length && tweet.id > newestId)) newestId = tweet.id;
+      if (seen.has(tweet.author_id)) {
+        const previous=users.find(u=>u.id===tweet.author_id),fresh=userMap.get(tweet.author_id);
+        if(previous && fresh){previous.username=fresh.username;previous.name=fresh.name;}
+        continue;
+      }
       seen.add(tweet.author_id);
 
       const u = userMap.get(tweet.author_id);
@@ -127,6 +143,7 @@ export async function fetchNewReplies(
     page++;
   } while (paginationToken && page < maxPages);
 
+  if(db) await db.prepare('UPDATE engagement_gates SET consecutive_empty_polls = CASE WHEN ?=0 THEN consecutive_empty_polls+1 ELSE 0 END WHERE id=?').bind(users.length,gate.id).run();
   return { users, newestId };
 }
 

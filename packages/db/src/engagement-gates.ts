@@ -1,6 +1,9 @@
 import { jstNow } from './utils.js';
 
 export interface DbEngagementGate {
+  delivery_method?: 'dm'|'reply_no_link'|'reply_with_link';
+  reply_templates?: string | null;
+  consecutive_empty_polls?: number;
   id: string;
   x_account_id: string;
   post_id: string;

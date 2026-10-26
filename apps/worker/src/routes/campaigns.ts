@@ -1,3 +1,5 @@
+import { encryptSecret } from '@x-harness/db';
+import { buildXClient } from '../services/x-client.js';
 import { Hono } from 'hono';
 import { XClient } from '@x-harness/x-sdk';
 import { createEngagementGate, getXAccountById, updateEngagementGate, incrementApiUsage } from '@x-harness/db';
@@ -28,6 +30,7 @@ campaigns.post('/api/campaigns/line-proxy/tags', async (c) => {
   const body = await c.req.json();
   const res = await fetch(`${lineUrl}/api/tags`, {
     method: 'POST',
+    redirect: 'error',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineKey}` },
     body: JSON.stringify(body),
   });
@@ -45,6 +48,7 @@ campaigns.post('/api/campaigns/line-proxy/forms', async (c) => {
   const body = await c.req.json();
   const res = await fetch(`${lineUrl}/api/forms`, {
     method: 'POST',
+    redirect: 'error',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineKey}` },
     body: JSON.stringify(body),
   });
@@ -68,6 +72,11 @@ interface CampaignInput {
 
 campaigns.post('/api/campaigns', async (c) => {
   const body = await c.req.json<CampaignInput>();
+  if(body.lineHarnessUrl || body.lineHarnessApiKey) {
+    if(c.get('staffRole')!=='admin')return c.json({success:false,error:'Admin required for LINE connection'},403);
+    if(body.lineHarnessUrl && new URL(body.lineHarnessUrl).protocol!=='https:')return c.json({success:false,error:'HTTPS required'},400);
+    if(body.lineHarnessApiKey)body.lineHarnessApiKey=await encryptSecret(body.lineHarnessApiKey,c.env.ENCRYPTION_KEY);
+  }
 
   if (!body.xAccountId || !body.text) {
     return c.json({ success: false, error: 'Missing required fields: xAccountId, text' }, 400);
@@ -80,15 +89,7 @@ campaigns.post('/api/campaigns', async (c) => {
   }
 
   // Build XClient
-  const xClient = account.consumer_key && account.consumer_secret && account.access_token_secret
-    ? new XClient({
-        type: 'oauth1',
-        consumerKey: account.consumer_key,
-        consumerSecret: account.consumer_secret,
-        accessToken: account.access_token,
-        accessTokenSecret: account.access_token_secret,
-      })
-    : new XClient(account.access_token);
+  const xClient = await buildXClient(c.env, account, 'campaigns');
 
   // Step 1: Create a placeholder gate first (need gateId for LINE form webhook URL)
   // Use a temporary postId — will be updated after tweet creation

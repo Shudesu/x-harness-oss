@@ -6,6 +6,8 @@ interface SecretsOptions {
   apiKey: string;
   xAccessToken: string;
   workerUrl: string;
+  encryptionKey?: string;
+  xaiApiKey?: string;
 }
 
 export async function setSecrets(options: SecretsOptions): Promise<void> {
@@ -14,8 +16,8 @@ export async function setSecrets(options: SecretsOptions): Promise<void> {
 
   const secrets: Record<string, string> = {
     API_KEY: options.apiKey,
-    X_ACCESS_TOKEN: options.xAccessToken,
-    X_REFRESH_TOKEN: "",
+    ...(options.encryptionKey ? {ENCRYPTION_KEY:options.encryptionKey} : {}),
+    ...(options.xaiApiKey ? {XAI_API_KEY:options.xaiApiKey} : {}),
     WORKER_URL: options.workerUrl,
   };
 

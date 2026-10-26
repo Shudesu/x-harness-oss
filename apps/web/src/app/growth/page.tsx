@@ -1,4 +1,5 @@
 'use client'
+import AiPanel from '@/components/ai-panel'
 
 import { useState, useEffect, useCallback } from 'react'
 import { fetchApi } from '@/lib/api'
@@ -1208,6 +1209,7 @@ export default function GrowthPage() {
 
   return (
     <div>
+      <AiPanel />
       <Header
         title="Growth 承認"
         description="X Growth パイプラインの投稿承認・ダイジェスト確認"
