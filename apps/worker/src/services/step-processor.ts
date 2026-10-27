@@ -61,8 +61,8 @@ async function processOneEnrollment(
     return;
   }
 
-  let text = varyTemplate(nextStep.template.replace('{username}', enrollment.x_username ?? ''));
-  if (nextStep.link) text = text.replace('{link}', nextStep.link);
+  let text = varyTemplate(nextStep.template.replaceAll('{username}', enrollment.x_username ?? ''));
+  if (nextStep.link) text = text.replaceAll('{link}', nextStep.link);
 
   if (nextStep.action_type === 'dm') {
     await xClient.sendDm(enrollment.x_user_id, text);

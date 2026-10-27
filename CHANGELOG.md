@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.1] - 2026-10-27
+
+X-36b: legacy DM gates stop before polling; DM refusal never creates a public reply; step placeholders replace all occurrences.
+
+
 ## [0.7.0] - 2026-10-27
 
 - LINE先行の合言葉参加、3ティア、先着・在庫付き抽選・参加賞、HMAC連携と再送を追加。
