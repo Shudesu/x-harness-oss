@@ -1,6 +1,6 @@
 {
   "name": "worker",
-  "version": "0.7.1",
+  "version": "0.9.0",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
@@ -13,7 +13,8 @@
     "@x-harness/shared": "workspace:*",
     "@x-harness/x-sdk": "workspace:*",
     "hono": "^4.13.14",
-    "satori": "0.18.3"
+    "satori": "0.18.3",
+    "twitter-text": "3.1.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241205.0",

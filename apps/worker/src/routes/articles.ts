@@ -259,7 +259,7 @@ async function loadArticleMedia(
   }
   const parsed = new URL(url);
   if(parsed.username||parsed.password||parsed.hostname==='localhost'||parsed.hostname.endsWith('.local')||/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[)/.test(parsed.hostname)) throw new InlineImageError('Image host not allowed');
-  const res = await fetch(url,{redirect:'error',signal:AbortSignal.timeout(15000)});
+  const res = await fetch(url,{redirect: 'manual',signal:AbortSignal.timeout(15000)});
   if (!res.ok) throw new InlineImageError(`Failed to fetch article image (${res.status}): ${url}`);
   const contentType=(res.headers.get('content-type') ?? '').split(';')[0];
   if(!['image/png','image/jpeg','image/webp','image/gif'].includes(contentType)) throw new InlineImageError('Unsupported image content type');

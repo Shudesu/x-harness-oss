@@ -1,9 +1,13 @@
 # Changelog
 
+## [0.9.0] - 2026-10-27
+
+キャンペーン結果通知、参加表示、同意後フォロー、費用管理、候補限定の条件確認、企画下書き、既定OFFの検索集約。LINE v0.26.0との同時更新が必要。先行X-36bはv0.7.1で公開済み。本機能分はv0.9.0へ統合。
+
+
 ## [0.7.1] - 2026-10-27
 
-X-36b: legacy DM gates stop before polling; DM refusal never creates a public reply; step placeholders replace all occurrences.
-
+X-36b: 旧DMゲートの停止、DM拒否時の公開返信防止、ステップ差し込みの全置換。
 
 ## [0.7.0] - 2026-10-27
 

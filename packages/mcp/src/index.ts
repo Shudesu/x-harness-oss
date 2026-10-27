@@ -227,6 +227,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'delete_staff':
         result = await client.del(`/api/staff/${encodeURIComponent(a.id)}`);
         break;
+      case 'get_campaign_digest':
+        result = await client.get(`/api/campaigns/${encodeURIComponent(a.gateId)}/digest`);
+        break;
+      case 'get_campaign_status':
+        result = await client.get(`/api/campaigns/${encodeURIComponent(a.gateId)}/status`);
+        break;
+      case 'get_cost_forecast': {
+        const forecast = await client.get('/api/usage/spend');
+        const query = new URLSearchParams();
+        for (const k of ['tier', 'expectedReplies', 'quota', 'verifyFollow', 'days'])
+          if (a[k] !== undefined) query.set(k, String(a[k]));
+        result = {
+          forecast,
+          ...(query.size ? { estimate: await client.get('/api/campaigns/estimate?' + query) } : {}),
+        };
+        break;
+      }
+      case 'draft_campaign':
+        result = await client.post('/api/campaigns/draft', a);
+        break;
       case 'create_campaign':
         result=await client.post('/api/campaigns',{...a,mode:'line_first'});
         break;

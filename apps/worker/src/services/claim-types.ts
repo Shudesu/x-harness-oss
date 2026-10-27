@@ -1,5 +1,11 @@
 import type { DbEngagementGate } from '@x-harness/db';
 export interface ClaimGate extends DbEngagementGate {
+  archived_at?: number | null;
+  follow_policy?: 'none' | 'ask' | 'verify_winners';
+  like_policy?: 'none' | 'ask' | 'verify_winners';
+  entry_page?: 'redirect' | 'status';
+  message_templates?: string | null;
+  loser_followup?: string | null;
   gate_mode: 'legacy' | 'line_first';
   slug: string;
   title: string;

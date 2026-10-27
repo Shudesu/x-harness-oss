@@ -10,7 +10,22 @@ export interface LineFirstCampaignInput {
   endsAt: string;
   tier?: 'simple' | 'standard' | 'strict';
   awardMode?: 'first_come' | 'lottery';
+  /** @deprecated Use followPolicy. */
   requireFollow?: boolean;
+  followPolicy?: 'none' | 'ask' | 'verify_winners';
+  likePolicy?: 'none' | 'ask' | 'verify_winners';
+  verifyConditionsOptIn?: boolean;
+  entryPage?: 'redirect' | 'status';
+  messageTemplates?: { won?: string; lost?: string };
+  loserFollowup?: {
+    enabled: boolean;
+    offer: 'coupon' | 'early_notice' | 'both';
+    couponRewardIndex?: number;
+    couponRewardId?: string;
+    label?: string;
+  };
+  earlyNoticeFromGateIds?: string[];
+  confirmEarlyNotice?: boolean;
   minAccountAgeDays?: number;
   settleSec?: number;
   budgetUsd?: number;
@@ -30,11 +45,35 @@ export interface LineFirstCampaignInput {
 }
 export class CampaignsResource {
   constructor(private readonly http: HttpClient) {}
+  async draft(input: {
+    xAccountId: string;
+    brief: string;
+    tier?: 'simple' | 'standard' | 'strict';
+    awardMode?: 'first_come' | 'lottery';
+    quota?: number;
+    rewardHint?: string;
+  }) {
+    return (await this.http.post<ApiResponse<unknown>>('/api/campaigns/draft', input)).data;
+  }
   async create(input: LineFirstCampaignInput) {
     return (
       await this.http.post<
         ApiResponse<{ id: string; slug: string; state: string; entryUrl: string }>
       >('/api/campaigns', { ...input, mode: 'line_first' })
+    ).data;
+  }
+  async digest(gateId: string) {
+    return (
+      await this.http.get<ApiResponse<unknown>>(
+        `/api/campaigns/${encodeURIComponent(gateId)}/digest`,
+      )
+    ).data;
+  }
+  async status(gateId: string) {
+    return (
+      await this.http.get<ApiResponse<unknown>>(
+        `/api/campaigns/${encodeURIComponent(gateId)}/status`,
+      )
     ).data;
   }
   async funnel(gateId: string) {

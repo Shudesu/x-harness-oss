@@ -1,3 +1,6 @@
+import { pollAccountGates } from '../services/claim-batch-poller.js';
+import { optInFollowup } from '../services/campaign-followup.js';
+import { getPublicCampaignStatus } from '../services/campaign-status.js';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { decryptSecret } from '@x-harness/db';
@@ -20,15 +23,38 @@ lineClaims.use(
     onError: (c) => c.json({ success: false, error: 'Request too large' }, 413),
   }),
 );
-export async function wakeClaimGate(env: Env['Bindings'], gateId: string) {
+export async function wakeClaimAccount(
+  env: Env['Bindings'],
+  xAccountId: string,
+  interactive = false,
+) {
+  if (env.GATE_CLAIMS)
+    return env.GATE_CLAIMS.get(env.GATE_CLAIMS.idFromName(`account:${xAccountId}`)).fetch(
+      'https://internal/check',
+      { method: 'POST', body: JSON.stringify({ xAccountId, interactive }) },
+    );
+  return Response.json(await pollAccountGates(env, xAccountId, Date.now(), interactive));
+}
+export async function wakeClaimGate(env: Env['Bindings'], gateId: string, interactive = false) {
+  const batch = await env.DB.prepare(
+    "SELECT value FROM settings WHERE key='claim_batch_search'",
+  ).first<{ value: string }>();
+  if (batch?.value === 'true') {
+    const gate = await env.DB.prepare('SELECT x_account_id,tier FROM engagement_gates WHERE id=?')
+      .bind(gateId)
+      .first<{ x_account_id: string; tier: string }>();
+    if (gate && gate.tier !== 'simple')
+      return wakeClaimAccount(env, gate.x_account_id, interactive);
+  }
+
   if (env.GATE_CLAIMS) {
     const stub = env.GATE_CLAIMS.get(env.GATE_CLAIMS.idFromName(gateId));
     return stub.fetch('https://internal/check', {
       method: 'POST',
-      body: JSON.stringify({ gateId }),
+      body: JSON.stringify({ gateId, interactive }),
     });
   }
-  return Response.json(await pollClaimGate(env, gateId));
+  return Response.json(await pollClaimGate(env, gateId, Date.now(), { interactive }));
 }
 lineClaims.post('/api/integrations/line-harness/claims', async (c) => handle(c));
 lineClaims.post('/api/integrations/line-harness/events', async (c) => handle(c));
@@ -73,7 +99,9 @@ async function handle(c: import('hono').Context<Env>, check = false): Promise<Re
   if (c.req.path.endsWith('/events')) {
     if (
       signature.event !== 'line.gate.event' ||
-      !['line_added', 'line_engaged', 'reward_redeemed'].includes(body.type ?? '') ||
+      !['line_added', 'line_engaged', 'reward_redeemed', 'followup_opt_in'].includes(
+        body.type ?? '',
+      ) ||
       typeof body.lineFriendId !== 'string' ||
       typeof body.sourceId !== 'string' ||
       body.sourceId.length > 128
@@ -89,6 +117,16 @@ async function handle(c: import('hono').Context<Env>, check = false): Promise<Re
         .first<{ body_hash: string }>();
     if (receipt && receipt.body_hash !== hash)
       return c.json({ success: false, error: 'Delivery conflict' }, 409);
+    if (body.type === 'followup_opt_in') {
+      try {
+        return c.json({ success: true, data: await optInFollowup(c.env.DB, gate, participant) });
+      } catch (e) {
+        return c.json(
+          { success: false, error: e instanceof Error ? e.message : 'Follow-up unavailable' },
+          e instanceof Error && e.message === 'followup_busy' ? 503 : 400,
+        );
+      }
+    }
     await c.env.DB.batch([
       c.env.DB.prepare(
         "INSERT OR IGNORE INTO gate_partner_receipts(delivery_id,connection_id,body_hash,event,status,created_at) VALUES (?,?,?,?,'done',?)",
@@ -137,8 +175,14 @@ async function handle(c: import('hono').Context<Env>, check = false): Promise<Re
   if (!participant) return c.json({ success: false, error: 'Claim not found' }, 404);
   let retryAfterSec = 0;
   if (!participant.finalized_at && gate.is_active && gate.gate_state === 'active') {
+    if (check && participant.verify_attempts >= 3 && (participant.retry_at ?? 0) <= Date.now())
+      await c.env.DB.prepare(
+        'UPDATE gate_participants SET verify_attempts=0 WHERE id=? AND finalized_at IS NULL',
+      )
+        .bind(participant.id)
+        .run();
     if (check || gate.tier === 'simple') {
-      const response = await wakeClaimGate(c.env, gate.id);
+      const response = await wakeClaimGate(c.env, gate.id, check);
       const state = (await response.json()) as { retryAfterSec?: number };
       retryAfterSec = state.retryAfterSec ?? 10;
     } else c.executionCtx.waitUntil(wakeClaimGate(c.env, gate.id).then(() => {}));
@@ -156,6 +200,11 @@ async function handle(c: import('hono').Context<Env>, check = false): Promise<Re
     success: true,
     data: {
       ...result,
+      campaign: await getPublicCampaignStatus(c.env.DB, gate),
+      asks: [
+        ...(gate.follow_policy === 'ask' ? ['follow'] : []),
+        ...(gate.like_policy === 'ask' ? ['like'] : []),
+      ],
       tier: gate.tier,
       awardMode: gate.award_mode,
       title: gate.title,
