@@ -42,3 +42,5 @@ jobs:
         run: pnpm --filter worker exec wrangler d1 migrations apply x-harness --local --persist-to ../../.local/d1-ci
       - name: Bundle Worker without deployment
         run: pnpm --filter worker exec wrangler deploy --dry-run --outdir ../../.local/worker-release
+      - name: Exercise gate PNG, Durable Object and D1 through local workerd
+        run: node scripts/smoke-gates.mjs

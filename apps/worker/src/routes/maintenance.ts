@@ -3,7 +3,7 @@ import { encryptSecret,hashApiKey } from '@x-harness/db';
 import { requireRole } from '../middleware/auth.js';
 import type { Env } from '../index.js';
 const maintenance=new Hono<Env>();
-const columns:Record<string,string[]>={x_accounts:['access_token','refresh_token','consumer_secret','access_token_secret','oauth_client_secret'],line_connections:['api_key'],engagement_gates:['line_harness_api_key']};
+const columns:Record<string,string[]>={x_accounts:['access_token','refresh_token','consumer_secret','access_token_secret','oauth_client_secret'],line_connections:['api_key','integration_secret'],engagement_gates:['line_harness_api_key']};
 maintenance.all('/api/maintenance/secrets',async c=>{
  const denied=requireRole(c,'admin');if(denied)return denied;
  if(!['GET','POST'].includes(c.req.method))return c.json({success:false,error:'Method not allowed'},405);

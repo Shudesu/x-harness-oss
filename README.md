@@ -1,11 +1,13 @@
-## v0.6.1 — security / cost / optional Grok
+## v0.7.0 — LINE先行キャンペーン
 
-Release notes: [v0.6.1](docs/releases/v0.6.1.md). Maintainers: [release procedure](docs/RELEASING.md).
+LINEで本人を確認して個人用の合言葉を発行し、Xの投稿者から照合する参加フローを追加しています。参加者のX ID入力は不要です。対応するLINE側の更新、DB migration、連携キーとDO設定が必要です。設定・既存企画への影響・検証範囲は[移行ガイド](docs/operations/line-first-gates.md)と[リリースノート](docs/releases/v0.7.0.md)を参照してください。
 
-This is a GitHub source release. npm publishing is separate; `npx create-x-harness@latest` may still use the preceding npm release. For v0.6.1, build the CLI from the tagged checkout:
+Release notes: [v0.7.0](docs/releases/v0.7.0.md). Maintainers: [release procedure](docs/RELEASING.md).
+
+This is a GitHub source release. npm publishing is separate; `npx create-x-harness@latest` may still use the preceding npm release. For v0.7.0, build the CLI from the tagged checkout:
 
 ```sh
-git clone --branch v0.6.1 https://github.com/Shudesu/x-harness-oss.git
+git clone --branch v0.7.0 https://github.com/Shudesu/x-harness-oss.git
 cd x-harness-oss
 pnpm install --frozen-lockfile
 pnpm --filter create-x-harness build
@@ -61,7 +63,7 @@ X Harnessの製品名、開発者、運営法人、公開コード、研究資�
 ## 機能
 
 - **エンゲージメントゲート** — リプライ + いいね/リポスト/フォロー条件でLINE連携・verify API
-- **キャンペーンウィザード** — 投稿→条件→LINE連携→プレビューの4ステップで一括設定
+- **LINE先行キャンペーン** — 合言葉による参加確認、先着・抽選・参加賞を設定
 - **投稿管理** — テキスト・画像・動画投稿、スレッド作成、スケジュール投稿
 - **リプライ管理** — 受信リプライの確認、ワンクリックいいね/リポスト、返信、自分のリプライ表示
 - **引用ツイート** — 引用RT自動検出、DB永続化、引用RTで返しアクション
@@ -373,23 +375,9 @@ X API Pay-Per-Use プラン推奨。リプライトリガーアーキテクチ�
 
 ## L Harness 連携
 
-X Harness はクロスプラットフォームキャンペーンのための verify API を提供:
+新規キャンペーンは `POST /api/campaigns` の `mode: line_first` を使います。LINEで認証した参加者へ専用の合言葉を発行し、X投稿の `author_id` を検証して結果をLINEへ返します。共有キーによる署名、再送・重複排除、アカウントの固定が必須です。参加者にXのIDを自己申告させる旧フォームは新規利用しません。
 
-```
-GET /api/engagement-gates/:id/verify?username=johndoe
-
-{
-  "eligible": true,
-  "conditions": {
-    "reply": true,
-    "like": true,
-    "repost": true,
-    "follow": true
-  }
-}
-```
-
-キャンペーンウィザードを使えば、L Harness のフォーム作成・リンク生成まで自動化されます。
+[LINE連携の設定・移行ガイド](docs/operations/line-first-gates.md)を参照してください。
 
 ## ライセンス
 

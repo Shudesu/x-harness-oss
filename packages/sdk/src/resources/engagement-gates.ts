@@ -4,6 +4,7 @@ import type { ApiResponse, EngagementGate, EngagementGateDelivery, CreateGateInp
 export class EngagementGatesResource {
   constructor(private readonly http: HttpClient) {}
 
+  /** @deprecated Use campaigns.create() for the LINE-first flow. */
   async create(input: CreateGateInput): Promise<EngagementGate> {
     const res = await this.http.post<ApiResponse<EngagementGate>>('/api/engagement-gates', input);
     return res.data;

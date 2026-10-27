@@ -5,6 +5,7 @@ import {
   createEngagementGate, getEngagementGates, getEngagementGateById,
   updateEngagementGate, deleteEngagementGate, getDeliveries, resolveToken,
 } from '@x-harness/db';
+import { requireRole } from '../middleware/auth.js';
 import type { Env } from '../index.js';
 
 const engagementGates = new Hono<Env>();
@@ -16,6 +17,9 @@ function serialize(row: any) {
     postId: row.post_id,
     triggerType: row.trigger_type,
     actionType: row.action_type,
+    gateMode: row.gate_mode,
+    canResume:row.gate_mode==='line_first'?row.gate_state==='active'&&!row.archived_at:row.action_type==='mention_post'&&row.trigger_type==='reply'&&!row.link,
+    slug:row.slug,title:row.title,tier:row.tier,gateState:row.gate_state,pauseReason:row.pause_reason,
     deliveryMethod: row.delivery_method,
     replyTemplates: row.reply_templates ? JSON.parse(row.reply_templates) : [],
     template: row.template,
@@ -51,27 +55,7 @@ function serializeDelivery(row: any) {
   };
 }
 
-engagementGates.post('/api/engagement-gates', async (c) => {
-  const body = await c.req.json();
-  if(body.replyTemplates!==undefined&&(!Array.isArray(body.replyTemplates)||body.replyTemplates.length>10||body.replyTemplates.some((t:unknown)=>typeof t!=='string'||t.length>1000)))return c.json({success:false,error:'Invalid templates'},400);
-  if(body.deliveryMethod && !['dm','reply_no_link','reply_with_link'].includes(body.deliveryMethod))return c.json({success:false,error:'Invalid delivery method'},400);
-  if(['lineHarnessUrl','lineHarnessApiKey'].some(k=>body[k]!==undefined)) {
-    if(c.get('staffRole')!=='admin') return c.json({success:false,error:'Admin required for LINE credentials'},403);
-    if(body.lineHarnessUrl) {try{if(new URL(body.lineHarnessUrl).protocol!=='https:')throw new Error();}catch{return c.json({success:false,error:'HTTPS URL required'},400);}}
-    if(body.lineHarnessApiKey)body.lineHarnessApiKey=await encryptSecret(body.lineHarnessApiKey,c.env.ENCRYPTION_KEY);
-  }
-  if (!body.xAccountId || !body.postId || !body.triggerType || !body.actionType) {
-    return c.json({ success: false, error: 'Missing required fields: xAccountId, postId, triggerType, actionType' }, 400);
-  }
-  if(body.deliveryMethod && !['dm','reply_no_link','reply_with_link'].includes(body.deliveryMethod)) return c.json({success:false,error:'Invalid delivery method'},400);
-  if (body.template === undefined) body.template = '';
-  const gate = await createEngagementGate(c.env.DB, body);
-  const deliveryMethod=body.deliveryMethod ?? (body.actionType==='mention_post'?'dm':body.actionType==='dm'?'dm':'reply_with_link');
-  await c.env.DB.prepare('UPDATE engagement_gates SET delivery_method=? WHERE id=?').bind(deliveryMethod,gate.id).run();
-  gate.delivery_method=deliveryMethod;
-  if(body.replyTemplates)await c.env.DB.prepare('UPDATE engagement_gates SET reply_templates=? WHERE id=?').bind(JSON.stringify(body.replyTemplates),gate.id).run();
-  return c.json({ success: true, data: serialize(gate) }, 201);
-});
+engagementGates.post('/api/engagement-gates',c=>c.json({success:false,error:'Create a LINE-first campaign using /api/campaigns'},400));
 
 engagementGates.get('/api/engagement-gates', async (c) => {
   const xAccountId = c.req.query('xAccountId');
@@ -89,6 +73,18 @@ engagementGates.get('/api/engagement-gates/:id', async (c) => {
 
 engagementGates.put('/api/engagement-gates/:id', async (c) => {
   const body = await c.req.json();
+  const existing=await getEngagementGateById(c.env.DB,c.req.param('id')) as (Awaited<ReturnType<typeof getEngagementGateById>> & {gate_mode?:string;gate_state?:string;archived_at?:number});
+  if(existing&&existing.gate_mode!=='line_first'&&body.isActive===true){const action=body.actionType??existing.action_type,trigger=body.triggerType??existing.trigger_type,link=body.link!==undefined?body.link:existing.link;if(action==='dm'||action==='mention_post'&&(trigger!=='reply'||!!link))return c.json({success:false,error:'This legacy delivery needs migration to the LINE-first flow'},409);}
+  if(existing?.gate_mode==='line_first'){
+    if(Object.keys(body).some(key=>!['isActive','budgetUsd'].includes(key)))return c.json({success:false,error:'Campaign terms are immutable; create another campaign for different terms'},400);
+    if(body.isActive!==undefined&&typeof body.isActive!=='boolean')return c.json({success:false,error:'Invalid active flag'},400);
+    if(body.isActive&&(existing.archived_at||existing.gate_state!=='active'))return c.json({success:false,error:'This draft cannot be resumed; inspect its configuration and create a new campaign'},409);
+    if(body.budgetUsd!==undefined){const denied=requireRole(c,'admin');if(denied)return denied;if(!Number.isFinite(body.budgetUsd)||body.budgetUsd<0||body.budgetUsd>100000)return c.json({success:false,error:'Invalid budget'},400);await c.env.DB.prepare('UPDATE engagement_gates SET budget_usd=? WHERE id=?').bind(body.budgetUsd,existing.id).run();}
+    if(body.isActive!==undefined)await c.env.DB.prepare('UPDATE engagement_gates SET is_active=? WHERE id=?').bind(body.isActive?1:0,existing.id).run();
+    return c.json({success:true,data:serialize(await getEngagementGateById(c.env.DB,existing.id))});
+  }
+
+  if(body.link && typeof body.template==='string' && !body.template.includes('{link}'))return c.json({success:false,error:'A link requires {link} in the template'},400);
   if(body.replyTemplates!==undefined&&(!Array.isArray(body.replyTemplates)||body.replyTemplates.length>10||body.replyTemplates.some((t:unknown)=>typeof t!=='string'||t.length>1000)))return c.json({success:false,error:'Invalid templates'},400);
   if(body.deliveryMethod && !['dm','reply_no_link','reply_with_link'].includes(body.deliveryMethod))return c.json({success:false,error:'Invalid delivery method'},400);
   if(['lineHarnessUrl','lineHarnessApiKey'].some(k=>body[k]!==undefined)) {
@@ -176,7 +172,7 @@ engagementGates.post('/api/engagement-gates/process', async (c) => {
 });
 
 // Public endpoint — no auth required (token is the secret)
-engagementGates.get('/api/tokens/:token/resolve', async (c) => {
+engagementGates.on(['GET','POST'],'/api/tokens/:token/resolve', async (c) => {
   const result = await resolveToken(c.env.DB, c.req.param('token'));
   if (!result) return c.json({ success: false, error: 'Token invalid or already consumed' }, 404);
   return c.json({ success: true, data: result });

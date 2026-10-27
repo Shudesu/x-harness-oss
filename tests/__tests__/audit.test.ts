@@ -43,7 +43,7 @@ describe('security and cost integration against SQLite',()=>{
  it('enforces admin/editor/viewer access and never exposes LINE secrets',async()=>{
   const {db,sqlite}=database();const env={DB:db,API_KEY:'master',ENCRYPTION_KEY:key};
   for(const role of ['admin','editor','viewer'] as const)await createStaffMember(db,{name:role,role,apiKey:role});
-  sqlite.exec("INSERT INTO line_connections VALUES ('l','line','https://line.example','secret','now')");
+  sqlite.exec("INSERT INTO line_connections(id,name,worker_url,api_key,created_at) VALUES ('l','line','https://line.example','secret','now')");
   expect(sqlite.prepare("SELECT api_key FROM staff_members WHERE name='viewer'").get()?.api_key).not.toBe('viewer');
   for(const role of ['viewer','editor']){expect((await request(env,'/api/line-connections/l',role)).status).toBe(403);expect((await request(env,'/api/settings',role,'PUT',{auto_features_enabled:'true'})).status).toBe(403);expect((await request(env,'/api/x-accounts/a',role,'PUT',{accessToken:'attack'})).status).toBe(403);}
   const response=await request(env,'/api/line-connections/l','admin');expect(response.status).toBe(200);const json=await response.json() as any;expect(json.data.api_key).toBeUndefined();expect(json.data.hasApiKey).toBe(true);
@@ -51,7 +51,7 @@ describe('security and cost integration against SQLite',()=>{
  });
  it('rejects unauthenticated public search without a valid gate before spending',async()=>{
   const {db}=database();const spy=vi.fn();vi.stubGlobal('fetch',spy);
-  const response=await request({DB:db,API_KEY:'master'},'/api/users/search?q=abc&limit=1');expect(response.status).toBe(404);expect(spy).not.toHaveBeenCalled();
+  const response=await request({DB:db,API_KEY:'master'},'/api/users/search?q=abc&limit=1');expect(response.status).toBe(401);expect(spy).not.toHaveBeenCalled();
   expect((await request({DB:db,API_KEY:'master'},'/api/followers/search?q=abc')).status).toBe(401);
  });
  it('atomically limits concurrent reservations',async()=>{
@@ -83,7 +83,7 @@ describe('security and cost integration against SQLite',()=>{
 
 describe('upgrade and provider boundaries',()=>{
  it('upgrades legacy secrets without returning plaintext or changing their value',async()=>{
-  const {db,sqlite}=database();seed(sqlite);sqlite.exec("INSERT INTO line_connections VALUES ('l','line','https://line.example','line-secret','now')");
+  const {db,sqlite}=database();seed(sqlite);sqlite.exec("INSERT INTO line_connections(id,name,worker_url,api_key,created_at) VALUES ('l','line','https://line.example','line-secret','now')");
   const env={DB:db,API_KEY:'master',ENCRYPTION_KEY:key};
   const dry=await request(env,'/api/maintenance/secrets','master');expect(dry.status).toBe(200);expect(await dry.text()).not.toContain('line-secret');
   expect((await request(env,'/api/maintenance/secrets','master','POST',{})).status).toBe(200);
@@ -141,7 +141,7 @@ it('returns the same product version from health and release metadata',async()=>
 it('proxies campaign tracked-link creation with the stored LINE credential',async()=>{
  const {db,sqlite}=database();
  const ciphertext=await encryptSecret('line-only-secret',key);
- sqlite.prepare("INSERT INTO line_connections VALUES ('l','LINE','https://line.example',?,'now')").run(ciphertext);
+ sqlite.prepare("INSERT INTO line_connections(id,name,worker_url,api_key,created_at) VALUES ('l','LINE','https://line.example',?,'now')").run(ciphertext);
  const spy=vi.fn(async()=>new Response(JSON.stringify({success:true,data:{id:'tracked-1'}}),{status:201}));vi.stubGlobal('fetch',spy);
  const response=await request({DB:db,API_KEY:'master',ENCRYPTION_KEY:key},'/api/line-connections/l/proxy/tracked-links','master','POST',{name:'Campaign',originalUrl:'https://line.example/auth/line'});
  expect(response.status).toBe(201);expect(String(spy.mock.calls[0][0])).toBe('https://line.example/api/tracked-links');

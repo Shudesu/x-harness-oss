@@ -18,8 +18,21 @@ database_id = "YOUR_D1_DATABASE_ID"
 migrations_dir = "../../packages/db/bootstrap"
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["* * * * *"]
 
 [[r2_buckets]]
 binding = "GROWTH_IMAGES"
 bucket_name = "x-harness-growth-images"
+
+[[durable_objects.bindings]]
+name = "GATE_CLAIMS"
+class_name = "GateClaimCoordinator"
+
+[[migrations]]
+tag = "gate-claims-v1"
+new_sqlite_classes = ["GateClaimCoordinator"]
+
+[[rules]]
+type = "Data"
+globs = ["**/*.ttf"]
+fallthrough = true

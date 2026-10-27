@@ -44,6 +44,12 @@ export async function buildXClient(env:Env['Bindings'], account:DbXAccount, feat
   return new XClient(oauth1?{type:'oauth1',consumerKey:account.consumer_key!,consumerSecret:await secret(account.consumer_secret),accessToken:token,accessTokenSecret:await secret(account.access_token_secret)}:token,{
     refreshToken:!oauth1?refresh:undefined,
     beforeRequest:async (_meta:RequestMeta)=>{
+      if(feature.startsWith('claim:')){
+        const gateId=feature.slice(6);
+        const gate=await env.DB.prepare('SELECT budget_usd FROM engagement_gates WHERE id=?').bind(gateId).first<{budget_usd:number}>();
+        const spend=await env.DB.prepare("SELECT COALESCE(SUM(cost_usd),0) AS total FROM api_spend_ledger WHERE source='x' AND feature=?").bind(feature).first<{total:number}>();
+        if(!gate||(spend?.total??0)>=gate.budget_usd)throw new BudgetExceededError();
+      }
       if(feature==='scheduled' && config.scheduled_posts_ignore_budget==='true') return;
       const budget=Number(config.x_monthly_budget_usd ?? 50);
       if(!Number.isFinite(budget) || budget<0) throw new Error('Invalid X budget');
@@ -59,7 +65,7 @@ export async function buildXClient(env:Env['Bindings'], account:DbXAccount, feat
         const resourceType=owned?'owned_read':item.resourceType;
         await recordSpend(env.DB,{accountId:account.id,feature,endpoint:u.endpoint,resourceType,units:item.units,unitCost:prices[resourceType]});
       }
-      if(u.method==='GET' && /\/(tweets|mentions)$/.test(u.endpoint)) {
+      if(u.method==='GET' && [`/users/${account.x_user_id}/tweets`,`/users/${account.x_user_id}/mentions`].includes(u.endpoint)) {
         const data=(u.data as {data?:Array<{id:string}>}).data;
         if(Array.isArray(data)) for(const post of data) await env.DB.prepare('INSERT INTO post_cache(x_account_id,id,kind,json,fetched_at) VALUES (?,?,?,?,?) ON CONFLICT(x_account_id,id,kind) DO UPDATE SET json=excluded.json,fetched_at=excluded.fetched_at').bind(account.id,post.id,u.endpoint.endsWith('/mentions')?'mention':'post',JSON.stringify(post),Date.now()).run();
       }

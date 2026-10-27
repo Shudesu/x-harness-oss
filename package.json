@@ -1,6 +1,6 @@
 {
   "name": "x-harness-oss",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "Open-source X (Twitter) CRM/marketing automation — Xステップ代替",
   "homepage": "https://the-harness.com/x-harness/",
@@ -34,7 +34,7 @@
     "changeset": "changeset",
     "version:check": "node scripts/check-version.mjs",
     "release:prepare": "node scripts/release-version.mjs",
-    "release:check": "pnpm version:check && pnpm lint && pnpm typecheck && pnpm test && python3 scripts/check-migrations.py && pnpm build && pnpm version:check-built && pnpm audit --prod --audit-level high",
+    "release:check": "pnpm version:check && pnpm lint && pnpm typecheck && pnpm test && node scripts/check-gate-assets.mjs && python3 scripts/check-migrations.py && pnpm build && pnpm version:check-built && pnpm audit --prod --audit-level high",
     "version:check-built": "node scripts/check-built-version.mjs"
   },
   "packageManager": "pnpm@9.15.4",
@@ -51,7 +51,11 @@
   "license": "MIT",
   "pnpm": {
     "overrides": {
-      "postcss": "^8.5.18"
+      "postcss": "^8.5.18",
+      "fflate": "^0.7.5"
+    },
+    "patchedDependencies": {
+      "satori@0.18.3": "patches/satori@0.18.3.patch"
     }
   }
 }
