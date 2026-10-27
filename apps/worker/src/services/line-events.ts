@@ -39,6 +39,28 @@ export async function sendLineOutbox(env: Env['Bindings'], now = Date.now()): Pr
         .bind(item.gate_id)
         .first<GateLineConnection>();
       if (!connection?.integration_secret) throw new Error('integration_not_configured');
+      if (item.event.startsWith('x.campaign.')) {
+        const capabilityPath = '/api/integrations/x-harness/capabilities';
+        const capabilityHeaders = await signHarnessRequest(
+          await decryptSecret(connection.integration_secret, env.ENCRYPTION_KEY),
+          'GET',
+          capabilityPath,
+          '',
+          { connectionId: connection.id, event: 'x.campaign.capabilities' },
+        );
+        const response = await fetch(assertHttpsBase(connection.worker_url) + capabilityPath, {
+          headers: capabilityHeaders,
+          redirect: 'error',
+          signal: AbortSignal.timeout(10000),
+        });
+        if (
+          !response.ok ||
+          !((await response.json()) as { data?: { events?: string[] } }).data?.events?.includes(
+            item.event,
+          )
+        )
+          throw new Error('line_upgrade_required');
+      }
       const path =
         item.event === 'x.gate.cancel'
           ? `/api/integrations/x-harness/campaigns/${item.gate_id}/cancel`

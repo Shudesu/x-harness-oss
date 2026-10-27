@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { API_URL, fetchApi } from '@/lib/api';
 import { useCurrentAccountId } from '@/hooks/use-selected-account';
+import CampaignDraftAssistant from '@/components/campaign-draft-assistant';
 import Header from '@/components/layout/header';
 type Reward = {
   label: string;
@@ -42,6 +43,50 @@ export default function CampaignPage() {
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [entryUrl, setEntryUrl] = useState('');
+  const [followPolicy, setFollowPolicy] = useState('none'),
+    [likePolicy, setLikePolicy] = useState('none'),
+    [verifyOptIn, setVerifyOptIn] = useState(false);
+  const [entryPage, setEntryPage] = useState('redirect'),
+    [wonMessage, setWonMessage] = useState(''),
+    [lostMessage, setLostMessage] = useState('');
+  const [followupEnabled, setFollowupEnabled] = useState(false),
+    [followupOffer, setFollowupOffer] = useState('early_notice'),
+    [followupReward, setFollowupReward] = useState(''),
+    [followupLabel, setFollowupLabel] = useState('');
+  const [sourceGates, setSourceGates] = useState(''),
+    [noticeCount, setNoticeCount] = useState<number | null>(null),
+    [noticeConfirmed, setNoticeConfirmed] = useState(false);
+  const [expectedReplies, setExpectedReplies] = useState(100),
+    [estimate, setEstimate] = useState<{ low: number; high: number } | null>(null),
+    [budgetEdited, setBudgetEdited] = useState(false);
+  useEffect(() => {
+    setNoticeConfirmed(false);
+    setNoticeCount(null);
+  }, [sourceGates, accountId, connectionId]);
+  useEffect(() => {
+    let current = true;
+    const timer = setTimeout(() => {
+      const quota = rewards.some((r) => !r.consolation && r.quota === null)
+        ? 'unlimited'
+        : String(rewards.filter((r) => !r.consolation).reduce((n, r) => n + (r.quota ?? 0), 0));
+      fetchApi<{ data: { low: number; high: number } }>(
+        `/api/campaigns/estimate?${new URLSearchParams({ tier, expectedReplies: String(expectedReplies), quota, verifyFollow: String(follow), awardMode: mode, days: '7' })}`,
+      )
+        .then(({ data }) => {
+          if (current) {
+            setEstimate(data);
+            if (!budgetEdited) setBudget(Math.ceil(data.high * 200) / 100);
+          }
+        })
+        .catch(() => {
+          if (current) setEstimate(null);
+        });
+    }, 300);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [tier, expectedReplies, rewards, follow, mode, budgetEdited]);
   const [postCost, setPostCost] = useState(''),
     [externalCost, setExternalCost] = useState('');
   const [scenarios, setScenarios] = useState<Array<{ id: string; name: string }>>([]),
@@ -66,6 +111,9 @@ export default function CampaignPage() {
     setAge(value === 'strict' ? 30 : 7);
     setSettle(value === 'strict' ? 180 : 60);
     setFollow(value === 'strict');
+    setFollowPolicy(value === 'strict' ? 'verify_winners' : 'none');
+    setLikePolicy('none');
+    setVerifyOptIn(false);
     if (value === 'simple')
       setRewards((old) =>
         old.some((r) => r.quota === null && r.type !== 'coupon_code')
@@ -95,12 +143,30 @@ export default function CampaignPage() {
           endsAt: new Date(ends).toISOString(),
           tier,
           awardMode: mode,
-          requireFollow: follow,
+          followPolicy,
+          likePolicy,
+          verifyConditionsOptIn: verifyOptIn,
           minAccountAgeDays: age,
           settleSec: settle,
           budgetUsd: budget,
           postCostUsd: postCost === '' ? undefined : Number(postCost),
           externalCostUsd: externalCost === '' ? undefined : Number(externalCost),
+          entryPage,
+          messageTemplates: {
+            ...(wonMessage ? { won: wonMessage } : {}),
+            ...(lostMessage ? { lost: lostMessage } : {}),
+          },
+          loserFollowup: {
+            enabled: followupEnabled,
+            offer: followupOffer,
+            ...(followupReward !== '' ? { couponRewardIndex: Number(followupReward) } : {}),
+            ...(followupLabel ? { label: followupLabel } : {}),
+          },
+          earlyNoticeFromGateIds: sourceGates
+            .split(',')
+            .map((x) => x.trim())
+            .filter(Boolean),
+          confirmEarlyNotice: noticeConfirmed,
           scenarios: selectedScenarios,
           rewards: rewards.map((r) => ({
             ...r,
@@ -134,6 +200,35 @@ export default function CampaignPage() {
             void create();
           }}
         >
+          <CampaignDraftAssistant
+            accountId={accountId}
+            tier={tier}
+            awardMode={mode}
+            entryUrl={entryUrl}
+            onApply={(d) => {
+              if (d.title !== undefined) setTitle(d.title);
+              if (d.slug !== undefined) setSlug(d.slug);
+              if (d.claimPhrase !== undefined) setPhrase(d.claimPhrase);
+              if (d.winnerMessage !== undefined) setWonMessage(d.winnerMessage);
+              if (d.loserMessage !== undefined) setLostMessage(d.loserMessage);
+              if (d.endsAt) {
+                const date = new Date(d.endsAt);
+                setEnds(
+                  new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+                    .toISOString()
+                    .slice(0, 16),
+                );
+              }
+              if (d.rewards)
+                setRewards(
+                  d.rewards.map((r) => ({
+                    ...initialReward(),
+                    ...r,
+                    value: r.type === 'line_message' ? '特典の内容を入力してください' : '',
+                  })),
+                );
+            }}
+          />
           <section className="rounded-xl border bg-white p-5 space-y-4">
             <h2 className="font-semibold">1. 参加方法</h2>
             <div className="grid gap-2 sm:grid-cols-3">
@@ -232,15 +327,43 @@ export default function CampaignPage() {
             </select>
             {tier !== 'simple' && (
               <>
-                <label className="block">
-                  <input
-                    type="checkbox"
-                    checked={follow}
-                    disabled={tier === 'strict'}
-                    onChange={(e) => setFollow(e.target.checked)}
-                  />{' '}
-                  フォローを確認する（追加API利用）
-                </label>
+                {(['follow', 'like'] as const).map((kind) => (
+                  <fieldset key={kind} className="space-y-2">
+                    <legend>{kind === 'follow' ? 'フォロー' : 'いいね'}</legend>
+                    {[
+                      ['none', 'なし'],
+                      ['ask', 'お願いする'],
+                      ['verify_winners', '当選候補だけ確認する'],
+                    ].map(([value, label]) => (
+                      <label className="block" key={value}>
+                        <input
+                          type="radio"
+                          name={kind + 'Policy'}
+                          checked={(kind === 'follow' ? followPolicy : likePolicy) === value}
+                          onChange={() => {
+                            if (value === 'verify_winners' && tier !== 'strict') {
+                              if (
+                                !confirm(
+                                  '応募条件としてのフォロー・いいねはXのガイドライン上リスクがあります。追加API費用も発生します。確認を有効にしますか？',
+                                )
+                              )
+                                return;
+                              setVerifyOptIn(true);
+                            }
+                            if (kind === 'follow') {
+                              setFollowPolicy(value);
+                              setFollow(value === 'verify_winners');
+                            } else setLikePolicy(value);
+                          }}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </fieldset>
+                ))}
+                <p className="text-xs">
+                  いいね確認は最大100人までです。取得範囲の上限やページ残りがある場合、確認できない人を失格にしません。条件を確認できず繰り上げになると、後から条件を満たしても枠が残らない場合があります。
+                </p>
                 <label className="block text-sm">
                   Xアカウント作成からの最低日数
                   <input
@@ -269,13 +392,38 @@ export default function CampaignPage() {
               </>
             )}
             <label className="block text-sm">
+              想定返信数
+              <input
+                type="number"
+                min={0}
+                max={1000000}
+                value={expectedReplies}
+                onChange={(e) => setExpectedReplies(Number(e.target.value))}
+                className={inputClass}
+              />
+            </label>
+            {(mode === 'lottery' || rewards.some((r) => !r.consolation && r.quota === null)) && (
+              <p className="text-amber-800 text-sm">
+                抽選・在庫上限なしでは全参加者が条件確認の対象です。追加費用が増える場合があります。
+              </p>
+            )}
+            {estimate && (
+              <p className="text-sm">
+                この条件の見込み ${estimate.low.toFixed(2)}〜${estimate.high.toFixed(2)}
+                （単価・重複係数は要確認）。
+              </p>
+            )}
+            <label className="block text-sm">
               この企画のX API停止目安（USD）
               <input
                 type="number"
                 min={0}
                 step="0.01"
                 value={budget}
-                onChange={(e) => setBudget(Number(e.target.value))}
+                onChange={(e) => {
+                  setBudgetEdited(true);
+                  setBudget(Number(e.target.value));
+                }}
                 className={inputClass}
               />
             </label>
@@ -452,6 +600,143 @@ export default function CampaignPage() {
           </section>
           <section className="rounded-xl border bg-white p-5 space-y-3">
             <h2 className="font-semibold">5. LINE連携</h2>
+            <label className="block">
+              <input
+                type="checkbox"
+                checked={entryPage === 'status'}
+                onChange={(e) => setEntryPage(e.target.checked ? 'status' : 'redirect')}
+              />
+              残り枠を示す中間ページを使う
+            </label>
+            <p className="text-xs">中間ページを使うと、参加までのタップが1回増えます。</p>
+            <label className="block">
+              当選時の文面
+              <textarea
+                maxLength={500}
+                value={wonMessage}
+                onChange={(e) => setWonMessage(e.target.value)}
+                placeholder="先着 #{rank} で当選！ 残り {remaining} 名"
+                className={inputClass}
+              />
+            </label>
+            <label className="block">
+              枠外・参加賞の文面
+              <textarea
+                maxLength={500}
+                value={lostMessage}
+                onChange={(e) => setLostMessage(e.target.value)}
+                className={inputClass}
+              />
+            </label>
+            <p className="text-xs">
+              空欄は標準文面。使える差し込み: {'{title} {rank} {remaining} {reward}'}
+            </p>
+            <label className="block">
+              <input
+                type="checkbox"
+                checked={followupEnabled}
+                onChange={(e) => setFollowupEnabled(e.target.checked)}
+              />
+              ハズレた方へのフォロー（本人が選んだ場合のみ）
+            </label>
+            {followupEnabled && (
+              <div className="space-y-2">
+                <select
+                  aria-label="フォローの内容"
+                  value={followupOffer}
+                  onChange={(e) => setFollowupOffer(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="early_notice">次回のLINE先行案内</option>
+                  <option value="coupon">参加賞クーポン</option>
+                  <option value="both">クーポンと次回のLINE先行案内</option>
+                </select>
+                {followupOffer !== 'early_notice' && (
+                  <label className="block">
+                    オプトイン専用の参加賞
+                    <select
+                      required
+                      value={followupReward}
+                      onChange={(e) => setFollowupReward(e.target.value)}
+                      className={inputClass}
+                    >
+                      <option value="">選択してください</option>
+                      {rewards.map((r, i) =>
+                        r.consolation && ['url', 'coupon_code'].includes(r.type) ? (
+                          <option key={i} value={i}>
+                            {r.label}
+                          </option>
+                        ) : null,
+                      )}
+                    </select>
+                    <p className="text-xs">
+                      選んだ特典は、通常の参加賞には配布せずオプトイン後に割り当てます。
+                    </p>
+                  </label>
+                )}
+                <label className="block">
+                  ボタンの文言
+                  <input
+                    maxLength={40}
+                    value={followupLabel}
+                    onChange={(e) => setFollowupLabel(e.target.value)}
+                    className={inputClass}
+                  />
+                </label>
+              </div>
+            )}
+            <p className="text-xs">
+              結果通知は1人1通（結果確認からreplyで届いた場合は課金対象外※）。先行案内は同意した人数×送信回数です。
+            </p>
+            <label className="block">
+              先行案内の元キャンペーンID（任意・最大5件）
+              <input
+                value={sourceGates}
+                onChange={(e) => setSourceGates(e.target.value)}
+                placeholder="カンマ区切り"
+                className={inputClass}
+              />
+            </label>
+            {sourceGates && (
+              <button
+                type="button"
+                className="border p-2"
+                onClick={async () => {
+                  try {
+                    const r = await fetchApi<{ data: { estimatedPush: number } }>(
+                      '/api/campaigns/early-notice/estimate',
+                      {
+                        method: 'POST',
+                        body: JSON.stringify({
+                          sourceGateIds: sourceGates
+                            .split(',')
+                            .map((x) => x.trim())
+                            .filter(Boolean),
+                          xAccountId: accountId,
+                          lineConnectionId: connectionId,
+                        }),
+                      },
+                    );
+                    setNoticeCount(r.data.estimatedPush);
+                    setNoticeConfirmed(
+                      confirm(
+                        `対象 約${r.data.estimatedPush}人＝LINE約${r.data.estimatedPush}通。作成後にLINE側へ先行案内の下書きを用意します。配信にはLINE側で承認が必要です。下書きを用意しますか？`,
+                      ),
+                    );
+                  } catch (e) {
+                    setError(String(e));
+                  }
+                }}
+              >
+                先行案内の対象を確認
+              </button>
+            )}
+            {noticeCount !== null && (
+              <p>
+                対象 約{noticeCount}人・{noticeConfirmed ? '下書き作成を確認済み' : '未確認'}
+              </p>
+            )}
+
             <select
               required
               aria-label="LINE接続"
@@ -506,7 +791,7 @@ export default function CampaignPage() {
             </div>
           )}
           <button
-            disabled={busy || !accountId}
+            disabled={busy || !accountId || (!!sourceGates && !noticeConfirmed)}
             className="w-full rounded-xl bg-green-800 p-4 font-semibold text-white disabled:opacity-50"
           >
             {busy ? 'LINE連携を準備しています…' : '参加リンクを作成する'}
@@ -538,6 +823,11 @@ export default function CampaignPage() {
               </p>
             )}
             <p className="text-xs text-slate-500 mt-3">
+              {wonMessage ||
+                (mode === 'lottery' ? '当選しました！（確定 #1）' : '先着 #1 で当選！ 残り M 名')}
+              <br />
+              {lostMessage || 'ご参加ありがとうございました。'}
+              <br />
               期限・条件・在庫は保存した設定で判定します。
             </p>
           </div>

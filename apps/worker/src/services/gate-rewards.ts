@@ -1,3 +1,6 @@
+import { readFollowup } from './campaign-followup.js';
+import { getCampaignInventory } from './campaign-status.js';
+import { campaignDisplay } from './campaign-display.js';
 import type { ClaimGate, GateParticipant, GateReward, ClaimCode } from './claim-types.js';
 import { outboxStatement } from './line-events.js';
 export async function withGateLock<T>(
@@ -46,6 +49,7 @@ export async function finalizeParticipant(
   participant: GateParticipant,
   owner: string,
   now = Date.now(),
+  forceLost = false,
 ): Promise<boolean> {
   if (participant.finalized_at) return true;
   const validLock = await db
@@ -59,7 +63,12 @@ export async function finalizeParticipant(
       .bind(gate.id)
       .all<GateReward>()
   ).results;
-  const order = gate.award_mode === 'lottery' ? lotteryOrder(rewards) : rewards;
+  const followup = readFollowup(gate);
+  const distributionRewards = rewards.filter(
+    (r) => r.id !== followup?.couponRewardId && (!forceLost || r.is_consolation),
+  );
+  const order =
+    gate.award_mode === 'lottery' ? lotteryOrder(distributionRewards) : distributionRewards;
   const claim = await db
     .prepare("SELECT * FROM claim_codes WHERE participant_id=? AND status!='expired'")
     .bind(participant.id)
@@ -99,11 +108,46 @@ export async function finalizeParticipant(
           )?.code
         : reward?.value_template;
     if (reward?.type === 'coupon_code' && !value) continue;
+    const inventory = await getCampaignInventory(db, gate.id);
+    const remainingTotal =
+      inventory.remaining === null
+        ? null
+        : Math.max(0, inventory.remaining - (reward && !reward.is_consolation ? 1 : 0));
+    const display = campaignDisplay({
+      title: gate.title,
+      awardMode: gate.award_mode,
+      outcome,
+      rank,
+      remaining: remainingTotal,
+      reward: reward?.label ?? null,
+      templates: gate.message_templates,
+    });
+    if (forceLost && JSON.parse(participant.missing).length)
+      display.message = '条件を確認できなかったため、次の方へ繰り上げました。';
     const payload = {
+      display,
+      ...(outcome === 'lost' && followup
+        ? {
+            followup: {
+              offer: followup.offer,
+              label:
+                followup.label ??
+                (followup.offer === 'coupon'
+                  ? '参加賞クーポンを受け取る'
+                  : followup.offer === 'both'
+                    ? 'クーポンと次回のLINE案内を受け取る'
+                    : '次回のキャンペーンをLINEで受け取る'),
+            },
+          }
+        : {}),
       ...base,
       remaining,
       reward: reward ? { id: reward.id, label: reward.label, type: reward.type, value } : null,
-      tags: [`x-gate:${gate.slug}`, `x-gate:${gate.slug}:${outcome}`],
+      tags: [
+        `x-gate:${gate.slug}`,
+        `x-gate:${gate.slug}:${outcome}`,
+        ...(outcome === 'lost' ? [`gate_lost:${gate.id}`] : []),
+      ],
     };
     const statements: D1PreparedStatement[] = [
       db
@@ -178,7 +222,16 @@ export async function participantResult(db: D1Database, participant: GatePartici
     )
     .bind(participant.id)
     .first<{ value: string; label: string; type: string }>();
+  const notification = await db
+    .prepare(
+      "SELECT payload FROM event_outbox WHERE participant_id=? AND event='x.gate.reward_unlocked'",
+    )
+    .bind(participant.id)
+    .first<{ payload: string }>();
+  const detail = notification ? JSON.parse(notification.payload) : {};
   return {
+    display: detail.display,
+    followup: detail.followup,
     participantId: participant.id,
     status:
       participant.status === 'awaiting_reply' &&

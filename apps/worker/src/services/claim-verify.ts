@@ -18,13 +18,14 @@ export async function verifyClaimConditions(
   gate: ClaimGate,
   claim: ClaimCode,
   now = Date.now(),
-): Promise<{ ok: boolean; missing: string[]; retryAt?: number }> {
+  likes?: { load: () => Promise<{ ids: Set<string>; unverifiable: boolean }> },
+): Promise<{ ok: boolean; missing: string[]; retryAt?: number; note?: string }> {
   if (gate.tier === 'simple') return { ok: true, missing: [] };
   if (!claim.x_user_id || !claim.author_json) return { ok: false, missing: ['reply'] };
   const author = JSON.parse(claim.author_json) as ClaimAuthor;
   if (gate.tier === 'strict' && (author.public_metrics?.followers_count ?? 0) < gate.min_followers)
     return { ok: false, missing: ['followers_count'] };
-  if (gate.require_follow || gate.tier === 'strict') {
+  if (gate.follow_policy === 'verify_winners') {
     const cached = await db
       .prepare(
         "SELECT value,retry_at,attempts FROM gate_condition_cache WHERE gate_id=? AND x_user_id=? AND condition='follow'",
@@ -58,5 +59,22 @@ export async function verifyClaimConditions(
     if (!posts.some((p) => p.id === claim.reply_tweet_id && p.author_id === claim.x_user_id))
       return { ok: false, missing: ['reply_deleted'] };
   }
-  return { ok: true, missing: [] };
+  let note: string | undefined;
+  if (gate.like_policy === 'verify_winners' && likes) {
+    const page = await likes.load(),
+      liked = page.ids.has(claim.x_user_id);
+    await db
+      .prepare(
+        "INSERT INTO gate_condition_cache(gate_id,x_user_id,condition,value,checked_at) VALUES (?,?,'like',?,?) ON CONFLICT(gate_id,x_user_id,condition) DO UPDATE SET value=excluded.value,checked_at=excluded.checked_at",
+      )
+      .bind(gate.id, claim.x_user_id, liked ? 1 : 0, now)
+      .run();
+    if (!liked) {
+      if (page.unverifiable) note = 'like_unverifiable';
+      else if (gate.tier === 'strict')
+        return { ok: false, missing: ['like'], retryAt: now + 120000 };
+      else note = 'like_not_confirmed';
+    }
+  }
+  return { ok: true, missing: [], note };
 }

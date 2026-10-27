@@ -1,3 +1,7 @@
+import {
+  enqueueEndedDigests,
+  sendDigests,
+} from '../../apps/worker/src/services/campaign-digest.js';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { Hono } from '../../apps/worker/node_modules/hono/dist/index.js';
@@ -50,6 +54,9 @@ it('runs both real route implementations from LINE identity to one reward and on
   const ls = new DatabaseSync(':memory:');
   ls.exec(
     `CREATE TABLE line_accounts(id TEXT PRIMARY KEY,channel_id TEXT,channel_access_token TEXT,login_channel_id TEXT,liff_id TEXT,is_active INTEGER,created_at TEXT);CREATE TABLE tags(id TEXT PRIMARY KEY,name TEXT,color TEXT,created_at TEXT);CREATE TABLE tracked_links(id TEXT PRIMARY KEY,name TEXT,original_url TEXT,line_account_id TEXT,is_active INTEGER,click_count INTEGER,created_at TEXT,updated_at TEXT);CREATE TABLE friends(id TEXT PRIMARY KEY,line_user_id TEXT UNIQUE,line_account_id TEXT,display_name TEXT,is_following INTEGER,metadata TEXT DEFAULT '{}',created_at TEXT,updated_at TEXT);CREATE TABLE friend_tags(friend_id TEXT,tag_id TEXT,assigned_at TEXT,PRIMARY KEY(friend_id,tag_id));CREATE TABLE scenarios(id TEXT PRIMARY KEY,line_account_id TEXT,is_active INTEGER);CREATE TABLE messages_log(id TEXT,friend_id TEXT,line_account_id TEXT,direction TEXT,created_at TEXT);INSERT INTO line_accounts VALUES ('la','channel','synthetic-line-token','login-fixture','111-fixture',1,'2020');INSERT INTO friends VALUES ('friend','Ufixture','la','Fixture',1,'{}','2020','2020');`,
+  );
+  ls.exec(
+    'CREATE TABLE account_settings(id TEXT PRIMARY KEY,line_account_id TEXT,key TEXT,value TEXT,UNIQUE(line_account_id,key))',
   );
   ls.exec(readFileSync(lineRoot + '/packages/db/migrations/073_x_line_first_gates.sql', 'utf8'));
   const secret = 'synthetic-cross-repo-shared-secret-not-real';
@@ -210,6 +217,8 @@ it('runs both real route implementations from LINE identity to one reward and on
   const result = ((await final.json()) as any).data;
   expect(result.status).toBe('won');
   expect(result.rank).toBe(1);
+  expect(result.display.message).toBe('先着 #1 で当選！ 残り 0 名');
+  expect(result.campaign.remaining).toBe(0);
   expect(result.reward.value).toBe('Synthetic reward');
   await sendLineOutbox(xEnv, Date.now());
   await sendLineOutbox(xEnv, Date.now());
@@ -227,4 +236,23 @@ it('runs both real route implementations from LINE identity to one reward and on
   )!;
   expect((await lineApp.fetch(rewardEvent.clone(), lEnv, ctx)).status).toBe(200);
   expect(sends).toHaveLength(1);
+  ls.prepare(
+    "INSERT INTO account_settings(id,line_account_id,key,value) VALUES ('config','la','x_campaign_digest_friend_ids',?)",
+  ).run(JSON.stringify(['friend']));
+  xs.exec(
+    "INSERT INTO settings(key,value,updated_at) VALUES ('digest_channels','[\"line\"]','2026')",
+  );
+  xs.prepare('UPDATE engagement_gates SET ends_at=? WHERE id=?').run(
+    new Date(Date.now() - 3600000).toISOString(),
+    gateId,
+  );
+  await enqueueEndedDigests(xEnv);
+  await enqueueEndedDigests(xEnv);
+  await sendDigests(xEnv);
+  await sendDigests(xEnv);
+  expect(xs.prepare("SELECT COUNT(*) n FROM campaign_digests WHERE status='sent'").get()?.n).toBe(
+    1,
+  );
+  expect(sends).toHaveLength(2);
+  expect(xWrites).toBe(0);
 });

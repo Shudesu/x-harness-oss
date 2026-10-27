@@ -1,3 +1,4 @@
+import { getPublicCampaignStatus } from '../services/campaign-status.js';
 import { Hono } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
 import type { Env } from '../index.js';
@@ -54,9 +55,49 @@ publicCampaigns.get('/c/:slug', async (c) => {
   if (!gate.tracked_link_ref) return c.text('準備中です', 503);
   const target = new URL(`/r/${encodeURIComponent(gate.tracked_link_ref)}`, gate.worker_url);
   target.searchParams.set('gate', gate.id);
+  if (gate.entry_page === 'status') {
+    const status = await getPublicCampaignStatus(c.env.DB, gate);
+    const nonce = crypto.randomUUID();
+    c.header(
+      'Content-Security-Policy',
+      `default-src 'none'; style-src 'nonce-${nonce}'; frame-ancestors 'none'; base-uri 'none'`,
+    );
+    c.header('Cache-Control', 'no-store');
+    return c.html(
+      `<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(gate.title)}</title><style nonce="${nonce}">body{font:18px system-ui;max-width:480px;margin:40px auto;padding:24px;line-height:1.8}a{display:block;background:#087c42;color:white;padding:18px;border-radius:12px;text-align:center}</style><h1>${escape(gate.title)}</h1><p>${status.unlimited ? '在庫上限なし' : `残り ${status.remaining} 名`}${status.participants === null ? '' : `・参加 ${status.participants} 人${status.participants >= 100 ? '以上' : ''}`}</p><p>〆切 ${escape(new Date(gate.ends_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }))} JST</p><a href="${escape(target.toString())}">LINEで参加する</a></html>`,
+    );
+  }
   c.header('Location', target.toString());
   c.header('Cache-Control', 'no-store');
   return c.html(html, 302);
+});
+publicCampaigns.get('/c/:slug/status.json', async (c) => {
+  const keyUrl = new URL(c.req.url);
+  keyUrl.search = '';
+  const key = new Request(keyUrl);
+  const cache =
+    typeof caches !== 'undefined' ? (caches as unknown as { default: Cache }).default : undefined;
+  const cached = await cache?.match(key);
+  if (cached) {
+    const r = new Response(cached.body, cached);
+    r.headers.set('Cache-Control', 'public, max-age=15');
+    return r;
+  }
+  if (!(await publicRateLimit(c, 'gate-status', 30, 500)))
+    return c.json({ error: 'Try again later' }, 429);
+  const gate = await c.env.DB.prepare(
+    "SELECT * FROM engagement_gates WHERE slug=? AND gate_mode='line_first' AND gate_state IN ('active','ended')",
+  )
+    .bind(c.req.param('slug'))
+    .first<ClaimGate>();
+  if (!gate) return c.json({ error: 'Not found' }, 404);
+  const ended =
+    gate.archived_at || Date.parse(gate.ends_at) <= Date.now() || gate.gate_state === 'ended';
+  const data = ended ? { state: 'ended' } : await getPublicCampaignStatus(c.env.DB, gate);
+  const response = Response.json(data, { headers: { 'Cache-Control': 'public, max-age=20' } });
+  if (cache) c.executionCtx.waitUntil(cache.put(key, response.clone()));
+  response.headers.set('Cache-Control', 'public, max-age=15');
+  return response;
 });
 publicCampaigns.get('/c/:slug/go', async (c) => {
   const gate = await load(c),
@@ -102,7 +143,7 @@ publicCampaigns.get('/c/:slug/og.png', async (c) => {
   const response = new Response(png as BodyInit, {
     headers: {
       'Content-Type': 'image/png',
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': 'public, max-age=300',
       'X-Content-Type-Options': 'nosniff',
     },
   });

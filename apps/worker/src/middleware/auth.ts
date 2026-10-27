@@ -5,7 +5,7 @@ export function isPublicPath(path: string): boolean {
   return ['/api/health','/api/auth/session','/api/x/oauth/callback','/webhook/xaa','/setup'].includes(path)
     || /^\/api\/tokens\/[^/]+\/resolve$/.test(path) || path.startsWith('/api/growth/img/')
     || /^\/api\/integrations\/line-harness\/(claims(?:\/check)?|events)$/.test(path)
-    || /^\/c\/[a-z0-9-]+(?:\/(go|og\.png))?$/.test(path);
+    || /^\/c\/[a-z0-9-]+(?:\/(go|og\.png|status\.json))?$/.test(path);
 }
 export async function authMiddleware(c: Context<Env>, next: Next): Promise<Response | void> {
   const path = new URL(c.req.url).pathname;

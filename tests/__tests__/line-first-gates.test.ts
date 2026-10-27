@@ -445,7 +445,7 @@ it("preserves historical deliveries and only pauses unsafe legacy paths on upgra
   const sqlite = new DatabaseSync(":memory:");
   for (const file of readdirSync("packages/db/bootstrap")
     .sort()
-    .filter((f) => !f.startsWith("020-")))
+    .filter((f) => f < "020-"))
     sqlite.exec(readFileSync(`packages/db/bootstrap/${file}`, "utf8"));
   for (const [id, trigger, action, link] of [
     ["safe", "reply", "mention_post", ""],

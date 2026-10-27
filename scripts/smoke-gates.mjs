@@ -54,6 +54,16 @@ try {
     await new Promise((r) => setTimeout(r, 500));
   }
   if (!ready) throw new Error('Local Worker did not start');
+  const status = await fetch(base + '/c/fixture/status.json');
+  const publicState = await status.json();
+  if (
+    !status.ok ||
+    publicState.remaining !== null ||
+    publicState.unlimited !== true ||
+    publicState.participants !== null ||
+    'gateId' in publicState
+  )
+    throw new Error('Public campaign status smoke failed');
   const og = await fetch(base + '/c/fixture/og.png', { signal: AbortSignal.timeout(20000) });
   if (!og.ok) throw new Error(`OG failed: ${og.status}`);
   const png = Buffer.from(await og.arrayBuffer());
@@ -101,7 +111,7 @@ try {
   )
     throw new Error('Durable Object simple-claim smoke failed');
   console.log(
-    'Local workerd: PNG 1200x630, signed claim, Durable Object and D1 reward transaction passed. No external messages sent.',
+    'Local workerd: public campaign status, PNG 1200x630, signed claim, Durable Object and D1 reward transaction passed. No external messages sent.',
   );
 } finally {
   if (child?.pid) {

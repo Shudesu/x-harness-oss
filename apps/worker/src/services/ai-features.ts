@@ -1,3 +1,4 @@
+import { buildCampaignSummary } from './campaign-summary.js';
 import { getSnapshots, getMonthSpend, getSpendBreakdown, getXAccountById } from '@x-harness/db';
 import type { Env } from '../index.js';
 import { GrokClient, isGrokEnabled } from './grok.js';
@@ -11,7 +12,9 @@ export async function buildDigestInput(env:Env['Bindings'],accountId:string,days
   const snapshots=await getSnapshots(env.DB,accountId,days);
   const posts=await cachedPosts(env,accountId,'post');
   const deliveries=await env.DB.prepare("SELECT COUNT(*) AS total FROM engagement_gate_deliveries d JOIN engagement_gates g ON d.gate_id=g.id WHERE g.x_account_id=? AND d.status='delivered' AND julianday(d.created_at)>=julianday('now')-?").bind(accountId,days).first();
-  return {snapshots,posts,deliveries,spend:await getSpendBreakdown(env.DB)};
+  const gates=(await env.DB.prepare("SELECT id FROM engagement_gates WHERE x_account_id=? AND gate_mode='line_first' AND archived_at IS NULL AND julianday(ends_at)>=julianday('now')-? LIMIT 30").bind(accountId,days).all<{id:string}>()).results;
+  const campaigns=await Promise.all(gates.map(g=>buildCampaignSummary(env.DB,g.id)));
+  return {snapshots,posts,deliveries,campaigns,spend:await getSpendBreakdown(env.DB)};
 }
 export async function runAiFeature(env:Env['Bindings'],accountId:string,feature:'digest'|'triage'|'drafts'|'research'|'best-times',options:{tweetIds?:string[];theme?:string;handles?:string[];keywords?:string[];days?:number}={}) {
   let input:unknown, instruction='', fallback:Output={summary:'AI未設定：取得済みデータから表示しています。',items:[]};
