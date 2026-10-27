@@ -31,7 +31,7 @@ campaigns.post('/api/campaigns/line-proxy/tags', async (c) => {
   const body = await c.req.json();
   const res = await fetch(`${lineUrl}/api/tags`, {
     method: 'POST',
-    redirect: 'error',
+    redirect: 'manual',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineKey}` },
     body: JSON.stringify(body),
   });
@@ -49,7 +49,7 @@ campaigns.post('/api/campaigns/line-proxy/forms', async (c) => {
   const body = await c.req.json();
   const res = await fetch(`${lineUrl}/api/forms`, {
     method: 'POST',
-    redirect: 'error',
+    redirect: 'manual',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineKey}` },
     body: JSON.stringify(body),
   });

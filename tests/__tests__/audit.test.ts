@@ -146,7 +146,7 @@ it('proxies campaign tracked-link creation with the stored LINE credential',asyn
  const response=await request({DB:db,API_KEY:'master',ENCRYPTION_KEY:key},'/api/line-connections/l/proxy/tracked-links','master','POST',{name:'Campaign',originalUrl:'https://line.example/auth/line'});
  expect(response.status).toBe(201);expect(String(spy.mock.calls[0][0])).toBe('https://line.example/api/tracked-links');
  const init=spy.mock.calls[0][1] as RequestInit;
- expect(new Headers(init.headers).get('Authorization')).toBe('Bearer line-only-secret');expect(init.redirect).toBe('error');
+ expect(new Headers(init.headers).get('Authorization')).toBe('Bearer line-only-secret');expect(init.redirect).toBe('manual');
  expect(await response.text()).not.toContain('secret');
 });
 

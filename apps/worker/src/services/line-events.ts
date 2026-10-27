@@ -50,7 +50,7 @@ export async function sendLineOutbox(env: Env['Bindings'], now = Date.now()): Pr
         );
         const response = await fetch(assertHttpsBase(connection.worker_url) + capabilityPath, {
           headers: capabilityHeaders,
-          redirect: 'error',
+          redirect: 'manual',
           signal: AbortSignal.timeout(10000),
         });
         if (
@@ -78,7 +78,7 @@ export async function sendLineOutbox(env: Env['Bindings'], now = Date.now()): Pr
         method: 'POST',
         headers,
         body: item.payload,
-        redirect: 'error',
+        redirect: 'manual',
         signal: AbortSignal.timeout(30000),
       });
       if (!response.ok) throw new Error(`partner_http_${response.status}`);

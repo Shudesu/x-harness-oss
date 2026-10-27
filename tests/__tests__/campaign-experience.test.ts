@@ -267,3 +267,10 @@ it('falls back on invented AI counts without losing delivery and sends each leas
   await Promise.all([sendDigests({ DB: f.db } as any), sendDigests({ DB: f.db } as any)]);
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
+
+it('rejects a notification redirect without forwarding credentials or marking delivery sent',async()=>{
+ const f=fixture();settings(f.sqlite,{digest_channels:'["slack"]',digest_slack_webhook:'https://hooks.slack.com/services/synthetic/test/only'});
+ f.sqlite.prepare('UPDATE engagement_gates SET ends_at=?').run(new Date(now-3600000).toISOString());await enqueueEndedDigests({DB:f.db} as any);
+ const fetcher=vi.fn(async(_url:RequestInfo|URL,_init?:RequestInit)=>new Response(null,{status:302,headers:{Location:'https://untrusted.example'}}));vi.stubGlobal('fetch',fetcher);
+ await sendDigests({DB:f.db} as any);expect(fetcher).toHaveBeenCalledTimes(1);expect(fetcher.mock.calls[0][1]?.redirect).toBe('manual');expect(f.sqlite.prepare('SELECT status,last_error FROM campaign_digests').get()).toMatchObject({status:'pending',last_error:'slack_delivery_failed'});
+});

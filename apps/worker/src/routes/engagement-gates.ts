@@ -19,7 +19,7 @@ function serialize(row: any) {
     actionType: row.action_type,
     gateMode: row.gate_mode,
     lineConnectionId: row.line_connection_id,
-    canResume:row.gate_mode==='line_first'?row.gate_state==='active'&&!row.archived_at:row.action_type==='mention_post'&&row.trigger_type==='reply'&&!row.link,
+    canResume:row.gate_mode==='line_first'?row.gate_state==='active'&&!row.archived_at:row.delivery_method!=='dm'&&row.action_type==='mention_post'&&row.trigger_type==='reply'&&!row.link,
     slug:row.slug,title:row.title,tier:row.tier,gateState:row.gate_state,pauseReason:row.pause_reason,
     deliveryMethod: row.delivery_method,
     replyTemplates: row.reply_templates ? JSON.parse(row.reply_templates) : [],
@@ -75,7 +75,7 @@ engagementGates.get('/api/engagement-gates/:id', async (c) => {
 engagementGates.put('/api/engagement-gates/:id', async (c) => {
   const body = await c.req.json();
   const existing=await getEngagementGateById(c.env.DB,c.req.param('id')) as (Awaited<ReturnType<typeof getEngagementGateById>> & {gate_mode?:string;gate_state?:string;archived_at?:number});
-  if(existing&&existing.gate_mode!=='line_first'&&body.isActive===true){const action=body.actionType??existing.action_type,trigger=body.triggerType??existing.trigger_type,link=body.link!==undefined?body.link:existing.link;if(action==='dm'||action==='mention_post'&&(trigger!=='reply'||!!link))return c.json({success:false,error:'This legacy delivery needs migration to the LINE-first flow'},409);}
+  if(existing&&existing.gate_mode!=='line_first'&&body.isActive===true){const action=body.actionType??existing.action_type,trigger=body.triggerType??existing.trigger_type,link=body.link!==undefined?body.link:existing.link;if(action==='dm'||(body.deliveryMethod??existing.delivery_method)==='dm'||action==='mention_post'&&(trigger!=='reply'||!!link))return c.json({success:false,error:'This legacy delivery needs migration to the LINE-first flow'},409);}
   if(existing?.gate_mode==='line_first'){
     if(Object.keys(body).some(key=>!['isActive','budgetUsd'].includes(key)))return c.json({success:false,error:'Campaign terms are immutable; create another campaign for different terms'},400);
     if(body.isActive!==undefined&&typeof body.isActive!=='boolean')return c.json({success:false,error:'Invalid active flag'},400);

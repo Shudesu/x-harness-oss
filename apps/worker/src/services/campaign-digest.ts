@@ -310,7 +310,7 @@ export async function sendDigests(env: Env['Bindings'], now = Date.now(), onlyId
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: (JSON.parse(item.lines) as string[]).join('\n') }),
-          redirect: 'error',
+          redirect: 'manual',
           signal: AbortSignal.timeout(10000),
         });
         if (!response.ok) throw new Error('slack_delivery_failed');
@@ -327,7 +327,7 @@ export async function sendDigests(env: Env['Bindings'], now = Date.now(), onlyId
             connectionId: conn.id,
             event: 'x.campaign.capabilities',
           }),
-          redirect: 'error',
+          redirect: 'manual',
           signal: AbortSignal.timeout(10000),
         });
         if (
@@ -353,7 +353,7 @@ export async function sendDigests(env: Env['Bindings'], now = Date.now(), onlyId
             deliveryId: item.id,
           }),
           body,
-          redirect: 'error',
+          redirect: 'manual',
           signal: AbortSignal.timeout(10000),
         });
         if (!response.ok) throw new Error('line_delivery_failed');

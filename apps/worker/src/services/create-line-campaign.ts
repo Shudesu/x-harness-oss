@@ -207,7 +207,7 @@ export async function createLineFirstCampaign(
       method: 'POST',
       headers,
       body: payload,
-      redirect: 'error',
+      redirect: 'manual',
       signal: AbortSignal.timeout(20000),
     });
     if (!response.ok) throw new Error(`line_configuration_http_${response.status}`);

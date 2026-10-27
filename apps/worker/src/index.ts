@@ -351,7 +351,7 @@ app.all('/api/line-connections/:id/proxy/:resource', async (c) => {
   url.search = new URL(c.req.url).search;
   const response = await fetch(url, {
     method: c.req.method,
-    redirect: 'error',
+    redirect: 'manual',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${await decryptSecret(row.api_key, c.env.ENCRYPTION_KEY)}`,

@@ -28,7 +28,7 @@ export default function CampaignUpdate({ autoShow = false }: { autoShow?: boolea
   }, [autoShow]);
   return <>
     <div className="mb-4 flex justify-end"><button type="button" ref={trigger} onClick={open} aria-haspopup="dialog" className="min-h-11 rounded-full border border-green-200 bg-green-50 px-4 text-sm font-medium text-green-900">更新内容を見る <span aria-hidden="true">↗</span></button></div>
-    <dialog ref={dialog} aria-labelledby="campaign-update-title" className="m-auto w-[min(680px,calc(100vw-24px))] max-h-[calc(100dvh-24px)] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60"
+    <dialog ref={dialog} aria-labelledby="campaign-update-title" style={{width:'min(680px, calc(100vw - 24px))',maxHeight:'calc(100dvh - 24px)'}} className="m-auto overflow-y-auto rounded-3xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60"
       onClose={() => { const target=previousFocus.current; if(target?.isConnected&&target!==document.body)target.focus();else trigger.current?.focus(); }}
       onClick={event => { if(event.target!==dialog.current)return;const r=dialog.current.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.current.close(); }}>
       <div className="flex items-center justify-between px-6 pt-5"><span className="text-xs font-semibold tracking-widest text-green-800">X HARNESS · v0.9.0</span><button type="button" autoFocus onClick={()=>dialog.current?.close()} aria-label="更新内容を閉じる" className="h-11 w-11 rounded-full bg-slate-100 text-2xl">×</button></div>

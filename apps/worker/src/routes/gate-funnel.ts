@@ -31,7 +31,7 @@ gateFunnel.get('/api/engagement-gates/:id/funnel', async (c) => {
       );
       const response = await fetch(assertHttpsBase(connection.worker_url) + path, {
         headers,
-        redirect: 'error',
+        redirect: 'manual',
         signal: AbortSignal.timeout(10000),
       });
       if (response.ok) {
