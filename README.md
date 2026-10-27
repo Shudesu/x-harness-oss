@@ -1,17 +1,13 @@
-## LINE先行キャンペーン（次期 v0.7.0）
+## v0.7.0 — LINE先行キャンペーン
 
-LINEで本人を確認して個人用の合言葉を発行し、Xの投稿者から照合する参加フローを追加しています。参加者のX ID入力は不要です。対応するLINE側の更新、DB migration、連携キーとDO設定が必要です。設定・既存企画への影響・検証範囲は[移行ガイド](docs/operations/line-first-gates.md)と[次期リリースノート](docs/releases/v0.7.0.md)を参照してください。
+LINEで本人を確認して個人用の合言葉を発行し、Xの投稿者から照合する参加フローを追加しています。参加者のX ID入力は不要です。対応するLINE側の更新、DB migration、連携キーとDO設定が必要です。設定・既存企画への影響・検証範囲は[移行ガイド](docs/operations/line-first-gates.md)と[リリースノート](docs/releases/v0.7.0.md)を参照してください。
 
-以下は現在公開済みのリリースです。
+Release notes: [v0.7.0](docs/releases/v0.7.0.md). Maintainers: [release procedure](docs/RELEASING.md).
 
-## v0.6.1 — security / cost / optional Grok
-
-Release notes: [v0.6.1](docs/releases/v0.6.1.md). Maintainers: [release procedure](docs/RELEASING.md).
-
-This is a GitHub source release. npm publishing is separate; `npx create-x-harness@latest` may still use the preceding npm release. For v0.6.1, build the CLI from the tagged checkout:
+This is a GitHub source release. npm publishing is separate; `npx create-x-harness@latest` may still use the preceding npm release. For v0.7.0, build the CLI from the tagged checkout:
 
 ```sh
-git clone --branch v0.6.1 https://github.com/Shudesu/x-harness-oss.git
+git clone --branch v0.7.0 https://github.com/Shudesu/x-harness-oss.git
 cd x-harness-oss
 pnpm install --frozen-lockfile
 pnpm --filter create-x-harness build

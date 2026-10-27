@@ -51,7 +51,7 @@ it('runs both real route implementations from LINE identity to one reward and on
   ls.exec(
     `CREATE TABLE line_accounts(id TEXT PRIMARY KEY,channel_id TEXT,channel_access_token TEXT,login_channel_id TEXT,liff_id TEXT,is_active INTEGER,created_at TEXT);CREATE TABLE tags(id TEXT PRIMARY KEY,name TEXT,color TEXT,created_at TEXT);CREATE TABLE tracked_links(id TEXT PRIMARY KEY,name TEXT,original_url TEXT,line_account_id TEXT,is_active INTEGER,click_count INTEGER,created_at TEXT,updated_at TEXT);CREATE TABLE friends(id TEXT PRIMARY KEY,line_user_id TEXT UNIQUE,line_account_id TEXT,display_name TEXT,is_following INTEGER,metadata TEXT DEFAULT '{}',created_at TEXT,updated_at TEXT);CREATE TABLE friend_tags(friend_id TEXT,tag_id TEXT,assigned_at TEXT,PRIMARY KEY(friend_id,tag_id));CREATE TABLE scenarios(id TEXT PRIMARY KEY,line_account_id TEXT,is_active INTEGER);CREATE TABLE messages_log(id TEXT,friend_id TEXT,line_account_id TEXT,direction TEXT,created_at TEXT);INSERT INTO line_accounts VALUES ('la','channel','synthetic-line-token','login-fixture','111-fixture',1,'2020');INSERT INTO friends VALUES ('friend','Ufixture','la','Fixture',1,'{}','2020','2020');`,
   );
-  ls.exec(readFileSync(lineRoot + '/packages/db/migrations/NNN_x_line_first_gates.sql', 'utf8'));
+  ls.exec(readFileSync(lineRoot + '/packages/db/migrations/073_x_line_first_gates.sql', 'utf8'));
   const secret = 'synthetic-cross-repo-shared-secret-not-real';
   xs.exec(
     "INSERT INTO x_accounts(id,x_user_id,username,access_token,created_at,updated_at) VALUES ('xa','999','brand','synthetic','2020','2020')",
