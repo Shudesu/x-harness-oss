@@ -23,7 +23,7 @@ export async function processEngagementGates(
 
   for (const gate of gates) {
     if((gate as any).gate_mode==='line_first')continue;
-    if(gate.action_type==='dm'||gate.action_type==='mention_post'&&(gate.trigger_type!=='reply'||!!gate.link)){
+    if(gate.action_type==='dm'||gate.delivery_method==='dm'||gate.action_type==='mention_post'&&(gate.trigger_type!=='reply'||!!gate.link)){
       await db.prepare("UPDATE engagement_gates SET is_active=0,pause_reason='legacy_delivery_requires_migration' WHERE id=?").bind(gate.id).run();
       continue;
     }
@@ -375,15 +375,15 @@ function appendRef(link: string, ref: string): string {
   }
 }
 
-async function deliverGate(client:XClient,gate:DbEngagementGate,id:string,username:string,text:string):Promise<string> {
+export async function deliverGate(client:XClient,gate:DbEngagementGate,id:string,username:string,text:string):Promise<string> {
   if(gate.link && gate.action_type==='mention_post')throw new Error('Public reward-token links are disabled');
   const method=gate.delivery_method ?? (gate.action_type==='dm'?'dm':'reply_with_link');
   if(method==='dm') {
     try {await client.sendDm(id,text);return 'dm';}
     catch(err) {
-      // Only a definitive refusal permits fallback. Timeouts may already have delivered.
+      // A refusal is recorded as a failure by the caller; never expose it publicly.
       if(!(err instanceof Error) || !('status' in err) || err.status!==403) throw err;
-      text='DMを受信できる設定で、もう一度お問い合わせください。';
+      throw new Error('skipped_dm_refused');
     }
   }
   if(method!=='reply_with_link') text=text.replace(/https?:\/\/\S+/gi,'').trim();
