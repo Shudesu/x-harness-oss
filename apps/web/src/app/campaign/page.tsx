@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { API_URL, fetchApi } from '@/lib/api';
+import { fetchApi } from '@/lib/api';
 import { useCurrentAccountId } from '@/hooks/use-selected-account';
 import CampaignDraftAssistant from '@/components/campaign-draft-assistant';
 import Header from '@/components/layout/header';
@@ -53,6 +53,7 @@ export default function CampaignPage() {
     [followupOffer, setFollowupOffer] = useState('early_notice'),
     [followupReward, setFollowupReward] = useState(''),
     [followupLabel, setFollowupLabel] = useState('');
+  const [previousCampaigns,setPreviousCampaigns]=useState<Array<{id:string;title:string;gateMode:string;lineConnectionId:string}>>([]);
   const [sourceGates, setSourceGates] = useState(''),
     [noticeCount, setNoticeCount] = useState<number | null>(null),
     [noticeConfirmed, setNoticeConfirmed] = useState(false);
@@ -106,6 +107,11 @@ export default function CampaignPage() {
         .then((r) => setScenarios(Array.isArray(r.data) ? r.data : []))
         .catch(() => {});
   }, [connectionId]);
+  useEffect(()=>{
+    setSourceGates('');setPreviousCampaigns([]);let current=true;
+    if(accountId&&connectionId)fetchApi<{data:Array<{id:string;title:string;gateMode:string;lineConnectionId:string}>}>(`/api/engagement-gates?xAccountId=${encodeURIComponent(accountId)}`).then(r=>{if(current)setPreviousCampaigns(r.data.filter(g=>g.gateMode==='line_first'&&g.lineConnectionId===connectionId));}).catch(()=>{});
+    return()=>{current=false;};
+  },[accountId,connectionId]);
   function changeTier(value: string) {
     setTier(value);
     setAge(value === 'strict' ? 30 : 7);
@@ -189,9 +195,15 @@ export default function CampaignPage() {
   return (
     <div>
       <Header
-        title="LINE先行キャンペーン"
-        description="LINEで合言葉を受け取り、本人のX投稿と照合します。参加者のX ID入力はありません。"
+        title="XからLINEへ、キャンペーンを作る"
+        description="企画を準備し、LINEで参加を受け付け、結果と特典を案内します。参加者のX ID入力は不要です。"
       />
+      <section aria-label="作成の準備" className="mb-6 rounded-2xl border border-green-200 bg-green-50 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold tracking-widest text-green-800">START HERE</p><h2 className="mt-1 font-semibold text-slate-900">まずは、企画・告知投稿・LINE接続を用意。</h2><p className="mt-2 text-sm leading-6 text-slate-600">LINE連携前でも企画の下書きを作れます。保存時には、作成済みのX告知投稿URLとLINE接続が必要です。</p></div><a href="/settings" className="min-h-11 rounded-lg border border-green-300 bg-white px-4 py-3 text-sm font-medium text-green-900">接続設定を開く ↗</a></div>
+        <ol className="mt-4 grid gap-2 sm:grid-cols-4">{[
+          ['企画と終了日時',!!title&&!!slug&&!!phrase&&!!ends],['Xの告知投稿',!!post],['LINE接続',!!connectionId],['特典の内容',rewards.every(r=>!!r.label&&!!(r.type==='coupon_code'?r.codesText:r.value))],
+        ].map(([label,ready],i)=><li key={String(label)} className="rounded-xl bg-white p-3 text-sm"><span className={ready?'text-green-800':'text-slate-500'}>{ready?'✓':String(i+1).padStart(2,'0')}</span><span className="ml-2 font-medium">{label}</span><span className="mt-1 block text-xs text-slate-500">{ready?'入力済み':'これから入力'}</span></li>)}</ol>
+      </section>
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <form
           className="space-y-5"
@@ -314,8 +326,8 @@ export default function CampaignPage() {
               />
             </label>
           </section>
-          <section className="rounded-xl border bg-white p-5 space-y-3">
-            <h2 className="font-semibold">3. 条件と確定方法</h2>
+          <details className="rounded-xl border bg-white p-5" open={tier==='strict'}>
+            <summary className="cursor-pointer font-semibold min-h-11">3. 先着・抽選と費用の設定</summary><div className="space-y-3 pt-3">
             <select
               aria-label="確定方法"
               value={mode}
@@ -452,7 +464,7 @@ export default function CampaignPage() {
                 className={inputClass}
               />
             </label>
-          </section>
+          </div></details>
           <section className="rounded-xl border bg-white p-5 space-y-4">
             <h2 className="font-semibold">4. 特典</h2>
             {rewards.map((r, i) => (
@@ -688,15 +700,7 @@ export default function CampaignPage() {
             <p className="text-xs">
               結果通知は1人1通（結果確認からreplyで届いた場合は課金対象外※）。先行案内は同意した人数×送信回数です。
             </p>
-            <label className="block">
-              先行案内の元キャンペーンID（任意・最大5件）
-              <input
-                value={sourceGates}
-                onChange={(e) => setSourceGates(e.target.value)}
-                placeholder="カンマ区切り"
-                className={inputClass}
-              />
-            </label>
+            <fieldset className="rounded-xl border border-slate-200 p-4"><legend className="px-1 text-sm font-medium">以前の参加者に先行案内を用意する（任意）</legend><p className="mb-3 text-xs leading-5 text-slate-500">同じLINE接続を使う過去の企画から選びます。次回案内に同意した方だけが対象です。最大5件。</p>{previousCampaigns.length?previousCampaigns.map(g=><label key={g.id} className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={sourceGates.split(',').includes(g.id)} disabled={!sourceGates.split(',').includes(g.id)&&sourceGates.split(',').filter(Boolean).length>=5} onChange={e=>setSourceGates(old=>{const ids=old.split(',').filter(Boolean);return (e.target.checked?[...ids,g.id]:ids.filter(id=>id!==g.id)).join(',');})}/>{g.title||'キャンペーン'}</label>):<p className="text-sm text-slate-500">LINE接続を選ぶと、利用できる過去の企画が表示されます。</p>}</fieldset>
             {sourceGates && (
               <button
                 type="button"
@@ -798,6 +802,8 @@ export default function CampaignPage() {
           </button>
         </form>
         <aside className="space-y-4 lg:sticky lg:top-6 self-start">
+          <section className="rounded-xl border bg-white p-5"><h2 className="font-semibold">今回の設定</h2><dl className="mt-3 space-y-3 text-sm">{[['参加方法',tier==='simple'?'LINEで参加':tier==='strict'?'合言葉＋厳格な条件確認':'合言葉をXに投稿'],['特典の決め方',mode==='lottery'?'抽選':'先着'],['X APIの停止目安',`$${budget.toFixed(2)}`],['希望者へのフォロー',followupEnabled?'有効（本人の同意後）':'利用しない']].map(([label,value])=><div key={label} className="flex justify-between gap-4"><dt className="text-slate-500">{label}</dt><dd className="text-right font-medium">{value}</dd></div>)}</dl><p className="mt-4 text-xs leading-5 text-slate-500">この画面からXへ自動投稿はしません。先行案内はLINE側の下書きとして準備します。</p></section>
+
           <div className="rounded-2xl bg-slate-950 text-white p-6">
             <p className="text-xs text-green-200">参加者に見える流れ</p>
             <h2 className="text-xl font-bold mt-3">{title || '企画名'}</h2>

@@ -18,6 +18,7 @@ function serialize(row: any) {
     triggerType: row.trigger_type,
     actionType: row.action_type,
     gateMode: row.gate_mode,
+    lineConnectionId: row.line_connection_id,
     canResume:row.gate_mode==='line_first'?row.gate_state==='active'&&!row.archived_at:row.action_type==='mention_post'&&row.trigger_type==='reply'&&!row.link,
     slug:row.slug,title:row.title,tier:row.tier,gateState:row.gate_state,pauseReason:row.pause_reason,
     deliveryMethod: row.delivery_method,

@@ -10,6 +10,8 @@ export default function CampaignDigestSettings() {
     [gateId, setGateId] = useState(''),
     [message, setMessage] = useState(''),
     [busy, setBusy] = useState(false);
+  const [campaigns,setCampaigns]=useState<Array<{id:string;title:string;gateMode:string}>>([]);
+  useEffect(()=>{fetchApi<{data:Array<{id:string;title:string;gateMode:string}>}>('/api/engagement-gates').then(r=>setCampaigns(r.data.filter(g=>g.gateMode==='line_first'))).catch(()=>setMessage('キャンペーン一覧を取得できませんでした。'));},[]);
   useEffect(() => {
     fetchApi<{ data: Record<string, string> }>('/api/settings')
       .then(({ data }) => {
@@ -60,7 +62,8 @@ export default function CampaignDigestSettings() {
         `/api/campaigns/${encodeURIComponent(gateId)}/digest/test`,
         { method: 'POST', body: JSON.stringify({ channel, confirm: true }) },
       );
-      setMessage(`${r.data.status}${r.data.last_error ? '：' + r.data.last_error : ''}`);
+      const labels:Record<string,string>={sent:'テスト通知を送信しました。',pending:'送信を再試行します。',skipped:'送信されませんでした。通知先と接続設定を確認してください。',dead:'送信できませんでした。通知先と接続状態を確認してください。'};
+      setMessage(labels[r.data.status]??'送信状況を確認してください。');
     } catch (e) {
       setMessage(String(e));
     } finally {
@@ -126,7 +129,7 @@ export default function CampaignDigestSettings() {
         />
       </label>
       <p className="text-xs">
-        メールは送信用binding・送信元と宛先の設定が必要です。LINEの受信者はLINE側で設定します。
+        メールは事前に配信環境と送信元の設定が必要です。LINEの受信者はLINE側で設定します。
       </p>
       <label className="block">
         <input type="checkbox" checked={weekly} onChange={(e) => setWeekly(e.target.checked)} />
@@ -139,12 +142,9 @@ export default function CampaignDigestSettings() {
         X APIの追加費用はありません。LINEで受け取る場合は受信者1人・1回につき1通を消費します。
       </p>
       <label className="block">
-        テスト対象のキャンペーンID
-        <input
-          value={gateId}
-          onChange={(e) => setGateId(e.target.value)}
-          className="border p-2 w-full"
-        />
+        テスト対象のキャンペーン
+        <select value={gateId} onChange={e=>setGateId(e.target.value)} className="border rounded-lg p-3 w-full"><option value="">キャンペーンを選んでください</option>{campaigns.map(g=><option key={g.id} value={g.id}>{g.title||'キャンペーン'}</option>)}</select>
+        {!campaigns.length&&<span className="text-xs text-slate-500">キャンペーン作成後にテストできます。</span>}
       </label>
       <div className="flex gap-2">
         {channels.map((c) => (
