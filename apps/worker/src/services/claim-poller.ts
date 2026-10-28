@@ -1,3 +1,4 @@
+import { readExternalSource, settleExternalGate } from './external-source.js';
 import { getCampaignInventory } from "./campaign-status.js";
 import { spendPressure } from "./spend-pressure.js";
 import { getXAccountById } from "@x-harness/db";
@@ -30,6 +31,11 @@ export async function pollClaimGate(
       .first<ClaimGate>();
     if (!gate || !gate.is_active || gate.gate_state !== "active")
       return { pending: 0, retryAfterSec: 0 };
+    const external=await readExternalSource(db,gateId);
+    if(external?.enabled) {
+      await db.prepare('UPDATE engagement_gates SET last_code_check_at=? WHERE id=?').bind(now,gateId).run();
+      return settleExternalGate(db,gate,external,owner,now);
+    }
     if (gate.last_code_check_at && now - gate.last_code_check_at < 10000)
       return {
         pending: 1,

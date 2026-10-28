@@ -1,3 +1,4 @@
+import { readExternalSource } from '../services/external-source.js';
 import { publicRateLimit } from '../services/rate-limit.js';
 import { buildXClient } from '../services/x-client.js';
 import { Hono } from 'hono';
@@ -7,6 +8,10 @@ import { EngagementCache, checkConditions } from '../services/reply-trigger-cach
 import { XClient, XApiError, XApiRateLimitError } from '@x-harness/x-sdk';
 
 const verify = new Hono<Env>();
+verify.use('/api/engagement-gates/:id/*',async(c,next)=>{
+  if((await readExternalSource(c.env.DB,c.req.param('id')))?.enabled)return c.json({success:false,error:'external_source_enabled_use_observation_scan'},409);
+  await next();
+});
 verify.use('/api/engagement-gates/:id/verify', async (c,next) => {
   await next();
   if(!c.get('staffRole') && c.res.headers.get('Content-Type')?.includes('application/json')) {

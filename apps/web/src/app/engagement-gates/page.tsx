@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Header from '@/components/layout/header';
 import { fetchApi, API_URL } from '@/lib/api';
 import GateFunnel from '@/components/gate-funnel';
+import ExternalSource from '@/components/external-source';
 type Gate = {
   id: string;
   postId: string;
@@ -62,7 +63,7 @@ export default function Gates() {
                     onClick={() => setExpanded(expanded === g.id ? null : g.id)}
                     className="underline"
                   >
-                    ファネル
+                    詳細・取得方法
                   </button>
                 )}
                 <button
@@ -120,6 +121,7 @@ export default function Gates() {
                   : g.pauseReason}
               </p>
             )}
+            {expanded === g.id && g.gateMode === 'line_first' && <ExternalSource gateId={g.id} active={g.isActive} />}
             {expanded === g.id && <GateFunnel gateId={g.id} />}
           </section>
         ))}

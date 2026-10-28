@@ -1,3 +1,4 @@
+import { readExternalSource } from '../services/external-source.js';
 import { pollAccountGates } from '../services/claim-batch-poller.js';
 import { optInFollowup } from '../services/campaign-followup.js';
 import { getPublicCampaignStatus } from '../services/campaign-status.js';
@@ -39,7 +40,7 @@ export async function wakeClaimGate(env: Env['Bindings'], gateId: string, intera
   const batch = await env.DB.prepare(
     "SELECT value FROM settings WHERE key='claim_batch_search'",
   ).first<{ value: string }>();
-  if (batch?.value === 'true') {
+  if (batch?.value === 'true' && !(await readExternalSource(env.DB,gateId))?.enabled) {
     const gate = await env.DB.prepare('SELECT x_account_id,tier FROM engagement_gates WHERE id=?')
       .bind(gateId)
       .first<{ x_account_id: string; tier: string }>();

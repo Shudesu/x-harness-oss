@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.0] - 2026-10-28
+
+- Add opt-in external X observations for standard reply-only LINE-first campaigns, with bounded pagination, replay protection and settlement after complete fresh scans.
+- Add source/freshness UI and three MCP tools. Paid polling and closed-gate metric lookup stop only for opted-in campaigns; missing data never triggers paid fallback.
+- Preserve existing inventory, participant uniqueness, owner consent, and LINE delivery history. See docs/operations/external-observations.md for requirements and limitations.
+
 ## [0.9.0] - 2026-10-27
 
 キャンペーン結果通知、参加表示、同意後フォロー、費用管理、候補限定の条件確認、企画下書き、既定OFFの検索集約。LINE v0.26.0との同時更新が必要。先行X-36bはv0.7.1で公開済み。本機能分はv0.9.0へ統合。
