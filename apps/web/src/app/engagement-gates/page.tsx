@@ -63,7 +63,7 @@ export default function Gates() {
                     onClick={() => setExpanded(expanded === g.id ? null : g.id)}
                     className="underline"
                   >
-                    ファネル
+                    詳細・取得方法
                   </button>
                 )}
                 <button
@@ -121,7 +121,7 @@ export default function Gates() {
                   : g.pauseReason}
               </p>
             )}
-            {g.gateMode === 'line_first' && <ExternalSource gateId={g.id} active={g.isActive} />}
+            {expanded === g.id && g.gateMode === 'line_first' && <ExternalSource gateId={g.id} active={g.isActive} />}
             {expanded === g.id && <GateFunnel gateId={g.id} />}
           </section>
         ))}

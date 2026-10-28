@@ -4,7 +4,7 @@ import {fetchApi} from '@/lib/api';
 type Source={gateId:string;source:string;state:string;supported:boolean;lastCompleteAt:number|null};
 export default function ExternalSource({gateId,active}:{gateId:string;active:boolean}){
  const [source,setSource]=useState<Source|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[consent,setConsent]=useState(false);
- const load=()=>fetchApi<{data:{gates:Source[]}}>('/api/integrations/agent-source/gates').then(r=>setSource(r.data.gates.find(g=>g.gateId===gateId)??null)).catch(()=>setError('取得方法を確認できません。管理者でログインしてから再確認してください。'));
+ const load=()=>fetchApi<{data:Source}>(`/api/integrations/agent-source/${gateId}/status`).then(r=>setSource(r.data)).catch(()=>setError('取得方法を確認できません。管理者でログインしてから再確認してください。'));
  useEffect(()=>{void load();},[gateId,active]);
  if(!source)return <p className="text-sm text-slate-600">{error||'取得方法を確認中…'}</p>;
  const external=source.source==='external';

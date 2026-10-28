@@ -1,5 +1,5 @@
 const encoder = new TextEncoder();
-export const externalSourcePath = (path: string) => /^\/api\/integrations\/agent-source\/(gates|[a-zA-Z0-9_-]{1,128}\/(mode|scan|page))$/.test(path);
+export const externalSourcePath = (path: string) => /^\/api\/integrations\/agent-source\/(gates|[a-zA-Z0-9_-]{1,128}\/(mode|scan|page|status))$/.test(path);
 export async function verifySourceSignature(request: Request, secret: string | undefined, raw: string) {
   if (!secret) return false;
   const stamp=request.headers.get('X-Harness-Source-Time') ?? '', signature=request.headers.get('X-Harness-Source-Signature') ?? '';
