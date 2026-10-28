@@ -478,3 +478,18 @@ CREATE TRIGGER gate_followup_commit AFTER INSERT ON gate_followup_allocations BE
  UPDATE reward_codes SET assigned_participant_id='followup:'||NEW.participant_id WHERE id=(SELECT id FROM reward_codes WHERE reward_id=NEW.reward_id AND assigned_participant_id IS NULL ORDER BY id LIMIT 1);
  UPDATE gate_followup_allocations SET value=COALESCE((SELECT code FROM reward_codes WHERE assigned_participant_id='followup:'||NEW.participant_id),value) WHERE participant_id=NEW.participant_id;
 END;
+-- Opt-in external observations; existing gates keep their paid API polling mode.
+CREATE TABLE gate_external_sources(
+ gate_id TEXT PRIMARY KEY REFERENCES engagement_gates(id) ON DELETE CASCADE,
+ enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1)),
+ epoch TEXT NOT NULL,
+ enabled_at INTEGER NOT NULL,
+ scan_id TEXT, scan_expires_at INTEGER, scan_from INTEGER, scan_until INTEGER,
+ next_page INTEGER NOT NULL DEFAULT 0, next_token TEXT,
+ last_complete_at INTEGER, coverage_until INTEGER
+);
+CREATE TABLE gate_external_receipts(
+ scan_id TEXT NOT NULL, page INTEGER NOT NULL, gate_id TEXT NOT NULL REFERENCES engagement_gates(id) ON DELETE CASCADE,
+ digest TEXT NOT NULL, received_at INTEGER NOT NULL,
+ PRIMARY KEY(scan_id,page)
+);

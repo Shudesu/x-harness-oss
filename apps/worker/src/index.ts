@@ -1,3 +1,4 @@
+import { externalSource } from './routes/external-source.js';
 import { campaignInsights } from './routes/campaign-insights.js';
 import {
   enqueueEndedDigests,
@@ -60,6 +61,7 @@ export type Env = {
     DIGEST_EMAIL_FROM?: string;
     GATE_CLAIMS?: DurableObjectNamespace;
     API_KEY: string;
+    ADMIN_SSO_SECRET?: string;
     X_OAUTH_CLIENT_ID?: string;
     X_OAUTH_CLIENT_SECRET?: string;
     ENCRYPTION_KEY?: string;
@@ -118,6 +120,7 @@ app.route('/', maintenance);
 app.route('/', ai);
 app.route('/', health);
 app.route('/', lineClaims);
+app.route('/', externalSource);
 app.route('/', publicCampaigns);
 app.route('/', gateFunnel);
 app.route('/', verify);
@@ -461,13 +464,13 @@ async function scheduled(
     });
   const pendingGates = (
     await env.DB.prepare(
-      "SELECT g.id FROM engagement_gates g WHERE g.gate_mode='line_first' AND g.is_active=1 AND g.gate_state='active' AND (EXISTS(SELECT 1 FROM claim_codes cc WHERE cc.gate_id=g.id AND cc.status IN ('awaiting_reply','provisional','matched')) OR EXISTS(SELECT 1 FROM gate_participants p WHERE p.gate_id=g.id AND p.status='verified' AND p.finalized_at IS NULL)) ORDER BY COALESCE(g.last_code_check_at,0) LIMIT 10",
+      "SELECT g.id FROM engagement_gates g WHERE NOT EXISTS(SELECT 1 FROM gate_external_sources es WHERE es.gate_id=g.id AND es.enabled=1) AND g.gate_mode='line_first' AND g.is_active=1 AND g.gate_state='active' AND (EXISTS(SELECT 1 FROM claim_codes cc WHERE cc.gate_id=g.id AND cc.status IN ('awaiting_reply','provisional','matched')) OR EXISTS(SELECT 1 FROM gate_participants p WHERE p.gate_id=g.id AND p.status='verified' AND p.finalized_at IS NULL)) ORDER BY COALESCE(g.last_code_check_at,0) LIMIT 10",
     ).all<{ id: string }>()
   ).results;
   if (await getSettingBool(env.DB, 'claim_batch_search', false)) {
     const accounts = (
       await env.DB.prepare(
-        "SELECT DISTINCT x_account_id FROM engagement_gates WHERE gate_mode='line_first' AND tier!='simple' AND is_active=1 AND gate_state='active'",
+        "SELECT DISTINCT x_account_id FROM engagement_gates g WHERE NOT EXISTS(SELECT 1 FROM gate_external_sources es WHERE es.gate_id=g.id AND es.enabled=1) AND gate_mode='line_first' AND tier!='simple' AND is_active=1 AND gate_state='active'",
       ).all<{ x_account_id: string }>()
     ).results;
     for (const account of accounts)
@@ -478,7 +481,7 @@ async function scheduled(
       }
     const simple = (
       await env.DB.prepare(
-        "SELECT id FROM engagement_gates WHERE gate_mode='line_first' AND tier='simple' AND is_active=1 AND gate_state='active'",
+        "SELECT id FROM engagement_gates g WHERE gate_mode='line_first' AND tier='simple' AND is_active=1 AND gate_state='active'",
       ).all<{ id: string }>()
     ).results;
     for (const gate of simple) await wakeClaimGate(env, gate.id);
@@ -490,6 +493,8 @@ async function scheduled(
         console.error('Claim poll deferred', gate.id);
       }
     }
+  const externalGates=(await env.DB.prepare("SELECT g.id FROM engagement_gates g JOIN gate_external_sources es ON es.gate_id=g.id WHERE es.enabled=1 AND g.is_active=1 AND g.gate_state='active' AND g.archived_at IS NULL ORDER BY COALESCE(g.last_code_check_at,0) LIMIT 25").all<{id:string}>()).results;
+  for(const gate of externalGates)try{await wakeClaimGate(env,gate.id);}catch{console.error('External observation settlement deferred');}
   await sendLineOutbox(env);
   await captureClosedGateMetrics(env);
   await enqueueEndedDigests(env);

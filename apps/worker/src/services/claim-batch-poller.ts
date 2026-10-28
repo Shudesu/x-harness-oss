@@ -1,3 +1,4 @@
+import { readExternalSource } from './external-source.js';
 import { getXAccountById } from '@x-harness/db';
 import type { Env } from '../index.js';
 import type { ClaimGate, ClaimPost } from './claim-types.js';
@@ -95,7 +96,7 @@ export async function pollAccountGates(
     let gates = (
       await db
         .prepare(
-          "SELECT * FROM engagement_gates g WHERE x_account_id=? AND gate_mode='line_first' AND tier!='simple' AND gate_state='active' AND is_active=1 AND archived_at IS NULL AND EXISTS(SELECT 1 FROM claim_codes cc WHERE cc.gate_id=g.id AND cc.status IN ('awaiting_reply','provisional','matched')) ORDER BY id",
+          "SELECT * FROM engagement_gates g WHERE x_account_id=? AND NOT EXISTS(SELECT 1 FROM gate_external_sources es WHERE es.gate_id=g.id AND es.enabled=1) AND gate_mode='line_first' AND tier!='simple' AND gate_state='active' AND is_active=1 AND archived_at IS NULL AND EXISTS(SELECT 1 FROM claim_codes cc WHERE cc.gate_id=g.id AND cc.status IN ('awaiting_reply','provisional','matched')) ORDER BY id",
         )
         .bind(accountId)
         .all<ClaimGate>()
@@ -222,6 +223,7 @@ export async function pollAccountGates(
     const routed = routeBatchPosts(gates, page.data ?? []);
     for (const gate of gates.filter((g) => query.gateIds.includes(g.id))) {
       const matched = await withGateLock(db, gate.id, async () => {
+        if((await readExternalSource(db,gate.id))?.enabled)return true;
         await matchClaimPosts(db, gate, routed.get(gate.id) ?? [], page.includes?.users ?? [], now);
         return true;
       });

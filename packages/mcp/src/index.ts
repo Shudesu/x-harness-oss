@@ -8,7 +8,7 @@ import { postToolDefs } from './tools/posts.js';
 import { engagementToolDefs } from './tools/engagement.js';
 import { userToolDefs } from './tools/users.js';
 import { dmToolDefs } from './tools/dm.js';
-import { gateToolDefs } from './tools/gates.js';
+import { gateToolDefs, externalSourceToolDefs } from './tools/gates.js';
 import { stepToolDefs } from './tools/steps.js';
 import { analyticsToolDefs } from './tools/analytics.js';
 import { staffToolDefs } from './tools/staff.js';
@@ -33,6 +33,7 @@ const allTools = [
   ...userToolDefs,
   ...dmToolDefs,
   ...gateToolDefs,
+  ...externalSourceToolDefs,
   ...stepToolDefs,
   ...analyticsToolDefs,
   ...staffToolDefs,
@@ -175,6 +176,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ...(a.expiresAfterHours !== undefined ? { expiresAfterHours: a.expiresAfterHours } : {}),
         });
         break;
+      case 'external_gate_sources':
+        result=await client.get('/api/integrations/agent-source/gates');break;
+      case 'external_gate_scan_start':
+        if(!/^[a-zA-Z0-9_-]{1,128}$/.test(a.gateId??''))throw new Error('invalid_gate');
+        result=await client.post(`/api/integrations/agent-source/${a.gateId}/scan`,{});break;
+      case 'external_gate_page_import': {
+        if(!/^[a-zA-Z0-9_-]{1,128}$/.test(a.gateId??''))throw new Error('invalid_gate');
+        const {gateId,...page}=a;result=await client.post(`/api/integrations/agent-source/${gateId}/page`,page);break;
+      }
       case 'list_engagement_gates':
         result = await client.get('/api/engagement-gates');
         break;

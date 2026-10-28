@@ -1,3 +1,4 @@
+import { readExternalSource } from '../services/external-source.js';
 import { pollAccountGates } from '../services/claim-batch-poller.js';
 import type { Env } from '../index.js';
 import { pollClaimGate } from '../services/claim-poller.js';
@@ -12,7 +13,7 @@ export class GateClaimCoordinator {
       .catch(() => {})
       .then(async () => {
         if (
-          !xAccountId &&
+          !xAccountId && !(await readExternalSource(this.env.DB,gateId))?.enabled &&
           (
             await this.env.DB.prepare(
               "SELECT value FROM settings WHERE key='claim_batch_search'",
