@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@clack/prompts": "^0.9.1",
+    "@clack/prompts": "^1.8.1",
     "execa": "^9.5.2",
     "picocolors": "^1.1.1"
   },
