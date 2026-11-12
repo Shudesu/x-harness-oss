@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { Badge } from '@cloudflare/kumo/components/badge'
 import { Surface } from '@cloudflare/kumo/components/surface'
 
 export interface HarnessPageHeaderProps {
@@ -10,40 +9,19 @@ export interface HarnessPageHeaderProps {
   action?: ReactNode
 }
 
-const PRODUCT_BRANDS: Record<string, { label: string; color: string }> = {
-  LINE: { label: 'LINE HARNESS', color: '#06c755' },
-  X: { label: 'X HARNESS', color: '#0f1419' },
-  INSTAGRAM: { label: 'INSTAGRAM HARNESS', color: '#e1306c' },
-}
-
 export function HarnessPageHeader({
   title,
   description,
-  product,
   action,
 }: HarnessPageHeaderProps) {
-  const brand = PRODUCT_BRANDS[product?.toUpperCase() ?? '']
-
+  // Plain, quiet page title. Product branding lives once in the sidebar.
   return (
-    <div className="mb-6">
-      <div className="mb-2 flex items-center gap-2">
-        <span
-          className="h-2 w-2 rounded-full"
-          style={{ backgroundColor: brand?.color ?? '#667085' }}
-          aria-hidden="true"
-        />
-        <span className="text-[10px] font-bold tracking-[0.18em]" style={{ color: brand?.color ?? '#667085' }}>
-          {brand?.label ?? 'HARNESS'}
-        </span>
-        {product ? <Badge variant="neutral">{product}</Badge> : null}
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-kumo-line pb-5">
+      <div className="min-w-0">
+        <h1 className="text-xl font-bold tracking-tight text-kumo-default sm:text-2xl">{title}</h1>
+        {description ? <p className="mt-1 text-sm text-kumo-subtle">{description}</p> : null}
       </div>
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">{title}</h1>
-          {description ? <p className="mt-1 text-sm text-gray-500">{description}</p> : null}
-        </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
-      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   )
 }

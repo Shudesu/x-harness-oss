@@ -1,1420 +1,350 @@
 'use client'
 import AiPanel from '@/components/ai-panel'
 
+// グロース画面: AIが毎朝用意する「投稿案」「記事」「ネタ候補」を確認して、
+// Xに出すものを決める場所。投稿案は「今日の案」を上に大きく出し、予定日を
+// 過ぎた古い案は「期限切れ」に折りたたむ（まとめてアーカイブ＝削除しない）。
 import { useState, useEffect, useCallback } from 'react'
 import { fetchApi } from '@/lib/api'
 import type { ApiResponse } from '@/lib/api'
 import Header from '@/components/layout/header'
-
-// ─── Types ───
-
-interface ArticleDraft {
-  id: string
-  x_account_id: string
-  title: string
-  body_md: string
-  image_url: string | null
-  theme: string | null
-  source_tweet_ids: string | null
-  status: string
-  published_article_id: string | null
-  created_at: string
-  updated_at: string
-}
-
-interface SourceCandidate {
-  id: string
-  source_tweet_id: string
-  author: string
-  author_url: string | null
-  text_en: string
-  text_ja: string | null
-  summary_ja: string | null
-  suggested_quote_text: string | null
-  video_url: string | null
-  views: number | null
-  likes: number | null
-  theme: string | null
-  status: string
-}
-
-interface GrowthDraft {
-  id: string
-  x_account_id: string
-  type: 'quote_rt' | 'progress' | 'opinion' | 'reply'
-  text: string
-  quote_tweet_id: string | null
-  scheduled_at: string
-  status: 'pending' | 'scheduled' | 'rejected'
-  scheduled_post_id: string | null
-  postStatus: string | null
-  postedTweetId: string | null
-  created_at: string
-  updated_at: string
-}
-
-interface DigestPayload {
-  date: string
-  bench_new: number
-  my_updated: number
-  news_new: number
-  est_cost_usd: number
-  budget_stopped: boolean
-  bench_top: Array<{ author: string; text: string; impressions: number }>
-  commits: Record<string, string[]>
-  weekly_report?: string
-}
-
-interface Digest {
-  date: string
-  payload: DigestPayload
-}
-
-// ─── Helpers ───
-
-/**
- * Convert ISO+09:00 string → datetime-local value (naive local, i.e. JST)
- * datetime-local format: "YYYY-MM-DDTHH:MM"
- */
-function isoToDatetimeLocal(iso: string): string {
-  // Parse the timestamp; if it has +09:00 offset info just strip to get local
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return ''
-  // Format as JST: add 9h offset from UTC
-  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const yyyy = jst.getUTCFullYear()
-  const mm = pad(jst.getUTCMonth() + 1)
-  const dd = pad(jst.getUTCDate())
-  const hh = pad(jst.getUTCHours())
-  const min = pad(jst.getUTCMinutes())
-  return `${yyyy}-${mm}-${dd}T${hh}:${min}`
-}
-
-/**
- * Convert datetime-local value (naive JST) → ISO+09:00 string
- */
-function datetimeLocalToIso(value: string): string {
-  if (!value) return ''
-  // value = "YYYY-MM-DDTHH:MM"
-  return `${value}:00+09:00`
-}
-
-const TYPE_BADGE: Record<GrowthDraft['type'], { label: string; className: string }> = {
-  quote_rt:  { label: '引用RT',    className: 'bg-blue-50 text-blue-700 border border-blue-200' },
-  progress:  { label: '進捗',      className: 'bg-green-50 text-green-700 border border-green-200' },
-  opinion:   { label: '意見',      className: 'bg-purple-50 text-purple-700 border border-purple-200' },
-  reply:     { label: 'リプライ',  className: 'bg-orange-50 text-orange-700 border border-orange-200' },
-}
-
-function TypeBadge({ type }: { type: GrowthDraft['type'] }) {
-  const badge = TYPE_BADGE[type] ?? { label: type, className: 'bg-gray-100 text-gray-600' }
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${badge.className}`}>
-      {badge.label}
-    </span>
-  )
-}
-
-// ─── Pending Draft Card ───
-
-// A /video/1 URL in the draft text is the embedded-video contract: X expands
-// the referenced post's video inline when the tweet is published. Extract the
-// post id so the card can badge it and render a playable preview.
-function extractVideoTweetId(text: string): string | null {
-  const m = text.match(/https:\/\/(?:x|twitter)\.com\/[A-Za-z0-9_]+\/status\/(\d+)\/video\/1/)
-  return m ? m[1] : null
-}
-
-function DraftCard({
-  draft,
-  onApprove,
-  onReject,
-  onSaved,
-}: {
-  draft: GrowthDraft
-  onApprove: (id: string) => Promise<void>
-  onReject: (id: string) => Promise<void>
-  onSaved: (id: string, text: string, scheduledAt: string) => Promise<void>
-}) {
-  const [text, setText] = useState(draft.text)
-  const [scheduledAt, setScheduledAt] = useState(isoToDatetimeLocal(draft.scheduled_at))
-  const [saving, setSaving] = useState(false)
-  const [approving, setApproving] = useState(false)
-  const [rejecting, setRejecting] = useState(false)
-  const [saveMsg, setSaveMsg] = useState('')
-  const [showVideo, setShowVideo] = useState(false)
-
-  const videoTweetId = extractVideoTweetId(text)
-  const isDirty = text !== draft.text || scheduledAt !== isoToDatetimeLocal(draft.scheduled_at)
-
-  const handleSave = async () => {
-    setSaving(true)
-    setSaveMsg('')
-    try {
-      await onSaved(draft.id, text, datetimeLocalToIso(scheduledAt))
-      setSaveMsg('保存しました')
-      setTimeout(() => setSaveMsg(''), 2000)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleApprove = async () => {
-    setApproving(true)
-    try { await onApprove(draft.id) } finally { setApproving(false) }
-  }
-
-  const handleReject = async () => {
-    setRejecting(true)
-    try { await onReject(draft.id) } finally { setRejecting(false) }
-  }
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <TypeBadge type={draft.type} />
-          {draft.type === 'quote_rt' && (
-            videoTweetId ? (
-              <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
-                🎬 動画あり
-              </span>
-            ) : (
-              <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-red-50 text-red-600 border border-red-200">
-                動画なし
-              </span>
-            )
-          )}
-          <span className="text-xs text-gray-400">{draft.x_account_id}</span>
-          {draft.quote_tweet_id && (
-            <a
-              href={`https://x.com/i/status/${draft.quote_tweet_id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-blue-500 hover:underline"
-            >
-              元ツイート →
-            </a>
-          )}
-        </div>
-        <span className="text-xs text-gray-400 shrink-0">
-          {new Date(draft.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
-        </span>
-      </div>
-
-      {/* Text editor */}
-      <div>
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={5}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <p className="mt-1 text-xs text-gray-400 text-right">{text.length} 文字</p>
-      </div>
-
-      {/* Embedded video preview — the official X embed iframe is the only
-          reliable player (direct twimg mp4 URLs 403). Lazy: load on click. */}
-      {videoTweetId && (
-        showVideo ? (
-          <iframe
-            src={`https://platform.twitter.com/embed/Tweet.html?id=${videoTweetId}&theme=light&hideCard=false&hideThread=true`}
-            className="w-full h-96 rounded-lg border border-gray-200"
-            allow="autoplay; encrypted-media"
-          />
-        ) : (
-          <button
-            onClick={() => setShowVideo(true)}
-            className="w-full py-2.5 rounded-lg border border-purple-200 bg-purple-50 text-sm font-medium text-purple-700 hover:bg-purple-100 transition-colors"
-          >
-            🎬 埋め込み動画をプレビュー(目視確認)
-          </button>
-        )
-      )}
-
-      {/* Scheduled at */}
-      <div className="flex items-center gap-3">
-        <label className="text-sm font-medium text-gray-700 shrink-0">予約日時 (JST)</label>
-        <input
-          type="datetime-local"
-          value={scheduledAt}
-          onChange={(e) => setScheduledAt(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
-
-      {/* Action row */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleSave}
-            disabled={!isDirty || saving}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors"
-          >
-            {saving ? '保存中…' : '保存'}
-          </button>
-          {saveMsg && <span className="text-xs text-green-600">{saveMsg}</span>}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleReject}
-            disabled={rejecting || approving}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-red-600 border border-red-200 hover:bg-red-50 disabled:opacity-40 transition-colors"
-          >
-            {rejecting ? '却下中…' : '却下'}
-          </button>
-          <button
-            onClick={handleApprove}
-            disabled={approving || rejecting}
-            className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
-            style={{ backgroundColor: '#1D9BF0' }}
-          >
-            {approving ? '承認中…' : '承認'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Processed Draft Row ───
-
-function ProcessedRow({ draft }: { draft: GrowthDraft }) {
-  const isPosted = draft.postStatus === 'posted'
-  return (
-    <div className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0 opacity-60">
-      <TypeBadge type={draft.type} />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-600 truncate">{draft.text}</p>
-        <p className="text-xs text-gray-400 mt-0.5">
-          {draft.status === 'rejected' ? '却下' : '予約済み'}
-          {' · '}
-          {new Date(draft.scheduled_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
-        </p>
-      </div>
-      <div className="shrink-0">
-        {isPosted && draft.postedTweetId ? (
-          <a
-            href={`https://x.com/i/status/${draft.postedTweetId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs font-medium text-blue-500 hover:underline"
-          >
-            投稿済み →
-          </a>
-        ) : (
-          <span className={`text-xs font-medium ${draft.status === 'rejected' ? 'text-red-400' : 'text-gray-400'}`}>
-            {draft.status === 'rejected' ? '却下' : draft.postStatus ?? '待機中'}
-          </span>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─── Source Candidate Card ───
-
-function SourceCard({
-  candidate,
-  xAccountId,
-  onToDraft,
-  onDismiss,
-}: {
-  candidate: SourceCandidate
-  xAccountId: string
-  onToDraft: (id: string, text: string, scheduledAt: string) => Promise<void>
-  onDismiss: (id: string) => Promise<void>
-}) {
-  const defaultSchedule = (() => {
-    const d = new Date()
-    d.setDate(d.getDate() + 1)
-    d.setHours(9, 0, 0, 0)
-    const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${jst.getUTCFullYear()}-${pad(jst.getUTCMonth() + 1)}-${pad(jst.getUTCDate())}T${pad(jst.getUTCHours())}:${pad(jst.getUTCMinutes())}`
-  })()
-
-  const [quoteText, setQuoteText] = useState(candidate.suggested_quote_text ?? '')
-  const [scheduledAt, setScheduledAt] = useState(defaultSchedule)
-  const [submitting, setSubmitting] = useState(false)
-  const [dismissing, setDismissing] = useState(false)
-
-  const handleToDraft = async () => {
-    setSubmitting(true)
-    try {
-      await onToDraft(candidate.id, quoteText, datetimeLocalToIso(scheduledAt))
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleDismiss = async () => {
-    setDismissing(true)
-    try {
-      await onDismiss(candidate.id)
-    } finally {
-      setDismissing(false)
-    }
-  }
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3 max-w-xl">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2 flex-wrap">
-          {candidate.author_url ? (
-            <a
-              href={candidate.author_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm font-semibold text-gray-800 hover:underline"
-            >
-              @{candidate.author}
-            </a>
-          ) : (
-            <span className="text-sm font-semibold text-gray-800">@{candidate.author}</span>
-          )}
-          {candidate.theme && (
-            <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-              {candidate.theme}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-3 text-[11px] text-gray-400">
-          {candidate.views != null && (
-            <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 font-medium">
-              👁 {candidate.views.toLocaleString()}
-            </span>
-          )}
-          {candidate.likes != null && (
-            <span className="px-2 py-0.5 rounded bg-pink-50 text-pink-600 font-medium border border-pink-200">
-              ♥ {candidate.likes.toLocaleString()}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* X-hosted embed — twimg direct mp4 is hotlink-protected (403). The official
-          embed iframe renders the tweet with a working video player. */}
-      <iframe
-        src={`https://platform.twitter.com/embed/Tweet.html?id=${candidate.source_tweet_id}&theme=light&hideCard=false&hideThread=true`}
-        className="w-full rounded-lg border border-gray-100"
-        style={{ height: 420 }}
-        loading="lazy"
-        title={`tweet-${candidate.source_tweet_id}`}
-      />
-      <a
-        href={`https://x.com/i/status/${candidate.source_tweet_id}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-block text-xs font-medium text-blue-500 hover:underline"
-      >
-        ▶ X で元投稿を見る →
-      </a>
-
-      {/* Japanese content */}
-      {candidate.text_ja && (
-        <p className="text-sm text-gray-700 leading-relaxed">{candidate.text_ja}</p>
-      )}
-      {candidate.summary_ja && (
-        <p className="text-xs text-gray-500 leading-relaxed border-l-2 border-gray-200 pl-3">{candidate.summary_ja}</p>
-      )}
-
-      {/* English original (collapsible) */}
-      <details className="text-xs text-gray-400">
-        <summary className="cursor-pointer select-none hover:text-gray-600">英語原文</summary>
-        <p className="mt-2 leading-relaxed whitespace-pre-wrap pl-2">{candidate.text_en}</p>
-      </details>
-
-      {/* Quote text editor */}
-      <div>
-        <label className="block text-xs font-semibold text-gray-500 mb-1">引用RT テキスト</label>
-        <textarea
-          value={quoteText}
-          onChange={(e) => setQuoteText(e.target.value)}
-          rows={4}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <p className="mt-1 text-xs text-gray-400 text-right">{quoteText.length} 文字</p>
-      </div>
-
-      {/* Scheduled at */}
-      <div className="flex items-center gap-3">
-        <label className="text-sm font-medium text-gray-700 shrink-0">予約日時 (JST)</label>
-        <input
-          type="datetime-local"
-          value={scheduledAt}
-          onChange={(e) => setScheduledAt(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center justify-end gap-2">
-        <button
-          onClick={handleDismiss}
-          disabled={dismissing || submitting}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-red-600 border border-red-200 hover:bg-red-50 disabled:opacity-40 transition-colors"
-        >
-          {dismissing ? '却下中…' : '却下'}
-        </button>
-        <button
-          onClick={handleToDraft}
-          disabled={submitting || dismissing || !quoteText.trim()}
-          className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
-          style={{ backgroundColor: '#1D9BF0' }}
-        >
-          {submitting ? '作成中…' : '引用RT下書きにする'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ─── Article Card ───
-
-// Minimal, dependency-free markdown preview — renders inline images, headings, lists.
-function Inline({ text }: { text: string }) {
-  // **bold** / `code` / 裸URL をインライン装飾する
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|https?:\/\/[^\s)]+)/g)
-  return (
-    <>
-      {parts.map((p, i) => {
-        if (p.startsWith('**') && p.endsWith('**'))
-          return <strong key={i} className="font-bold text-gray-900">{p.slice(2, -2)}</strong>
-        if (p.startsWith('`') && p.endsWith('`'))
-          return <code key={i} className="px-1 py-0.5 rounded bg-gray-100 text-[0.85em] font-mono text-pink-600">{p.slice(1, -1)}</code>
-        if (/^https?:\/\//.test(p))
-          return <a key={i} href={p} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">{p}</a>
-        return p
-      })}
-    </>
-  )
-}
-
-function MarkdownPreview({ md }: { md: string }) {
-  const blocks = md.split(/\n{2,}/)
-  return (
-    <div className="space-y-4 text-[15px] text-gray-800 leading-[1.9]">
-      {blocks.map((b, i) => {
-        const img = b.trim().match(/^!\[([^\]]*)\]\(([^)]+)\)(?:\n\*(.+)\*)?$/)
-        if (img)
-          return (
-            <figure key={i} className="my-5">
-              <img
-                src={img[2]}
-                alt={img[1]}
-                loading="lazy"
-                className="max-h-72 w-auto max-w-full mx-auto rounded-xl border border-gray-100 shadow-sm"
-              />
-              {(img[3] || img[1]) && (
-                <figcaption className="mt-1.5 text-xs text-gray-400 text-center">{img[3] || img[1]}</figcaption>
-              )}
-            </figure>
-          )
-        if (b.startsWith('### ')) return <h4 key={i} className="text-[15px] font-bold text-gray-900 pt-2"><Inline text={b.slice(4)} /></h4>
-        if (b.startsWith('## ')) return <h3 key={i} className="text-base font-bold text-gray-900 pt-3"><Inline text={b.slice(3)} /></h3>
-        if (b.startsWith('# ')) return <h2 key={i} className="text-xl font-bold text-gray-900 pt-4 border-b border-gray-100 pb-2"><Inline text={b.slice(2)} /></h2>
-        if (b.trimStart().startsWith('>'))
-          return (
-            <blockquote key={i} className="border-l-4 border-blue-200 bg-blue-50/40 rounded-r-lg pl-4 pr-3 py-2.5 text-[13px] text-gray-600 whitespace-pre-wrap font-mono leading-relaxed">
-              <Inline text={b.replace(/^> ?/gm, '')} />
-            </blockquote>
-          )
-        const lines = b.split('\n')
-        if (lines.length > 0 && lines.every((l) => /^\s*- /.test(l)))
-          return (
-            <ul key={i} className="list-disc pl-5 space-y-1.5">
-              {lines.map((l, j) => <li key={j}><Inline text={l.replace(/^\s*- /, '')} /></li>)}
-            </ul>
-          )
-        if (lines.length > 0 && lines.every((l) => /^\s*\d+\. /.test(l)))
-          return (
-            <ol key={i} className="list-decimal pl-5 space-y-1.5">
-              {lines.map((l, j) => <li key={j}><Inline text={l.replace(/^\s*\d+\. /, '')} /></li>)}
-            </ol>
-          )
-        if (b.trimStart().startsWith('■')) return <p key={i} className="font-bold text-gray-900">{b.replace(/\*\*/g, '')}</p>
-        return <p key={i} className="whitespace-pre-wrap"><Inline text={b} /></p>
-      })}
-    </div>
-  )
-}
-
-function ArticleCard({
-  article,
-  onSaved,
-  onDiscard,
-  onPublish,
-}: {
-  article: ArticleDraft
-  onSaved: (id: string, title: string, bodyMd: string) => Promise<void>
-  onDiscard: (id: string) => Promise<void>
-  onPublish: (id: string) => Promise<void>
-}) {
-  const [title, setTitle] = useState(article.title)
-  const [bodyMd, setBodyMd] = useState(article.body_md)
-  const [saving, setSaving] = useState(false)
-  const [discarding, setDiscarding] = useState(false)
-  const [publishing, setPublishing] = useState(false)
-  const [saveMsg, setSaveMsg] = useState('')
-  const [actionError, setActionError] = useState('')
-  const [expanded, setExpanded] = useState(false)
-  // 開いたときはSNS記事風プレビューを見せる。編集はトグルで切替
-  const [mode, setMode] = useState<'preview' | 'edit'>('preview')
-
-  const isDirty = title !== article.title || bodyMd !== article.body_md
-
-  const sourceTweetCount = (() => {
-    if (!article.source_tweet_ids) return null
-    try {
-      const parsed = JSON.parse(article.source_tweet_ids)
-      return Array.isArray(parsed) ? parsed.length : null
-    } catch {
-      return null
-    }
-  })()
-
-  const handleSave = async () => {
-    setSaving(true)
-    setSaveMsg('')
-    setActionError('')
-    try {
-      await onSaved(article.id, title, bodyMd)
-      setSaveMsg('保存しました')
-      setTimeout(() => setSaveMsg(''), 2000)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDiscard = async () => {
-    setDiscarding(true)
-    try { await onDiscard(article.id) } finally { setDiscarding(false) }
-  }
-
-  const handlePublish = async () => {
-    if (!confirm(`「${title || article.title}」をXで公開します。よろしいですか？`)) return
-    setPublishing(true)
-    setSaveMsg('')
-    setActionError('')
-    try {
-      // Publish exactly what is visible in the editor. Saving first also
-      // prevents an unsaved title/body from being silently ignored.
-      if (isDirty) await onSaved(article.id, title, bodyMd)
-      await onPublish(article.id)
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : '公開に失敗しました')
-    } finally {
-      setPublishing(false)
-    }
-  }
-
-  // Collapsed row — the drafts list gets long, so cards fold to one line
-  if (!expanded) {
-    return (
-      <button
-        onClick={() => setExpanded(true)}
-        className="w-full text-left bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
-      >
-        {article.image_url ? (
-          <img src={article.image_url} alt="" className="w-20 h-8 object-cover rounded border border-gray-100 shrink-0" />
-        ) : (
-          <div className="w-20 h-8 rounded border border-dashed border-gray-200 bg-gray-50 shrink-0" />
-        )}
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-gray-900 truncate">{title || article.title}</p>
-          <p className="text-[11px] text-gray-400 truncate">
-            {article.theme ? `${article.theme} ・ ` : ''}
-            {new Date(article.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
-          </p>
-        </div>
-        {isDirty && <span className="text-[11px] font-semibold text-amber-600 shrink-0">未保存</span>}
-        <span className="text-gray-400 shrink-0">▸</span>
-      </button>
-    )
-  }
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-            <button
-              onClick={() => setMode('preview')}
-              className={`px-3 py-1.5 text-xs font-semibold transition-colors ${mode === 'preview' ? 'bg-gray-900 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
-            >
-              プレビュー
-            </button>
-            <button
-              onClick={() => setMode('edit')}
-              className={`px-3 py-1.5 text-xs font-semibold transition-colors ${mode === 'edit' ? 'bg-gray-900 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
-            >
-              編集
-            </button>
-          </div>
-          {article.theme && (
-            <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-              {article.theme}
-            </span>
-          )}
-          {sourceTweetCount != null && (
-            <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-gray-100 text-gray-500">
-              元ネタ {sourceTweetCount} 件
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <span className="text-xs text-gray-400">
-            {new Date(article.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
-          </span>
-          <button
-            onClick={() => setExpanded(false)}
-            className="text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors"
-          >
-            ▾ たたむ
-          </button>
-        </div>
-      </div>
-
-      {mode === 'preview' ? (
-        /* ─ SNS記事風プレビュー: X の記事ページの見え方に寄せた読み物ビュー ─ */
-        <article className="max-w-xl mx-auto">
-          {article.image_url && (
-            <img
-              src={article.image_url}
-              alt="カバー画像"
-              className="w-full aspect-[5/2] object-cover rounded-xl border border-gray-100 shadow-sm"
-            />
-          )}
-          <h1 className="mt-4 text-xl font-bold text-gray-900 leading-snug">{title || article.title}</h1>
-          <p className="mt-1 mb-5 text-xs text-gray-400">
-            {bodyMd.length.toLocaleString()} 文字 ・ 画像 {(bodyMd.match(/!\[/g) || []).length} 枚
-          </p>
-          <MarkdownPreview md={bodyMd} />
-        </article>
-      ) : (
-        <>
-          {/* Title editor */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">タイトル</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm font-medium leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          {/* Body editor */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">本文 (Markdown)</label>
-            <textarea
-              value={bodyMd}
-              onChange={(e) => setBodyMd(e.target.value)}
-              rows={20}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm leading-relaxed font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="mt-1 text-xs text-gray-400 text-right">{bodyMd.length} 文字</p>
-          </div>
-        </>
-      )}
-
-      {/* Action row */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleSave}
-            disabled={!isDirty || saving}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors"
-          >
-            {saving ? '保存中…' : '保存'}
-          </button>
-          {saveMsg && <span className="text-xs text-green-600">{saveMsg}</span>}
-          {actionError && <span className="text-xs text-red-600">{actionError}</span>}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleDiscard}
-            disabled={discarding}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-red-600 border border-red-200 hover:bg-red-50 disabled:opacity-40 transition-colors"
-          >
-            {discarding ? '破棄中…' : '破棄'}
-          </button>
-          <button
-            onClick={handlePublish}
-            disabled={publishing || saving || discarding}
-            className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
-            style={{ backgroundColor: '#1D9BF0' }}
-          >
-            {publishing ? '公開中…' : '公開'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Digest Card ───
-
-function DigestCard({ digest }: { digest: Digest }) {
-  const p = digest.payload
-  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }) // YYYY-MM-DD
-  const digestDate = p.date
-  const diffDays = Math.floor(
-    (new Date(today).getTime() - new Date(digestDate).getTime()) / (1000 * 60 * 60 * 24)
-  )
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-bold text-gray-900">ダイジェスト</h2>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">{digestDate}</span>
-          {diffDays >= 2 && (
-            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-red-50 text-red-600 border border-red-200">
-              {diffDays}日前のデータ
-            </span>
-          )}
-          {diffDays === 1 && (
-            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-yellow-50 text-yellow-700 border border-yellow-200">
-              昨日のデータ
-            </span>
-          )}
-        </div>
-      </div>
-
-      {p.budget_stopped && (
-        <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-sm font-semibold text-red-700">
-          予算上限に達したため処理を停止しています
-        </div>
-      )}
-
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-gray-50 rounded-lg px-3 py-3 text-center">
-          <p className="text-[11px] text-gray-400 mb-1">推定コスト</p>
-          <p className="text-base font-bold text-gray-900">${p.est_cost_usd.toFixed(3)}</p>
-        </div>
-        <div className="bg-gray-50 rounded-lg px-3 py-3 text-center">
-          <p className="text-[11px] text-gray-400 mb-1">新規ベンチ</p>
-          <p className="text-base font-bold text-gray-900">{p.bench_new}</p>
-        </div>
-        <div className="bg-gray-50 rounded-lg px-3 py-3 text-center">
-          <p className="text-[11px] text-gray-400 mb-1">新規ニュース</p>
-          <p className="text-base font-bold text-gray-900">{p.news_new}</p>
-        </div>
-      </div>
-
-      {/* Bench top */}
-      {p.bench_top && p.bench_top.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold text-gray-500 mb-2">バズツイート上位</p>
-          <div className="space-y-2">
-            {p.bench_top.slice(0, 3).map((b, i) => (
-              <div key={i} className="border border-gray-100 rounded-lg px-3 py-2.5">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-semibold text-gray-700">@{b.author}</span>
-                  <span className="text-[11px] text-gray-400">{b.impressions.toLocaleString()} IMP</span>
-                </div>
-                <p className="text-xs text-gray-600 line-clamp-2">{b.text}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Commits */}
-      {p.commits && Object.keys(p.commits).length > 0 && (
-        <div>
-          <p className="text-xs font-semibold text-gray-500 mb-2">コミット</p>
-          <div className="space-y-2">
-            {Object.entries(p.commits).map(([repo, msgs]) => (
-              <div key={repo}>
-                <p className="text-[11px] font-semibold text-gray-400 mb-1">{repo}</p>
-                <ul className="space-y-0.5">
-                  {msgs.slice(0, 5).map((msg, i) => (
-                    <li key={i} className="text-xs text-gray-600 pl-2 border-l-2 border-gray-200">{msg}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Weekly report */}
-      {p.weekly_report && (
-        <div>
-          <p className="text-xs font-semibold text-gray-500 mb-2">週次レポート</p>
-          <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">{p.weekly_report}</p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Page ───
-
-// Published articles stay listed as compact rows — losing them from the UI
-// makes it impossible to tell what is already live on X.
-function PublishedArticleRow({ article }: { article: ArticleDraft }) {
-  return (
-    <div className="flex items-center gap-3 py-2.5">
-      {article.image_url ? (
-        <img src={article.image_url} alt="" className="w-20 h-8 object-cover rounded border border-gray-100 shrink-0" />
-      ) : (
-        <div className="w-20 h-8 rounded border border-dashed border-gray-200 bg-gray-50 shrink-0" />
-      )}
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-gray-900 truncate">{article.title}</p>
-        <p className="text-[11px] text-gray-400 truncate">
-          {article.theme ? `${article.theme} ・ ` : ''}
-          {new Date(article.updated_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
-        </p>
-      </div>
-      <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-green-50 text-green-700 border border-green-200 shrink-0">
-        公開済み
-      </span>
-      {article.published_article_id && (
-        <a
-          href={`https://x.com/i/status/${article.published_article_id}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs text-blue-600 hover:underline shrink-0"
-        >
-          Xで見る ↗
-        </a>
-      )}
-    </div>
-  )
-}
-
-// 枝葉タブ: ピラー記事(公開済み)ごとに、それを引用する動画付きドラフトを
-// まとめて見る。生成は自動 — discovery(毎朝05:30)が海外動画を発見・文字起こし
-// し、planner(07:30)の LLM がピラーとの紐付け・文面を判断してここに溜まる。
-function EdahaView({
-  pillars,
-  drafts,
-  onApprove,
-  onReject,
-  onSaved,
-}: {
-  pillars: ArticleDraft[]
-  drafts: GrowthDraft[]
-  onApprove: (id: string) => Promise<void>
-  onReject: (id: string) => Promise<void>
-  onSaved: (id: string, text: string, scheduledAt: string) => Promise<void>
-}) {
-  const byPillar = new Map<string, GrowthDraft[]>()
-  for (const d of drafts) {
-    if (!d.quote_tweet_id) continue
-    const list = byPillar.get(d.quote_tweet_id) ?? []
-    list.push(d)
-    byPillar.set(d.quote_tweet_id, list)
-  }
-  const knownPillarIds = new Set(pillars.map((p) => p.published_article_id).filter(Boolean) as string[])
-  const orphanIds = [...byPillar.keys()].filter((id) => !knownPillarIds.has(id))
-
-  if (drafts.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border border-gray-200 py-14 px-6 text-center space-y-2">
-        <p className="text-sm text-gray-500 font-medium">枝葉ドラフトはまだありません</p>
-        <p className="text-xs text-gray-400 leading-relaxed">
-          毎朝 05:30 に discovery が海外の動画バズを発見・文字起こしし、07:30 に planner の LLM が
-          「どのピラー記事に紐付けるか・どんな文面にするか」を自動判断してここに溜まります。
-          承認するとピラー記事の引用RT(動画URL付き)として予約されます。
-        </p>
-      </div>
-    )
-  }
-
-  const renderDraft = (d: GrowthDraft) =>
-    d.status === 'pending' ? (
-      <DraftCard key={d.id} draft={d} onApprove={onApprove} onReject={onReject} onSaved={onSaved} />
-    ) : (
-      <div key={d.id} className="bg-white rounded-xl border border-gray-200 px-4 py-2.5 flex items-center gap-3">
-        <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
-          予約済み
-        </span>
-        {extractVideoTweetId(d.text) && (
-          <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
-            🎬
-          </span>
-        )}
-        <p className="text-sm text-gray-700 truncate flex-1">{d.text}</p>
-        {d.scheduled_at && (
-          <span className="text-[11px] text-gray-400 shrink-0">
-            {new Date(d.scheduled_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
-          </span>
-        )}
-      </div>
-    )
-
-  return (
-    <div className="space-y-6">
-      {pillars.filter((p) => p.published_article_id).map((pillar) => {
-        const list = byPillar.get(pillar.published_article_id as string) ?? []
-        return (
-          <div key={pillar.id} className="space-y-3">
-            <div className="flex items-center gap-3">
-              {pillar.image_url && (
-                <img src={pillar.image_url} alt="" className="w-16 h-7 object-cover rounded border border-gray-100 shrink-0" />
-              )}
-              <a
-                href={`https://x.com/i/status/${pillar.published_article_id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm font-semibold text-gray-900 hover:text-blue-600 truncate"
-              >
-                {pillar.title}
-              </a>
-              <span className="text-[11px] text-gray-400 shrink-0">
-                枝葉 {list.length} 本(承認待ち {list.filter((d) => d.status === 'pending').length})
-              </span>
-            </div>
-            {list.length === 0 ? (
-              <p className="text-xs text-gray-400 pl-1">このピラーへの枝葉はまだありません</p>
-            ) : (
-              <div className="space-y-3">{list.map(renderDraft)}</div>
-            )}
-          </div>
-        )
-      })}
-      {orphanIds.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-sm font-semibold text-gray-500">その他の引用先</p>
-          {orphanIds.flatMap((id) => (byPillar.get(id) ?? []).map(renderDraft))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-type Tab = 'pending' | 'discovery' | 'processed' | 'articles' | 'edaha'
+import { Tabs } from '@cloudflare/kumo/components/tabs'
+import { Surface } from '@cloudflare/kumo/components/surface'
+import { ProcessedRow, EdahaView } from '@/components/growth/draft-cards'
+import { QueueCard } from '@/components/growth/queue-card'
+import { ExpiredSection, ArchivedNote } from '@/components/growth/expired-section'
+import { SourceCard } from '@/components/growth/source-card'
+import { ArticlesPanel, articleStage, type ArticleActions } from '@/components/growth/articles-panel'
+import type { ArticleDraft, GrowthDraft, SourceCandidate } from '@/components/growth/shared'
+import { bucketDrafts, jstDate, jstDayStartIso } from '@/lib/approval-queue'
+
+type Tab = 'posts' | 'articles' | 'sources' | 'edaha' | 'processed'
+const TABS: Tab[] = ['posts', 'articles', 'sources', 'edaha', 'processed']
 
 // Derive xAccountId from pending drafts (first one wins) or fall back to env.
 function deriveXAccountId(pending: GrowthDraft[]): string {
   return pending[0]?.x_account_id ?? process.env.NEXT_PUBLIC_X_ACCOUNT_ID ?? ''
 }
 
+function Empty({ children }: { children: React.ReactNode }) {
+  return <Surface className="rounded-xl px-6 py-14 text-center text-sm leading-7 text-kumo-subtle">{children}</Surface>
+}
+
+function Skeleton({ h = 'h-48', n = 3 }: { h?: string; n?: number }) {
+  return <div className="space-y-4">{[...Array(n)].map((_, i) => <div key={i} className={`${h} animate-pulse rounded-xl bg-kumo-tint`} />)}</div>
+}
+
+function StepCard({ n, title, count, unit, hint, active, onClick }: { n: number; title: string; count: number | null; unit: string; hint: string; active: boolean; onClick: () => void }) {
+  return <button type="button" onClick={onClick} aria-pressed={active}
+    className={`group flex min-w-0 flex-col gap-1 rounded-xl border p-3 text-left sm:p-4 transition-colors focus-visible:outline focus-visible:outline-2 ${active ? 'border-kumo-brand bg-kumo-tint' : 'border-kumo-line bg-kumo-base hover:bg-kumo-tint'}`}>
+    <span className="text-[11px] font-medium leading-4 text-kumo-subtle sm:text-xs">{n}. {title}</span>
+    <span className="text-xl font-bold tabular-nums text-kumo-default sm:text-2xl">{count ?? '–'}<span className="ml-1 text-sm font-medium text-kumo-subtle">{unit}</span></span>
+    <span className="hidden text-xs leading-5 text-kumo-subtle sm:block">{hint}</span>
+  </button>
+}
+
 export default function GrowthPage() {
-  const [tab, setTab] = useState<Tab>('pending')
+  const [tab, setTabState] = useState<Tab>('posts')
+  const [initialArticleId, setInitialArticleId] = useState<string | null>(null)
   const [pending, setPending] = useState<GrowthDraft[]>([])
+  const [scheduled, setScheduled] = useState<GrowthDraft[]>([])
   const [processed, setProcessed] = useState<GrowthDraft[]>([])
-  const [sources, setSources] = useState<SourceCandidate[]>([])
+  const [sources, setSources] = useState<SourceCandidate[] | null>(null)
   const [articles, setArticles] = useState<ArticleDraft[]>([])
-  const [publishedArticles, setPublishedArticles] = useState<ArticleDraft[]>([])
-  const [edahaDrafts, setEdahaDrafts] = useState<GrowthDraft[]>([])
-  const [edahaLoading, setEdahaLoading] = useState(false)
-  const [digest, setDigest] = useState<Digest | null>(null)
+  const [articlesLoaded, setArticlesLoaded] = useState(false)
+  const [archivedCount, setArchivedCount] = useState(0)
+  // 「今日」の基準。1分ごとに進め、日付をまたいだら並びも変わる。
+  const [now, setNow] = useState(() => new Date())
   const [loading, setLoading] = useState(true)
-  const [sourcesLoading, setSourcesLoading] = useState(false)
-  const [articlesLoading, setArticlesLoading] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
 
+  // ?tab=articles&article=<id> deep-links straight into an article.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const t = q.get('tab') as Tab | null
+    if (t && TABS.includes(t)) setTabState(t)
+    setInitialArticleId(q.get('article'))
+  }, [])
+  const setTab = (t: Tab) => {
+    setTabState(t)
+    const url = new URL(window.location.href)
+    url.searchParams.set('tab', t)
+    url.searchParams.delete('article')
+    window.history.replaceState(null, '', url)
+  }
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(t)
+  }, [])
+
   const showToast = (msg: string) => {
     setToast(msg)
-    setTimeout(() => setToast(''), 3000)
+    setTimeout(() => setToast(''), 3500)
   }
 
   const loadDrafts = useCallback(async () => {
-    setError('')
     try {
-      const [pendingRes, scheduledRes, rejectedRes] = await Promise.all([
+      const [pendingRes, scheduledRes, rejectedRes, archivedRes] = await Promise.all([
         fetchApi<ApiResponse<GrowthDraft[]>>('/api/growth/drafts?status=pending'),
         fetchApi<ApiResponse<GrowthDraft[]>>('/api/growth/drafts?status=scheduled'),
         fetchApi<ApiResponse<GrowthDraft[]>>('/api/growth/drafts?status=rejected'),
+        // 件数だけ使う。古い Worker では空配列が返る。
+        fetchApi<ApiResponse<GrowthDraft[]>>('/api/growth/drafts?status=archived').catch(() => null),
       ])
       setPending(pendingRes.data ?? [])
-      const done = [...(scheduledRes.data ?? []), ...(rejectedRes.data ?? [])]
+      setArchivedCount(archivedRes?.data?.length ?? 0)
+      setScheduled(scheduledRes.data ?? [])
+      setProcessed([...(scheduledRes.data ?? []), ...(rejectedRes.data ?? [])]
         .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
-        .slice(0, 10)
-      setProcessed(done)
+        .slice(0, 30))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'データの取得に失敗しました')
+      setError(err instanceof Error ? err.message : '投稿案の取得に失敗しました')
     }
   }, [])
 
   const loadSources = useCallback(async () => {
-    setSourcesLoading(true)
     try {
       const res = await fetchApi<ApiResponse<SourceCandidate[]>>('/api/growth/sources?status=new')
       setSources(res.data ?? [])
     } catch (err) {
-      setError(err instanceof Error ? err.message : '海外ネタの取得に失敗しました')
-    } finally {
-      setSourcesLoading(false)
+      setSources([])
+      setError(err instanceof Error ? err.message : 'ソース候補の取得に失敗しました')
     }
   }, [])
 
   const loadArticles = useCallback(async () => {
-    setArticlesLoading(true)
     try {
-      // Published articles must stay visible — they carry the X link and are
-      // the pillars the 枝葉 tab groups by.
       const [draftRes, publishedRes] = await Promise.all([
         fetchApi<ApiResponse<ArticleDraft[]>>('/api/growth/articles?status=draft'),
         fetchApi<ApiResponse<ArticleDraft[]>>('/api/growth/articles?status=published'),
       ])
-      setArticles(draftRes.data ?? [])
-      setPublishedArticles(publishedRes.data ?? [])
+      setArticles([...(draftRes.data ?? []), ...(publishedRes.data ?? [])])
     } catch (err) {
       setError(err instanceof Error ? err.message : '記事の取得に失敗しました')
     } finally {
-      setArticlesLoading(false)
-    }
-  }, [])
-
-  // 枝葉 = ピラー記事への引用RT(動画付き)ドラフト。pending + scheduled を
-  // まとめて取り、quote_tweet_id でピラーごとにグルーピングして表示する。
-  const loadEdaha = useCallback(async () => {
-    setEdahaLoading(true)
-    try {
-      const [pendingRes, scheduledRes] = await Promise.all([
-        fetchApi<ApiResponse<GrowthDraft[]>>('/api/growth/drafts?status=pending'),
-        fetchApi<ApiResponse<GrowthDraft[]>>('/api/growth/drafts?status=scheduled'),
-      ])
-      const all = [...(pendingRes.data ?? []), ...(scheduledRes.data ?? [])]
-      setEdahaDrafts(all.filter((d) => d.quote_tweet_id))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '枝葉の取得に失敗しました')
-    } finally {
-      setEdahaLoading(false)
-    }
-  }, [])
-
-  const loadDigest = useCallback(async () => {
-    try {
-      const res = await fetchApi<ApiResponse<Digest | null>>('/api/growth/digest/latest')
-      setDigest(res.data ?? null)
-    } catch {
-      // digest is non-critical — ignore errors
+      setArticlesLoaded(true)
     }
   }, [])
 
   useEffect(() => {
-    Promise.all([loadDrafts(), loadDigest()]).finally(() => setLoading(false))
-  }, [loadDrafts, loadDigest])
+    Promise.all([loadDrafts(), loadArticles(), loadSources()]).finally(() => setLoading(false))
+  }, [loadDrafts, loadArticles, loadSources])
 
-  // Lazy-load sources when switching to discovery tab
-  useEffect(() => {
-    if (tab === 'discovery' && sources.length === 0 && !sourcesLoading) {
-      loadSources()
-    }
-  }, [tab, sources.length, sourcesLoading, loadSources])
-
-  // Lazy-load articles when switching to articles tab
-  useEffect(() => {
-    if (tab === 'articles' && articles.length === 0 && !articlesLoading) {
-      loadArticles()
-    }
-  }, [tab, articles.length, articlesLoading, loadArticles])
-
-  // Lazy-load 枝葉 (and the pillar articles it groups by) when switching in
-  useEffect(() => {
-    if (tab === 'edaha' && edahaDrafts.length === 0 && !edahaLoading) {
-      loadEdaha()
-      if (publishedArticles.length === 0 && !articlesLoading) loadArticles()
-    }
-  }, [tab, edahaDrafts.length, edahaLoading, loadEdaha, publishedArticles.length, articlesLoading, loadArticles])
-
+  // ── 投稿案 ──
   const handleSave = async (id: string, text: string, scheduledAt: string) => {
-    await fetchApi<ApiResponse<GrowthDraft>>(`/api/growth/drafts/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ text, scheduledAt }),
-    })
+    await fetchApi<ApiResponse<GrowthDraft>>(`/api/growth/drafts/${id}`, { method: 'PATCH', body: JSON.stringify({ text, scheduledAt }) })
     setPending((prev) => prev.map((d) => (d.id === id ? { ...d, text, scheduled_at: scheduledAt } : d)))
   }
-
   const handleApprove = async (id: string) => {
     await fetchApi<ApiResponse<GrowthDraft>>(`/api/growth/drafts/${id}/approve`, { method: 'POST' })
-    showToast('承認しました')
+    showToast('OKしました。予約投稿に入りました')
     await loadDrafts()
   }
-
   const handleReject = async (id: string) => {
     await fetchApi<ApiResponse<GrowthDraft>>(`/api/growth/drafts/${id}/reject`, { method: 'POST' })
-    showToast('却下しました')
+    showToast('捨てました（「処理済み」タブに残ります）')
+    await loadDrafts()
+  }
+  // 期限切れをまとめてアーカイブ（削除しない・元に戻せる）。境目は画面と同じ「今日0時（日本時間）」。
+  const handleArchiveExpired = async () => {
+    const res = await fetchApi<ApiResponse<{ count: number }>>('/api/growth/drafts/archive-expired', { method: 'POST', body: JSON.stringify({ before: jstDayStartIso(new Date()) }) })
+    showToast(`${res.data.count}件をアーカイブしました（元に戻せます）`)
+    await loadDrafts()
+  }
+  const handleRestoreArchived = async () => {
+    const res = await fetchApi<ApiResponse<{ count: number }>>('/api/growth/drafts/unarchive', { method: 'POST', body: JSON.stringify({ all: true }) })
+    showToast(`${res.data.count}件を元に戻しました`)
     await loadDrafts()
   }
 
+  // ── ソース候補 ──
   const handleToDraft = async (id: string, text: string, scheduledAt: string) => {
     const xAccountId = deriveXAccountId(pending)
     if (!xAccountId) {
-      showToast('Xアカウントが特定できません（NEXT_PUBLIC_X_ACCOUNT_ID 未設定・承認待ちも空）')
+      showToast('Xアカウントが特定できません（承認待ちポストが空のため）')
       return
     }
-    await fetchApi<ApiResponse<unknown>>(`/api/growth/sources/${id}/to-draft`, {
-      method: 'POST',
-      body: JSON.stringify({ xAccountId, text, scheduledAt }),
-    })
-    setSources((prev) => prev.filter((s) => s.id !== id))
-    showToast('下書きを作成しました')
-    // Refresh pending drafts so the new draft shows up
+    await fetchApi<ApiResponse<unknown>>(`/api/growth/sources/${id}/to-draft`, { method: 'POST', body: JSON.stringify({ xAccountId, text, scheduledAt }) })
+    setSources((prev) => (prev ?? []).filter((s) => s.id !== id))
+    showToast('承認待ちポストに追加しました')
     await loadDrafts()
-    setTab('pending')
   }
-
   const handleDismiss = async (id: string) => {
     await fetchApi<ApiResponse<unknown>>(`/api/growth/sources/${id}/dismiss`, { method: 'POST' })
-    setSources((prev) => prev.filter((s) => s.id !== id))
+    setSources((prev) => (prev ?? []).filter((s) => s.id !== id))
     showToast('却下しました')
   }
 
-  const handleArticleSave = async (id: string, title: string, bodyMd: string) => {
-    const res = await fetchApi<ApiResponse<ArticleDraft>>(`/api/growth/articles/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ title, bodyMd }),
-    })
-    if (res.data) setArticles((prev) => prev.map((a) => (a.id === id ? { ...a, ...res.data } : a)))
-    showToast('記事を保存しました')
+  // ── 記事 ──
+  const replaceArticle = (a: ArticleDraft) => setArticles((prev) => prev.map((x) => (x.id === a.id ? a : x)))
+  const importMessage = (r?: { imported: number; failed: Array<{ url: string; error: string }> }) => {
+    if (!r) return ''
+    const parts = []
+    if (r.imported) parts.push(`画像 ${r.imported} 枚をハーネスに保存しました`)
+    if (r.failed.length) parts.push(`${r.failed.length} 枚は取り込めませんでした（${r.failed[0].error}）`)
+    return parts.join('。')
+  }
+  type ImportRes = ApiResponse<ArticleDraft> & { imageImport?: { imported: number; failed: Array<{ url: string; error: string }> } }
+  const articleActions: ArticleActions = {
+    save: async (id, patch) => {
+      const res = await fetchApi<ImportRes>(`/api/growth/articles/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+      replaceArticle(res.data)
+      return ['保存しました', importMessage(res.imageImport)].filter(Boolean).join('。')
+    },
+    importImages: async (id) => {
+      const res = await fetchApi<ImportRes>(`/api/growth/articles/${id}/import-images`, { method: 'POST', body: '{}' })
+      replaceArticle(res.data)
+      return importMessage(res.imageImport) || '取り込む画像はありませんでした'
+    },
+    createXDraft: async (id) => {
+      const res = await fetchApi<ApiResponse<{ x_article_draft_id: string; warnings?: string[] }>>(`/api/growth/articles/${id}/x-draft`, { method: 'POST', body: '{}' })
+      await loadArticles()
+      const warnings = res.data.warnings ?? []
+      showToast(
+        warnings.length
+          ? `Xの記事下書きを作りました（まだ公開されていません）。注意: ${warnings.join(' / ')}`
+          : 'Xの記事下書きを作りました（まだ公開されていません）',
+      )
+    },
+    publish: async (id) => {
+      const res = await fetchApi<ApiResponse<{ article_id: string; post_id: string; warnings?: string[] }>>(`/api/growth/articles/${id}/publish`, { method: 'POST', body: '{}' })
+      await loadArticles()
+      const warnings = res.data.warnings ?? []
+      showToast(
+        warnings.length
+          ? `Xで公開しました（ポストID: ${res.data.post_id}）。注意: ${warnings.join(' / ')}`
+          : `Xで公開しました（ポストID: ${res.data.post_id}）`,
+      )
+    },
+    discard: async (id) => {
+      await fetchApi<ApiResponse<unknown>>(`/api/growth/articles/${id}/discard`, { method: 'POST' })
+      setArticles((prev) => prev.filter((a) => a.id !== id))
+      showToast('記事を破棄しました')
+    },
   }
 
-  const handleArticleDiscard = async (id: string) => {
-    await fetchApi<ApiResponse<unknown>>(`/api/growth/articles/${id}/discard`, { method: 'POST' })
-    setArticles((prev) => prev.filter((a) => a.id !== id))
-    showToast('破棄しました')
-  }
-
-  const handleArticlePublish = async (id: string) => {
-    const res = await fetchApi<ApiResponse<{ article_id: string; post_id: string; warnings?: string[] }>>(`/api/growth/articles/${id}/publish`, {
-      method: 'POST',
-      body: '{}',
-    })
-    await loadArticles()
-    const warnings = res.data.warnings ?? []
-    showToast(
-      warnings.length
-        ? `Xで公開しました（ポストID: ${res.data.post_id}）。注意: ${warnings.join(' / ')}`
-        : `Xで公開しました（ポストID: ${res.data.post_id}）`,
-    )
-  }
-
-  // Health line
-  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
-  const digestDate = digest?.payload?.date ?? null
-  const digestAge = digestDate
-    ? Math.floor((new Date(today).getTime() - new Date(digestDate).getTime()) / (1000 * 60 * 60 * 24))
-    : null
-
+  const queue = bucketDrafts(pending, now)
+  const todayLabel = (() => { const [, m, d] = (jstDate(now) ?? '').split('-'); return m ? `${Number(m)}月${Number(d)}日` : '' })()
   const xAccountId = deriveXAccountId(pending)
+  const draftArticles = articles.filter((a) => a.status === 'draft')
+  const articlesNeedingDraft = draftArticles.filter((a) => articleStage(a) === 'draft').length
+  const edahaDrafts = [...pending, ...scheduled].filter((d) => d.quote_tweet_id)
+  const pillars = articles.filter((a) => a.status === 'published')
 
   const TAB_ITEMS: { id: Tab; label: string; count?: number }[] = [
-    { id: 'pending', label: '承認待ち', count: pending.length },
-    { id: 'discovery', label: '海外ネタ', count: sources.length || undefined },
+    { id: 'posts', label: '今日の投稿案', count: queue.today.length + queue.later.length },
+    { id: 'articles', label: '記事', count: draftArticles.length },
+    { id: 'sources', label: 'ソース候補', count: sources?.length },
+    { id: 'edaha', label: '記事への動画引用', count: edahaDrafts.filter((d) => d.status === 'pending').length },
     { id: 'processed', label: '処理済み' },
-    { id: 'articles', label: '記事', count: articles.length || undefined },
-    { id: 'edaha', label: '枝葉', count: edahaDrafts.filter((d) => d.status === 'pending').length || undefined },
   ]
 
   return (
-    <div>
+    <div className="text-kumo-default">
       <AiPanel />
       <Header
-        title="Growth 承認"
-        description="X Growth パイプラインの投稿承認・ダイジェスト確認"
+        title="投稿・記事の承認"
+        description="毎朝AIが作った投稿案。OKしたものだけ予約投稿されます（記事・ソース候補も、決めるまでXには出ません）。"
       />
 
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-50 px-5 py-3 rounded-xl bg-gray-900 text-white text-sm font-medium shadow-lg transition-opacity">
-          {toast}
-        </div>
-      )}
+      {toast && <div role="status" className="fixed bottom-6 right-6 z-50 rounded-xl bg-kumo-contrast px-5 py-3 text-sm font-medium text-kumo-inverse shadow-lg">{toast}</div>}
 
-      {/* Health line */}
-      <div className={`mb-5 px-4 py-2.5 rounded-lg text-sm font-medium flex items-center justify-between ${
-        digestAge === null
-          ? 'bg-gray-50 border border-gray-200 text-gray-500'
-          : digestAge >= 2
-          ? 'bg-red-50 border border-red-200 text-red-700'
-          : digestAge === 1
-          ? 'bg-yellow-50 border border-yellow-200 text-yellow-700'
-          : 'bg-green-50 border border-green-200 text-green-700'
-      }`}>
-        <span>
-          {digestAge === null
-            ? 'ダイジェスト未取得'
-            : digestAge === 0
-            ? 'ダイジェスト: 今日のデータ'
-            : digestAge === 1
-            ? 'ダイジェスト: 昨日のデータ（更新されていません）'
-            : `ダイジェスト: ${digestAge}日前のデータ（更新されていません）`}
-        </span>
-        <span>承認待ち {pending.length} 件</span>
+      {/* 3つの仕事と件数 */}
+      <div className="mb-4 grid grid-cols-3 gap-2 sm:gap-3">
+        <StepCard n={1} title="今日の投稿案" count={loading ? null : queue.today.length + queue.later.length} unit="件" active={tab === 'posts'} onClick={() => setTab('posts')}
+          hint={queue.expired.length > 0 ? `「OKして予約」したものだけ投稿されます。期限切れ ${queue.expired.length}件は下にまとめています。` : '「OKして予約」したものだけ投稿されます。'} />
+        <StepCard n={2} title="記事の下書き" count={articlesLoaded ? draftArticles.length : null} unit="本" active={tab === 'articles'} onClick={() => setTab('articles')}
+          hint={articlesLoaded ? `X下書き未作成 ${articlesNeedingDraft} 本。表紙と画像を確認して「Xの下書きを作る」。` : '記事を読み込み中…'} />
+        <StepCard n={3} title="ソース候補" count={sources ? sources.length : null} unit="件" active={tab === 'sources'} onClick={() => setTab('sources')}
+          hint="引用したい海外ポストを「承認待ちポストに追加」。不要なら却下。" />
       </div>
 
-      {error && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800">{error}</div>
-      )}
+      {error && <div role="alert" className="mb-4 rounded-lg bg-kumo-danger-tint px-4 py-3 text-sm text-kumo-danger">{error}</div>}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Left: Tab panel */}
-        <div className="xl:col-span-2 space-y-4">
-          {/* Tab bar */}
-          <div className="flex gap-1 border-b border-gray-200 mb-4">
-            {TAB_ITEMS.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
-                  tab === t.id
-                    ? 'border-blue-500 text-blue-600 bg-blue-50/50'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                {t.label}
-                {t.count != null && t.count > 0 && (
-                  <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${
-                    tab === t.id ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
-                  }`}>
-                    {t.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+      <div className="space-y-4">
+        <div className="overflow-x-auto">
+          <Tabs
+            variant="underline"
+            value={tab}
+            onValueChange={(v) => setTab(v as Tab)}
+            tabs={TAB_ITEMS.map((t) => ({
+              value: t.id,
+              label: (
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  {t.label}
+                  {t.count != null && t.count > 0 && <span className="rounded-full bg-kumo-tint px-1.5 text-[11px] font-semibold tabular-nums text-kumo-subtle">{t.count}</span>}
+                </span>
+              ),
+            }))}
+          />
+        </div>
 
-          {/* ── Tab: 承認待ち ── */}
-          {tab === 'pending' && (
-            loading ? (
-              <div className="space-y-4">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="h-48 bg-white rounded-xl border border-gray-200 animate-pulse" />
-                ))}
-              </div>
-            ) : pending.length === 0 ? (
-              <div className="bg-white rounded-xl border border-gray-200 py-16 text-center">
-                <p className="text-sm text-gray-400">承認待ちなし</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {pending.map((draft) => (
-                  <DraftCard
-                    key={draft.id}
-                    draft={draft}
-                    onApprove={handleApprove}
-                    onReject={handleReject}
-                    onSaved={handleSave}
-                  />
-                ))}
-              </div>
-            )
-          )}
+        {tab === 'posts' && (
+          loading ? <Skeleton /> : (
+            <div className="max-w-3xl space-y-6">
+              <section className="space-y-4" aria-labelledby="today-heading">
+                <div>
+                  <h2 id="today-heading" className="text-xl font-bold text-kumo-default">今日の案{todayLabel && <span className="ml-2 text-base font-medium text-kumo-subtle">{todayLabel}</span>}</h2>
+                  <p className="mt-1 text-sm leading-6 text-kumo-subtle">毎朝AIが作った投稿案です。「OKして予約」したものだけ、書いてある時刻に投稿されます。文面や時刻を変えたいときは「直す」、使わないものは「捨てる」。</p>
+                </div>
+                {queue.today.length === 0
+                  ? <Empty>今日の案はまだありません。毎朝7時ごろにAIが新しい案を用意します。</Empty>
+                  : queue.today.map((draft) => <QueueCard key={draft.id} draft={draft} now={now} onApprove={handleApprove} onReject={handleReject} onSaved={handleSave} />)}
+              </section>
 
-          {/* ── Tab: 海外ネタ ── */}
-          {tab === 'discovery' && (
-            sourcesLoading ? (
-              <div className="space-y-4">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="h-64 bg-white rounded-xl border border-gray-200 animate-pulse" />
-                ))}
-              </div>
-            ) : sources.length === 0 ? (
-              <div className="bg-white rounded-xl border border-gray-200 py-16 text-center">
-                <p className="text-sm text-gray-400">海外ネタなし</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {sources.map((candidate) => (
-                  <SourceCard
-                    key={candidate.id}
-                    candidate={candidate}
-                    xAccountId={xAccountId}
-                    onToDraft={handleToDraft}
-                    onDismiss={handleDismiss}
-                  />
-                ))}
-              </div>
-            )
-          )}
+              {queue.later.length > 0 && (
+                <section className="space-y-4" aria-labelledby="later-heading">
+                  <h2 id="later-heading" className="text-base font-semibold text-kumo-default">明日以降の案 <span className="text-sm font-normal text-kumo-subtle">{queue.later.length}件</span></h2>
+                  {queue.later.map((draft) => <QueueCard key={draft.id} draft={draft} now={now} onApprove={handleApprove} onReject={handleReject} onSaved={handleSave} />)}
+                </section>
+              )}
 
-          {/* ── Tab: 処理済み ── */}
-          {tab === 'processed' && (
-            processed.length === 0 ? (
-              <div className="bg-white rounded-xl border border-gray-200 py-16 text-center">
-                <p className="text-sm text-gray-400">処理済みなし</p>
-              </div>
-            ) : (
-              <div className="bg-white rounded-xl border border-gray-200 px-5 py-1">
-                {processed.map((draft) => (
-                  <ProcessedRow key={draft.id} draft={draft} />
-                ))}
-              </div>
-            )
-          )}
+              <ExpiredSection drafts={queue.expired} now={now} onArchive={handleArchiveExpired} onApprove={handleApprove} onReject={handleReject} onSaved={handleSave} />
+              <ArchivedNote count={archivedCount} onRestore={handleRestoreArchived} />
+            </div>
+          )
+        )}
 
-          {/* ── Tab: 記事 ── */}
-          {tab === 'articles' && (
-            articlesLoading ? (
-              <div className="space-y-4">
-                {[...Array(2)].map((_, i) => (
-                  <div key={i} className="h-96 bg-white rounded-xl border border-gray-200 animate-pulse" />
-                ))}
-              </div>
-            ) : articles.length === 0 && publishedArticles.length === 0 ? (
-              <div className="bg-white rounded-xl border border-gray-200 py-16 text-center">
-                <p className="text-sm text-gray-400">記事ドラフトなし</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {publishedArticles.length > 0 && (
-                  <div className="bg-white rounded-xl border border-gray-200 px-4 py-2 divide-y divide-gray-100">
-                    {publishedArticles.map((article) => (
-                      <PublishedArticleRow key={article.id} article={article} />
-                    ))}
-                  </div>
-                )}
-                {articles.map((article) => (
-                  <ArticleCard
-                    key={article.id}
-                    article={article}
-                    onSaved={handleArticleSave}
-                    onDiscard={handleArticleDiscard}
-                    onPublish={handleArticlePublish}
-                  />
-                ))}
-              </div>
-            )
-          )}
+        {tab === 'articles' && (
+          <ArticlesPanel articles={articles} loading={!articlesLoaded} actions={articleActions} initialId={initialArticleId} />
+        )}
 
-          {/* ── Tab: 枝葉 ── */}
-          {tab === 'edaha' && (
-            edahaLoading || articlesLoading ? (
-              <div className="space-y-4">
-                {[...Array(2)].map((_, i) => (
-                  <div key={i} className="h-48 bg-white rounded-xl border border-gray-200 animate-pulse" />
-                ))}
-              </div>
-            ) : (
+        {tab === 'sources' && (
+          sources === null ? <Skeleton h="h-64" /> : sources.length === 0 ? <Empty>新しいソース候補はありません。毎朝、海外で伸びている動画やポストを自動で集めます。</Empty> : (
+            <div className="space-y-4">
+              <p className="text-sm text-kumo-subtle">海外で伸びているポストです。引用したいものは文面を整えて「承認待ちポストに追加」。まだXには出ません。</p>
+              {sources.map((candidate) => (
+                <SourceCard key={candidate.id} candidate={candidate} xAccountId={xAccountId} onToDraft={handleToDraft} onDismiss={handleDismiss} />
+              ))}
+            </div>
+          )
+        )}
+
+        {tab === 'edaha' && (
+          loading || !articlesLoaded ? <Skeleton /> : (
+            <div className="max-w-3xl space-y-4">
+              <p className="text-sm text-kumo-subtle">公開済みの記事を、海外の動画付きで引用するポスト案です（社内では「枝葉」と呼んでいます）。記事ごとにまとめて表示します。</p>
               <EdahaView
-                pillars={publishedArticles}
+                pillars={pillars}
                 drafts={edahaDrafts}
-                onApprove={async (id) => { await handleApprove(id); await loadEdaha() }}
-                onReject={async (id) => { await handleReject(id); await loadEdaha() }}
+                onApprove={handleApprove}
+                onReject={handleReject}
                 onSaved={handleSave}
               />
-            )
-          )}
-        </div>
-
-        {/* Right: Digest */}
-        <div>
-          {digest ? (
-            <DigestCard digest={digest} />
-          ) : !loading ? (
-            <div className="bg-white rounded-xl border border-gray-200 py-12 text-center">
-              <p className="text-sm text-gray-400">ダイジェストなし</p>
             </div>
-          ) : (
-            <div className="h-64 bg-white rounded-xl border border-gray-200 animate-pulse" />
-          )}
-        </div>
+          )
+        )}
+
+        {tab === 'processed' && (
+          processed.length === 0 ? <Empty>まだ処理済みのポストはありません。</Empty> : (
+            <Surface className="max-w-3xl rounded-xl px-5 py-1">
+              <p className="border-b border-kumo-line py-3 text-xs text-kumo-subtle">最近承認・却下したポスト（新しい順に30件）</p>
+              {processed.map((draft) => <ProcessedRow key={draft.id} draft={draft} />)}
+            </Surface>
+          )
+        )}
       </div>
     </div>
   )

@@ -2,13 +2,16 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
-import type { TweetHistory, ScheduledPost } from '@/lib/api'
+import type { TweetHistory } from '@/lib/api'
 import Header from '@/components/layout/header'
 import ApiCostGate from '@/components/api-cost-gate'
 import { useCurrentAccountId } from '@/hooks/use-selected-account'
-import { weightedLength } from '@/lib/weighted-length'
+import { Tabs } from '@cloudflare/kumo/components/tabs'
+import { Surface } from '@cloudflare/kumo/components/surface'
+import ScheduledQueue from '@/components/scheduled-queue'
+import { weightedLength, endsWithStatusUrl } from '@/lib/weighted-length'
 
-type Tab = 'immediate' | 'scheduled'
+type Tab = 'immediate' | 'scheduled' | 'queue'
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 const ALLOWED_VIDEO_TYPES = ['video/mp4']
@@ -40,14 +43,19 @@ function CharCounter({ text, limit, planKnown }: { text: string; limit: number; 
     pct >= 0.9 ? 'text-yellow-500 font-semibold' :
     'text-gray-400'
   return (
-    <p className={`text-xs text-right mt-0.5 ${color}`}>
-      {length}/{limit}
-      {length > limit && (!planKnown
-        ? '（280字超。X Premium のアカウントなら送信できます）'
-        : limit <= 280
-          ? '（280字を超えています。X Premium ではないため送信できません）'
-          : '（上限を超えています）')}
-    </p>
+    <div className="mt-0.5 text-right">
+      <p className={`text-xs ${color}`} title="日本語・全角・絵文字=2、URL=23 で数えています">
+        {length}/{limit}
+        {length > limit && (!planKnown
+          ? '（280字超。X Premium のアカウントなら送信できます）'
+          : limit <= 280
+            ? '（280字を超えています。X Premium ではないため送信できません）'
+            : '（上限を超えています）')}
+      </p>
+      {endsWithStatusUrl(text) && (
+        <p className="text-xs text-kumo-warning">最後の行のポストURLは、Xでは引用カードになり本文から消えて見えます</p>
+      )}
+    </div>
   )
 }
 
@@ -56,6 +64,11 @@ export default function PostsPage() {
 
   // Tab
   const [tab, setTab] = useState<Tab>('immediate')
+  // Deep link: /posts?tab=queue (dashboard banner) opens the queue directly.
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab')
+    if (t === 'queue' || t === 'scheduled') setTab(t)
+  }, [])
 
   // Subscription / char limit
   const [charLimit, setCharLimit] = useState(280)
@@ -85,9 +98,8 @@ export default function PostsPage() {
   const [schSuccess, setSchSuccess] = useState('')
 
   // Scheduled posts list
-  const [scheduled, setScheduled] = useState<ScheduledPost[]>([])
-  const [scheduledLoading, setScheduledLoading] = useState(false)
-  const [cancellingId, setCancellingId] = useState<string | null>(null)
+  const [queueRefresh, setQueueRefresh] = useState(0)
+  const [immReplyId, setImmReplyId] = useState('')
 
   // History
   const [history, setHistory] = useState<TweetHistory[]>([])
@@ -194,18 +206,6 @@ export default function PostsPage() {
     }
   }, [historyAccountId, loadHistory])
 
-  const loadScheduled = useCallback(async () => {
-    setScheduledLoading(true)
-    try {
-      const res = await api.posts.listScheduled()
-      if (res.success) setScheduled(res.data)
-    } catch {
-      // silently fail
-    } finally {
-      setScheduledLoading(false)
-    }
-  }, [])
-
   const [fetched, setFetched] = useState(false)
   const handleManualFetch = () => {
     if (selectedAccountId) {
@@ -215,11 +215,6 @@ export default function PostsPage() {
     }
   }
 
-  useEffect(() => {
-    if (tab === 'scheduled') {
-      loadScheduled()
-    }
-  }, [tab, loadScheduled])
 
   // Cleanup preview URLs on unmount
   useEffect(() => {
@@ -304,14 +299,16 @@ export default function PostsPage() {
           xAccountId: selectedAccountId,
           text: texts[0],
           ...(immQuoteMode && immQuoteId.trim() ? { quoteTweetId: immQuoteId.trim() } : {}),
+          ...(immReplyId.trim() ? { replyToTweetId: immReplyId.trim() } : {}),
           ...(mediaIds.length > 0 ? { mediaIds } : {}),
         })
         if (res.success) {
           setImmTexts([''])
           setImmQuoteId('')
           setImmQuoteMode(false)
+          setImmReplyId('')
           setMediaFiles([])
-          setImmSuccess('投稿しました')
+          setImmSuccess(['投稿しました', ...(res.warnings ?? [])].join(' ／ '))
           loadHistory()
         } else {
           setImmError(res.error ?? '投稿に失敗しました')
@@ -358,28 +355,15 @@ export default function PostsPage() {
       if (res.success) {
         setSchText('')
         setSchAt('')
-        setSchSuccess('スケジュールしました')
-        loadScheduled()
+        setSchSuccess(['予約しました。「予約・失敗」タブで確認できます', ...(res.warnings ?? [])].join(' ／ '))
+        setQueueRefresh((n) => n + 1)
       } else {
         setSchError(res.error ?? 'エラーが発生しました')
       }
     } catch (err) {
-      setSchError(err instanceof Error && err.message ? err.message : 'スケジュールに失敗しました')
+      setSchError(err instanceof Error && err.message ? err.message : '予約に失敗しました')
     } finally {
       setSchCreating(false)
-    }
-  }
-
-  const handleCancel = async (id: string) => {
-    if (!confirm('この投稿をキャンセルしますか？')) return
-    setCancellingId(id)
-    try {
-      await api.posts.cancel(id)
-      loadScheduled()
-    } catch {
-      // silently fail
-    } finally {
-      setCancellingId(null)
     }
   }
 
@@ -403,7 +387,7 @@ export default function PostsPage() {
 
   return (
     <div>
-      <Header title="投稿管理" description="即時投稿・予約投稿・履歴" />
+      <Header title="投稿・予約" description="今すぐ投稿・予約・失敗した予約の再キュー・履歴" />
 
       {!fetched && !historyLoading && (
         <div className="mb-4">
@@ -411,30 +395,19 @@ export default function PostsPage() {
         </div>
       )}
 
-      {/* Top section: tabs */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
-        {/* Tab header */}
-        <div className="flex border-b border-gray-200">
-          <button
-            onClick={() => setTab('immediate')}
-            className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              tab === 'immediate'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            新規投稿
-          </button>
-          <button
-            onClick={() => setTab('scheduled')}
-            className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              tab === 'scheduled'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            予約投稿
-          </button>
+      {/* Sub-sections are tabs inside the page (single sidebar navigation) */}
+      <Surface className="mb-6 overflow-hidden rounded-xl">
+        <div className="border-b border-kumo-line px-4 pt-2">
+          <Tabs
+            variant="underline"
+            value={tab}
+            onValueChange={(v) => setTab(v as Tab)}
+            tabs={[
+              { value: 'immediate', label: '今すぐ投稿' },
+              { value: 'scheduled', label: '予約する' },
+              { value: 'queue', label: '予約・失敗' },
+            ]}
+          />
         </div>
 
         <div className="p-5">
@@ -566,6 +539,18 @@ export default function PostsPage() {
                       className="mt-2 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   )}
+                  {immQuoteMode && <p className="mt-1 text-xs text-kumo-subtle">他人のポストは、本文の最後にポストURLを付けて送ります（Xの仕様で引用指定は拒否されるため）。</p>}
+                  <label className="mt-3 block text-xs font-medium text-gray-600">
+                    返信先ポストID（任意）
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={immReplyId}
+                      onChange={(e) => setImmReplyId(e.target.value)}
+                      placeholder="返信する場合だけ入力"
+                      className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
                 </div>
               )}
 
@@ -658,68 +643,16 @@ export default function PostsPage() {
                 </div>
               </form>
 
-              {/* Scheduled list */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">スケジュール済み</h3>
-                {scheduledLoading ? (
-                  <div className="space-y-2">
-                    {[...Array(3)].map((_, i) => (
-                      <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
-                    ))}
-                  </div>
-                ) : scheduled.length === 0 ? (
-                  <p className="text-sm text-gray-400">スケジュール投稿がありません</p>
-                ) : (
-                  <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
-                    <table className="w-full min-w-[500px] text-sm">
-                      <thead>
-                        <tr className="bg-gray-100 border-b border-gray-200">
-                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">内容</th>
-                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">投稿日時</th>
-                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">状態</th>
-                          <th className="px-4 py-2 text-right text-xs font-semibold text-gray-500">操作</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {scheduled.map((p) => (
-                          <tr key={p.id} className="hover:bg-white transition-colors">
-                            <td className="px-4 py-2 text-gray-700 max-w-xs">
-                              <p className="truncate">{p.text}</p>
-                            </td>
-                            <td className="px-4 py-2 text-gray-500 whitespace-nowrap text-xs">
-                              {formatDate(p.scheduledAt)}
-                            </td>
-                            <td className="px-4 py-2">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                                p.status === 'scheduled' ? 'bg-blue-100 text-blue-700' :
-                                p.status === 'posted' ? 'bg-green-100 text-green-700' :
-                                'bg-red-100 text-red-700'
-                              }`}>
-                                {p.status === 'scheduled' ? '予約中' : p.status === 'posted' ? '投稿済' : '失敗'}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2 text-right">
-                              {p.status === 'scheduled' && (
-                                <button
-                                  onClick={() => handleCancel(p.id)}
-                                  disabled={cancellingId === p.id}
-                                  className="text-xs text-red-500 hover:text-red-600 px-3 py-1 rounded-md border border-red-100 hover:border-red-200 disabled:opacity-50 transition-colors"
-                                >
-                                  {cancellingId === p.id ? 'キャンセル中...' : 'キャンセル'}
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
+            </div>
+          )}
+
+          {tab === 'queue' && (
+            <div className="-m-5">
+              <ScheduledQueue accountId={selectedAccountId} refreshKey={queueRefresh} />
             </div>
           )}
         </div>
-      </div>
+      </Surface>
 
       {/* History section */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">

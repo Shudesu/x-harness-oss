@@ -136,7 +136,8 @@ CREATE TABLE growth_drafts (
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'scheduled', 'rejected')),
   scheduled_post_id TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  archived_at TEXT
 );
 
 CREATE TABLE quote_tweets (
@@ -410,6 +411,7 @@ CREATE INDEX idx_quote_tweets_account ON quote_tweets(x_account_id, discovered_a
 CREATE INDEX idx_engagement_actions_account ON engagement_actions(x_account_id);
 
 CREATE INDEX idx_growth_drafts_status ON growth_drafts(status);
+CREATE INDEX idx_growth_drafts_archived ON growth_drafts(status, archived_at);
 
 CREATE INDEX idx_source_candidates_status ON source_candidates(status);
 

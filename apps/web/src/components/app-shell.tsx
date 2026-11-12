@@ -15,9 +15,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <AuthGuard>
       <div className="flex min-h-screen">
         <Sidebar />
-        <main className="flex-1 pt-[72px] px-4 pb-6 sm:px-6 lg:pt-8 lg:px-8 lg:pb-8 overflow-auto">
-          <CampaignUpdate autoShow={pathname === '/'} />
-          {children}
+        <main className="min-w-0 flex-1 px-4 pb-10 pt-[72px] sm:px-6 lg:px-10 lg:pt-8">
+          <div className="mx-auto w-full max-w-6xl">
+            <CampaignUpdate autoShow={pathname === '/'} />
+            {children}
+          </div>
         </main>
       </div>
     </AuthGuard>

@@ -143,6 +143,7 @@ function Studio({ accountId }: { accountId: string }) {
         <div className="max-h-[40vh] overflow-y-auto p-2 lg:max-h-[calc(100vh-340px)]">
           {loading ? <p role="status" className="p-4 text-sm text-kumo-subtle">読み込んでいます…</p> : visible.length === 0 ? <p className="p-4 text-sm leading-7 text-kumo-subtle">{search ? '検索に一致する記事がありません。' : '記事はまだありません。「新しい記事」から原稿を作成できます。'}</p> : <ul className="space-y-1">{visible.map(a => <li key={a.id}>
             <button disabled={busy} onClick={() => select(a)} className={`w-full rounded-lg border p-4 text-left transition-colors focus-visible:outline focus-visible:outline-2 ${editing?.id === a.id ? 'border-kumo-brand bg-kumo-tint' : 'border-transparent hover:bg-kumo-tint'}`} aria-current={editing?.id === a.id ? 'true' : undefined}>
+              {a.image_url && <img src={a.image_url} alt="" loading="lazy" className="mb-3 aspect-[5/2] w-full rounded-md border border-kumo-line bg-kumo-tint object-cover" />}
               <span className="mb-2 block text-xs text-kumo-subtle">{a.status === 'published' ? '公開済み' : a.x_article_draft_id ? 'X下書き作成済み' : a.status === 'draft' ? '下書き' : a.status} · {a.updated_at.slice(0, 16).replace('T', ' ')}</span>
               <span className="line-clamp-2 block break-words text-sm font-semibold leading-6">{a.title}</span>
               <span className="mt-2 line-clamp-2 block break-words text-xs leading-5 text-kumo-subtle">{a.body_md.replace(/[#*>`]/g, '').slice(0, 120)}</span>
@@ -162,7 +163,7 @@ function Studio({ accountId }: { accountId: string }) {
         </div>
         <div className="mx-auto max-w-3xl space-y-6 px-5 py-7 sm:px-9">
           {readonly && <p className="rounded-lg bg-kumo-tint p-3 text-sm leading-6 text-kumo-subtle">X下書き作成後・公開後の本文は変更できません。本文をコピーして新しい記事を作成できます。</p>}
-          {view === 'read' ? <ArticleReadingView title={form.title} body={form.bodyMd} /> : <>
+          {view === 'read' ? <ArticleReadingView title={form.title} body={form.bodyMd} cover={form.imageUrl || null} /> : <>
             <label className="block space-y-2"><span className="text-xs font-medium text-kumo-subtle">タイトル</span><input className={`${field} !text-xl font-semibold sm:!text-2xl`} placeholder="伝えたいことを、一文で。" value={form.title} disabled={busy || readonly} onChange={e => setForm({ ...form, title: e.target.value })} /></label>
             <label className="block space-y-2"><span className="text-xs font-medium text-kumo-subtle">本文 · Markdown</span><textarea className={`${field} min-h-[52vh] resize-y !text-base !leading-8`} rows={18} value={form.bodyMd} disabled={busy || readonly} onChange={e => setForm({ ...form, bodyMd: e.target.value })} placeholder="## 見出し&#10;&#10;本文を入力してください。" /></label>
             <details className="rounded-lg border border-kumo-line p-3"><summary className="cursor-pointer text-sm text-kumo-subtle">カバー画像{form.imageUrl ? ' · 設定済み' : ' · 任意'}</summary><label className="mt-3 block space-y-2"><span className="text-xs text-kumo-subtle">画像URL</span><input className={field} type="url" placeholder="https://…" value={form.imageUrl} disabled={busy || readonly} onChange={e => setForm({ ...form, imageUrl: e.target.value })} /></label></details>

@@ -16,6 +16,9 @@ export async function processScheduledPosts(db: D1Database, xClient: XClient, xA
       const length = await checkTextLength(db, xClient, post.x_account_id, post.text);
       if (!length.ok) {
         console.error(`Scheduled post ${post.id} not sent: ${length.error}`);
+        // Known-unsent: release the claim so the requeue endpoint doesn't
+        // treat it as an ambiguous send needing confirmNotPosted.
+        await db.prepare('DELETE FROM scheduled_post_claims WHERE post_id = ?').bind(post.id).run();
         await updateScheduledPostStatus(db, post.id, 'failed');
         continue;
       }

@@ -62,6 +62,8 @@ describe('processScheduledPosts', () => {
     await processScheduledPosts(db, xClient);
     expect(xClient.createTweet).not.toHaveBeenCalled();
     expect(db.prepare.mock.calls.some(([sql]: [string]) => sql.includes('UPDATE scheduled_posts'))).toBe(true);
+    // Known-unsent: the claim must be released so requeue doesn't demand confirmNotPosted.
+    expect(db.prepare.mock.calls.some(([sql]: [string]) => sql.includes('DELETE FROM scheduled_post_claims'))).toBe(true);
   });
 
   it('sends a long post in full for a Premium account', async () => {
