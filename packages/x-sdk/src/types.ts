@@ -114,6 +114,8 @@ export interface XTweetSearchResult {
 export interface XTweetWithMetrics {
   id: string;
   text: string;
+  /** Present on long posts (>280): the full body; `text` is shortened. */
+  note_tweet?: { text?: string };
   author_id?: string;
   created_at?: string;
   public_metrics?: {

@@ -6,6 +6,7 @@ import type { TweetHistory, ScheduledPost } from '@/lib/api'
 import Header from '@/components/layout/header'
 import ApiCostGate from '@/components/api-cost-gate'
 import { useCurrentAccountId } from '@/hooks/use-selected-account'
+import { weightedLength } from '@/lib/weighted-length'
 
 type Tab = 'immediate' | 'scheduled'
 
@@ -29,7 +30,10 @@ interface MediaFile {
   type: 'image' | 'video'
 }
 
-function CharCounter({ length, limit }: { length: number; limit: number }) {
+// X's weighted count (日本語・絵文字=2, URL=23). Never cut the text in the
+// textarea: a hard maxLength silently dropped the end of long posts.
+function CharCounter({ text, limit, planKnown }: { text: string; limit: number; planKnown: boolean }) {
+  const length = weightedLength(text)
   const pct = limit > 0 ? length / limit : 0
   const color =
     pct >= 1 ? 'text-red-500 font-semibold' :
@@ -38,6 +42,11 @@ function CharCounter({ length, limit }: { length: number; limit: number }) {
   return (
     <p className={`text-xs text-right mt-0.5 ${color}`}>
       {length}/{limit}
+      {length > limit && (!planKnown
+        ? '（280字超。X Premium のアカウントなら送信できます）'
+        : limit <= 280
+          ? '（280字を超えています。X Premium ではないため送信できません）'
+          : '（上限を超えています）')}
     </p>
   )
 }
@@ -51,6 +60,9 @@ export default function PostsPage() {
   // Subscription / char limit
   const [charLimit, setCharLimit] = useState(280)
   const [subscriptionType, setSubscriptionType] = useState('')
+  // Account the loaded plan belongs to. Until the selected account's plan is
+  // known, over-280 text is not blocked here — the worker checks the real plan.
+  const [planAccountId, setPlanAccountId] = useState('')
 
   // Immediate post form
   const [immTexts, setImmTexts] = useState([''])
@@ -102,11 +114,13 @@ export default function PostsPage() {
       if (res.success) {
         setCharLimit(res.data.charLimit)
         setSubscriptionType(res.data.subscriptionType)
+        setPlanAccountId(accountId)
       }
     } catch {
-      // fall back to 280
+      // fall back to 280 (display only; plan unknown)
       setCharLimit(280)
       setSubscriptionType('')
+      setPlanAccountId('')
     }
   }, [])
 
@@ -267,10 +281,18 @@ export default function PostsPage() {
     }
   }
 
+  const planKnown = !!subscriptionType && subscriptionType !== 'Unknown' && planAccountId === selectedAccountId
+  const displayLimit = planKnown ? charLimit : 280
+
   const handleImmediatePost = async (e: React.FormEvent) => {
     e.preventDefault()
     const texts = immTexts.filter((t) => t.trim())
     if (!selectedAccountId || texts.length === 0) return
+    const tooLong = planKnown ? texts.findIndex((t) => weightedLength(t) > charLimit) : -1
+    if (tooLong >= 0) {
+      setImmError(`${texts.length > 1 ? `${tooLong + 1}件目: ` : ''}本文が${weightedLength(texts[tooLong])}字（日本語=2・URL=23で換算）で上限${charLimit}字を超えています`)
+      return
+    }
     setImmPosting(true)
     setImmError('')
     setImmSuccess('')
@@ -292,7 +314,7 @@ export default function PostsPage() {
           setImmSuccess('投稿しました')
           loadHistory()
         } else {
-          setImmError('投稿に失敗しました')
+          setImmError(res.error ?? '投稿に失敗しました')
         }
       } else {
         const res = await api.posts.thread({
@@ -306,11 +328,12 @@ export default function PostsPage() {
           setImmSuccess(`${texts.length}件のスレッドを投稿しました`)
           loadHistory()
         } else {
-          setImmError('スレッド投稿に失敗しました')
+          setImmError(res.error ?? 'スレッド投稿に失敗しました')
         }
       }
-    } catch {
-      setImmError('投稿に失敗しました')
+    } catch (err) {
+      // The worker's TEXT_TOO_LONG message says why — show it.
+      setImmError(err instanceof Error && err.message ? err.message : '投稿に失敗しました')
     } finally {
       setImmPosting(false)
     }
@@ -319,6 +342,10 @@ export default function PostsPage() {
   const handleSchedule = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedAccountId || !schText.trim() || !schAt) return
+    if (planKnown && weightedLength(schText.trim()) > charLimit) {
+      setSchError(`本文が${weightedLength(schText.trim())}字（日本語=2・URL=23で換算）で上限${charLimit}字を超えています`)
+      return
+    }
     setSchCreating(true)
     setSchError('')
     setSchSuccess('')
@@ -336,8 +363,8 @@ export default function PostsPage() {
       } else {
         setSchError(res.error ?? 'エラーが発生しました')
       }
-    } catch {
-      setSchError('スケジュールに失敗しました')
+    } catch (err) {
+      setSchError(err instanceof Error && err.message ? err.message : 'スケジュールに失敗しました')
     } finally {
       setSchCreating(false)
     }
@@ -445,10 +472,9 @@ export default function PostsPage() {
                     placeholder="ツイートの内容を入力..."
                     required
                     rows={3}
-                    maxLength={charLimit}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                   />
-                  <CharCounter length={text.length} limit={charLimit} />
+                  <CharCounter text={text} limit={displayLimit} planKnown={planKnown} />
                 </div>
               ))}
 
@@ -593,10 +619,9 @@ export default function PostsPage() {
                     placeholder="ツイートの内容を入力..."
                     required
                     rows={4}
-                    maxLength={280}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                   />
-                  <CharCounter length={schText.length} limit={280} />
+                  <CharCounter text={schText} limit={displayLimit} planKnown={planKnown} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">

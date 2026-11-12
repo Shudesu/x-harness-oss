@@ -10,8 +10,11 @@ import {
   getGrowthDigestByDate,
   createScheduledPost,
   resolveFreeSlot,
+  getXAccountById,
 } from '@x-harness/db';
 import type { Env } from '../index.js';
+import { buildXClient } from '../services/x-client.js';
+import { checkTextLength, tooLongResponseBody } from '../services/post-length.js';
 
 const growth = new Hono<Env>();
 
@@ -76,6 +79,13 @@ growth.post('/api/growth/drafts/:id/approve', async (c) => {
   if (draft.status !== 'pending') {
     return c.json({ success: false, error: 'Draft is not pending' }, 409);
   }
+  // Over-limit text would only fail at send time — refuse the approval now.
+  const length = await checkTextLength(c.env.DB, async () => {
+    const account = await getXAccountById(c.env.DB, draft.x_account_id);
+    if (!account) throw new Error('X account not found');
+    return buildXClient(c.env, account, 'posts');
+  }, draft.x_account_id, draft.text);
+  if (!length.ok) return c.json(tooLongResponseBody(length), 400);
   // Drafts carry the slot the planner picked at generation time. By approval
   // time that slot may be stale or claimed by a post approved from another
   // batch — both used to fire as a simultaneous burst on the next cron tick.
