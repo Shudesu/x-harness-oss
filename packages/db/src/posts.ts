@@ -24,14 +24,53 @@ export async function createScheduledPost(db: D1Database, xAccountId: string, te
   return result!;
 }
 
-export async function getScheduledPosts(db: D1Database, opts: { status?: string; xAccountId?: string } = {}): Promise<DbScheduledPost[]> {
+export const SCHEDULED_POST_STATUSES = ['scheduled', 'posted', 'failed'] as const;
+
+export async function getScheduledPosts(
+  db: D1Database,
+  opts: { status?: string; xAccountId?: string; limit?: number; offset?: number; newestFirst?: boolean } = {},
+): Promise<DbScheduledPost[]> {
   const conditions: string[] = [];
   const binds: unknown[] = [];
   if (opts.status) { conditions.push('status = ?'); binds.push(opts.status); }
   if (opts.xAccountId) { conditions.push('x_account_id = ?'); binds.push(opts.xAccountId); }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const result = await db.prepare(`SELECT * FROM scheduled_posts ${where} ORDER BY scheduled_at ASC`).bind(...binds).all<DbScheduledPost>();
+  // History views (failed/posted/all) read newest first; the queue reads soonest first.
+  const order = opts.newestFirst ? 'ORDER BY scheduled_at DESC' : 'ORDER BY scheduled_at ASC';
+  let page = '';
+  if (opts.limit !== undefined) {
+    page = ' LIMIT ? OFFSET ?';
+    binds.push(opts.limit, opts.offset ?? 0);
+  }
+  const result = await db.prepare(`SELECT * FROM scheduled_posts ${where} ${order}${page}`).bind(...binds).all<DbScheduledPost>();
   return result.results;
+}
+
+export async function getScheduledPostById(db: D1Database, id: string): Promise<DbScheduledPost | null> {
+  return db.prepare('SELECT * FROM scheduled_posts WHERE id = ?').bind(id).first<DbScheduledPost>();
+}
+
+/**
+ * Put a FAILED post back in the queue at `scheduledAt`. Refuses rows with a
+ * posted_tweet_id (X accepted it — re-sending would duplicate). The failed
+ * attempt's send claim is released in the same batch, and only while the row
+ * is still a requeueable failure. Returns false when nothing was updated.
+ */
+export async function requeueFailedScheduledPost(db: D1Database, id: string, scheduledAt: string): Promise<boolean> {
+  const release = db
+    .prepare(
+      'DELETE FROM scheduled_post_claims WHERE post_id = ? AND EXISTS '
+        + "(SELECT 1 FROM scheduled_posts WHERE id = ? AND status = 'failed' AND posted_tweet_id IS NULL)",
+    )
+    .bind(id, id);
+  const update = db
+    .prepare(
+      "UPDATE scheduled_posts SET status = 'scheduled', scheduled_at = ?, updated_at = ? "
+        + "WHERE id = ? AND status = 'failed' AND posted_tweet_id IS NULL",
+    )
+    .bind(scheduledAt, jstNow(), id);
+  const [, res] = await db.batch([release, update]);
+  return (res.meta?.changes ?? 0) > 0;
 }
 
 const SLOT_CONFLICT_WINDOW_MS = 45 * 60_000;

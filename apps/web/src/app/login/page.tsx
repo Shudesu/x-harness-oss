@@ -17,6 +17,11 @@ export default function LoginPage() {
     try {
       localStorage.removeItem('xh_api_key')
       const response = await fetch(`${API_URL}/api/auth/session`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({apiKey})})
+      if (response.status === 401 || response.status === 403) {
+        sessionStorage.removeItem('xh_session')
+        setError('APIキーが正しくありません')
+        return
+      }
       const result = await response.json()
       if (!response.ok || !result.success) throw new Error('Unauthorized')
       sessionStorage.setItem('xh_session',result.data.token)
@@ -24,7 +29,7 @@ export default function LoginPage() {
       router.push('/')
     } catch {
       sessionStorage.removeItem('xh_session')
-      setError('接続に失敗しました')
+      setError('接続に失敗しました。時間をおいて再度お試しください')
     } finally {
       setLoading(false)
     }

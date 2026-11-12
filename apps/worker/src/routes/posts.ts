@@ -1,8 +1,8 @@
 import { buildXClient } from '../services/x-client.js';
 import { Hono, type Context } from 'hono';
 import { XClient } from '@x-harness/x-sdk';
-import { createScheduledPost, getScheduledPosts, deleteScheduledPost, getXAccountById, getXAccounts, incrementApiUsage, normalizeScheduledAt, resolveFreeSlot, saveQuoteTweets, getQuoteTweetsByAccount, getQuoteTweetsBySource, getLatestDiscoveredAt, recordAction, getActions } from '@x-harness/db';
-import type { SaveQuoteTweetInput } from '@x-harness/db';
+import { createScheduledPost, getScheduledPosts, getScheduledPostById, requeueFailedScheduledPost, parseScheduledAtMs, toJstString, SCHEDULED_POST_STATUSES, deleteScheduledPost, getXAccountById, getXAccounts, incrementApiUsage, normalizeScheduledAt, resolveFreeSlot, saveQuoteTweets, getQuoteTweetsByAccount, getQuoteTweetsBySource, getLatestDiscoveredAt, recordAction, getActions } from '@x-harness/db';
+import type { DbScheduledPost, SaveQuoteTweetInput } from '@x-harness/db';
 import type { Env } from '../index.js';
 
 const posts = new Hono<Env>();
@@ -10,8 +10,11 @@ const posts = new Hono<Env>();
 // Helper: build XClient from account record
 
 posts.post('/api/posts', async (c) => {
-  const { xAccountId, text, mediaIds, quoteTweetId, paidPartnership } = await c.req.json<{ xAccountId: string; text: string; mediaIds?: string[]; quoteTweetId?: string; paidPartnership?: boolean }>();
+  const { xAccountId, text, mediaIds, quoteTweetId, replyToTweetId, paidPartnership } = await c.req.json<{ xAccountId: string; text: string; mediaIds?: string[]; quoteTweetId?: string; replyToTweetId?: string; paidPartnership?: boolean }>();
   if (!text || !xAccountId) return c.json({ success: false, error: 'Missing required fields: xAccountId, text' }, 400);
+  if (replyToTweetId !== undefined && (typeof replyToTweetId !== 'string' || !/^\d{1,25}$/.test(replyToTweetId))) {
+    return c.json({ success: false, error: 'replyToTweetId must be a numeric post id' }, 400);
+  }
   const account = await getXAccountById(c.env.DB, xAccountId);
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
   const xClient = await buildXClient(c.env, account, 'posts');
@@ -20,6 +23,7 @@ posts.post('/api/posts', async (c) => {
       text,
       media: mediaIds ? { media_ids: mediaIds } : undefined,
       quote_tweet_id: quoteTweetId,
+      ...(replyToTweetId ? { reply: { in_reply_to_tweet_id: replyToTweetId } } : {}),
       ...(paidPartnership ? { paid_partnership: true } : {}),
     });
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'create_tweet'));
@@ -60,22 +64,113 @@ posts.post('/api/posts/schedule', async (c) => {
   }, 201);
 });
 
+// Response shape for scheduled posts (original fields + quoteTweetId/updatedAt).
+function serializeScheduledPost(p: DbScheduledPost) {
+  return {
+    id: p.id,
+    xAccountId: p.x_account_id,
+    text: p.text,
+    mediaIds: p.media_ids ? JSON.parse(p.media_ids) : null,
+    scheduledAt: p.scheduled_at,
+    status: p.status,
+    postedTweetId: p.posted_tweet_id,
+    createdAt: p.created_at,
+    quoteTweetId: p.quote_tweet_id ?? null,
+    updatedAt: p.updated_at,
+  };
+}
+
+const SCHEDULED_LIST_MAX_LIMIT = 500;
+const SCHEDULED_LIST_DEFAULT_LIMIT = 100;
+
+// GET /api/posts/scheduled?status=scheduled|posted|failed|all&xAccountId=&limit=&offset=
+// Without `status`/`limit`/`offset` it behaves exactly as before: every pending
+// ('scheduled') post, oldest slot first, unpaginated. Other statuses list
+// newest first and are paginated (default 100, max 500).
 posts.get('/api/posts/scheduled', async (c) => {
   const xAccountId = c.req.query('xAccountId');
-  const items = await getScheduledPosts(c.env.DB, { status: 'scheduled', xAccountId: xAccountId ?? undefined });
-  return c.json({
-    success: true,
-    data: items.map((p) => ({
-      id: p.id,
-      xAccountId: p.x_account_id,
-      text: p.text,
-      mediaIds: p.media_ids ? JSON.parse(p.media_ids) : null,
-      scheduledAt: p.scheduled_at,
-      status: p.status,
-      postedTweetId: p.posted_tweet_id,
-      createdAt: p.created_at,
-    })),
+  const statusParam = c.req.query('status') ?? 'scheduled';
+  if (statusParam !== 'all' && !(SCHEDULED_POST_STATUSES as readonly string[]).includes(statusParam)) {
+    return c.json({ success: false, error: `Invalid status. Use one of: ${[...SCHEDULED_POST_STATUSES, 'all'].join(', ')}` }, 400);
+  }
+  const limitParam = c.req.query('limit');
+  const offsetParam = c.req.query('offset');
+  const isLegacyQuery = statusParam === 'scheduled' && limitParam === undefined && offsetParam === undefined;
+  let limit: number | undefined;
+  let offset: number | undefined;
+  if (!isLegacyQuery) {
+    limit = limitParam === undefined ? SCHEDULED_LIST_DEFAULT_LIMIT : Number(limitParam);
+    offset = offsetParam === undefined ? 0 : Number(offsetParam);
+    if (!Number.isInteger(limit) || limit < 1 || limit > SCHEDULED_LIST_MAX_LIMIT || !Number.isInteger(offset) || offset < 0) {
+      return c.json({ success: false, error: `limit must be 1-${SCHEDULED_LIST_MAX_LIMIT} and offset >= 0` }, 400);
+    }
+  }
+  const items = await getScheduledPosts(c.env.DB, {
+    status: statusParam === 'all' ? undefined : statusParam,
+    xAccountId: xAccountId ?? undefined,
+    limit,
+    offset,
+    newestFirst: statusParam !== 'scheduled',
   });
+  return c.json({ success: true, data: items.map(serializeScheduledPost) });
+});
+
+// POST /api/posts/scheduled/:id/requeue — put a FAILED post back in the queue.
+// Body (optional): { scheduledAt, confirmNotPosted } — defaults to the post's
+// slot, rolled to the next free slot. Refuses posts X already accepted
+// (posted_tweet_id set); a post still holding its send claim (outcome unknown)
+// needs confirmNotPosted: true.
+posts.post('/api/posts/scheduled/:id/requeue', async (c) => {
+  const id = c.req.param('id');
+  const post = await getScheduledPostById(c.env.DB, id);
+  if (!post) return c.json({ success: false, error: 'Not found' }, 404);
+  if (post.status !== 'failed' || post.posted_tweet_id) {
+    return c.json({ success: false, error: 'Only failed posts that X never accepted can be requeued' }, 409);
+  }
+  // An empty body means "next free slot"; a non-empty body must be valid JSON.
+  let body: { scheduledAt?: unknown; confirmNotPosted?: unknown } = {};
+  const rawBody = (await c.req.text()).trim();
+  if (rawBody) {
+    try {
+      const parsed = JSON.parse(rawBody) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+      body = parsed as { scheduledAt?: unknown; confirmNotPosted?: unknown };
+    } catch {
+      return c.json({ success: false, error: 'Invalid JSON body' }, 400);
+    }
+  }
+  // A failed post that still holds its send claim may have reached X (the
+  // response was lost). Releasing it is an operator decision: they must
+  // confirm on X that the post is not there.
+  const claimed = await c.env.DB
+    .prepare('SELECT 1 AS held FROM scheduled_post_claims WHERE post_id = ?')
+    .bind(id)
+    .first<{ held: number }>();
+  if (claimed && body.confirmNotPosted !== true) {
+    return c.json({
+      success: false,
+      code: 'CONFIRM_NOT_POSTED_REQUIRED',
+      error: 'This post may have reached X. Check on X that it was not published, then retry with { "confirmNotPosted": true }',
+    }, 409);
+  }
+  let requested = post.scheduled_at;
+  if (body.scheduledAt !== undefined) {
+    const ms = typeof body.scheduledAt === 'string' ? parseScheduledAtMs(body.scheduledAt) : NaN;
+    if (Number.isNaN(ms)) {
+      return c.json({ success: false, error: 'scheduledAt must be YYYY-MM-DDTHH:MM:SS+09:00' }, 400);
+    }
+    requested = toJstString(new Date(ms));
+  }
+  const scheduledAt = await resolveFreeSlot(c.env.DB, post.x_account_id, requested, { rollStale: true });
+  const ok = await requeueFailedScheduledPost(c.env.DB, id, scheduledAt);
+  if (!ok) return c.json({ success: false, error: 'Post changed state; not requeued' }, 409);
+  // Keep an originating growth draft's slot in sync (the dashboard shows the draft's time).
+  await c.env.DB
+    .prepare('UPDATE growth_drafts SET scheduled_at = ?, updated_at = ? WHERE scheduled_post_id = ?')
+    .bind(scheduledAt, toJstString(new Date()), id)
+    .run();
+  const updated = await getScheduledPostById(c.env.DB, id);
+  return c.json({ success: true, data: updated ? serializeScheduledPost(updated) : { id, status: 'scheduled', scheduledAt } });
 });
 
 posts.delete('/api/posts/scheduled/:id', async (c) => {

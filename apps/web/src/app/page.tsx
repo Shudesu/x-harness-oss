@@ -9,6 +9,7 @@ import type { AccountStats, FollowerSnapshot } from '@/lib/api'
 import Header from '@/components/layout/header'
 import { useCurrentAccountId } from '@/hooks/use-selected-account'
 import { HarnessStatCard } from '@/components/ui/harness-ui'
+import HealthBanner from '@/components/health-banner'
 
 interface DashboardStats {
   activeGateCount: number | null
@@ -147,6 +148,7 @@ export default function DashboardPage() {
       <SpendPanel />
       <AiPanel />
       <Header title="ダッシュボード" description="X Harness の概要" product="X" />
+      <HealthBanner />
 
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">

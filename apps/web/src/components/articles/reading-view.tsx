@@ -1,15 +1,12 @@
-// Readable text preview. React escapes all content; no HTML or remote images execute.
-export default function ArticleReadingView({ title, body }: { title: string; body: string }) {
-  const blocks = body.split(/\n\s*\n/).filter(Boolean)
+import ArticleBody, { ArticleImage } from './article-body'
+
+// Reading preview shared by 記事スタジオ and the グロース画面: cover image,
+// title and the body rendered the way the published X article reads.
+export default function ArticleReadingView({ title, body, cover, note = true }: { title: string; body: string; cover?: string | null; note?: boolean }) {
   return <article className="min-h-[52vh] break-words">
-    <p className="mb-6 text-xs text-kumo-subtle">読みやすさの確認用プレビュー · X上の表示とは異なる場合があります</p>
-    <h1 className="mb-9 text-2xl font-bold leading-relaxed sm:text-3xl">{title || 'タイトル未入力'}</h1>
-    <div className="space-y-6 text-base leading-8">{blocks.length ? blocks.map((block, i) => {
-      const heading = block.match(/^(#{1,6}) +([^\n]+)$/)
-      if (heading) return <h2 key={i} className="pt-4 text-xl font-semibold leading-8">{heading[2]}</h2>
-      if (block.split('\n').every(line => /^[-*] +/.test(line))) return <ul key={i} className="list-disc space-y-2 pl-6">{block.split('\n').map((line, j) => <li key={j}>{line.replace(/^[-*] +/, '')}</li>)}</ul>
-      if (block.startsWith('> ')) return <blockquote key={i} className="whitespace-pre-wrap border-l-4 border-kumo-line pl-5 text-kumo-subtle">{block.replace(/^> ?/gm, '')}</blockquote>
-      return <p key={i} className="whitespace-pre-wrap">{block}</p>
-    }) : <p className="text-kumo-subtle">本文を入力すると、ここで読み返せます。</p>}</div>
+    {note && <p className="mb-5 text-xs text-kumo-subtle">Xの記事に近い見た目のプレビューです · 実際の表示とは細部が異なる場合があります</p>}
+    {cover && <ArticleImage src={cover} alt="表紙画像" className="aspect-[5/2] object-cover" />}
+    <h1 className="mb-8 mt-6 text-2xl font-bold leading-relaxed sm:text-3xl">{title || 'タイトル未入力'}</h1>
+    {body.trim() ? <ArticleBody md={body} /> : <p className="text-kumo-subtle">本文を入力すると、ここで読み返せます。</p>}
   </article>
 }

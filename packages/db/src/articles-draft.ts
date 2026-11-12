@@ -96,6 +96,28 @@ export async function updateGrowthArticle(
     .run();
 }
 
+/**
+ * Compare-and-set update: applies only while the row is still the snapshot
+ * the caller read (same updated_at, still an editable draft). Returns false
+ * when someone else changed it in the meantime.
+ */
+export async function updateGrowthArticleIfUnchanged(
+  db: D1Database,
+  id: string,
+  expectedUpdatedAt: string,
+  patch: { bodyMd?: string; imageUrl?: string },
+): Promise<boolean> {
+  const sets: string[] = ['updated_at = ?'];
+  const binds: unknown[] = [jstNow()];
+  if (patch.bodyMd !== undefined) { sets.push('body_md = ?'); binds.push(patch.bodyMd); }
+  if (patch.imageUrl !== undefined) { sets.push('image_url = ?'); binds.push(patch.imageUrl); }
+  const res = await db
+    .prepare(`UPDATE growth_articles SET ${sets.join(', ')} WHERE id = ? AND updated_at = ? AND status = 'draft' AND (x_article_draft_id IS NULL OR x_article_draft_id LIKE 'creating:%')`)
+    .bind(...binds, id, expectedUpdatedAt)
+    .run();
+  return (res.meta?.changes ?? 0) > 0;
+}
+
 export async function setGrowthArticleStatus(
   db: D1Database,
   id: string,
@@ -118,5 +140,52 @@ export async function setGrowthArticleXDraftId(
   await db
     .prepare('UPDATE growth_articles SET x_article_draft_id = ?, updated_at = ? WHERE id = ?')
     .bind(xArticleDraftId, now, id)
+    .run();
+}
+
+// Attach an X article draft that was created outside this worker (e.g. via
+// MCP or the X UI). Only fills an empty slot so it can never overwrite a
+// draft the harness itself created. Returns true when the row was updated.
+export async function linkGrowthArticleXDraftId(
+  db: D1Database,
+  id: string,
+  xArticleDraftId: string,
+): Promise<boolean> {
+  const now = jstNow();
+  const res = await db
+    .prepare("UPDATE growth_articles SET x_article_draft_id = ?, updated_at = ? WHERE id = ? AND status = 'draft' AND (x_article_draft_id IS NULL OR (x_article_draft_id LIKE 'creating:%' AND x_article_draft_id < ?))")
+    .bind(xArticleDraftId, now, id, `${X_DRAFT_CLAIM_PREFIX}${new Date(Date.now() - X_DRAFT_CLAIM_TTL_MS).toISOString()}`)
+    .run();
+  return (res.meta?.changes ?? 0) > 0;
+}
+
+// X draft creation is claimed in D1 before calling X so two overlapping
+// requests cannot both create a draft (X allows 10 per 24h). The claim value
+// is `creating:<ISO time>`; a claim older than 10 minutes (crashed request)
+// may be taken over. Returns the claim token, or null if already taken.
+export const X_DRAFT_CLAIM_PREFIX = 'creating:';
+export function isXDraftClaim(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.startsWith(X_DRAFT_CLAIM_PREFIX);
+}
+const X_DRAFT_CLAIM_TTL_MS = 10 * 60 * 1000;
+/** A claim younger than 10 minutes: another request may still be creating the draft. */
+export function isActiveXDraftClaim(value: string | null | undefined, now = new Date()): boolean {
+  if (!isXDraftClaim(value)) return false;
+  const at = Date.parse((value as string).slice(X_DRAFT_CLAIM_PREFIX.length));
+  return Number.isNaN(at) || now.getTime() - at < X_DRAFT_CLAIM_TTL_MS;
+}
+export async function claimGrowthArticleXDraft(db: D1Database, id: string, now = new Date()): Promise<string | null> {
+  const token = `${X_DRAFT_CLAIM_PREFIX}${now.toISOString()}`;
+  const stale = `${X_DRAFT_CLAIM_PREFIX}${new Date(now.getTime() - X_DRAFT_CLAIM_TTL_MS).toISOString()}`;
+  const res = await db
+    .prepare("UPDATE growth_articles SET x_article_draft_id = ? WHERE id = ? AND status = 'draft' AND (x_article_draft_id IS NULL OR (x_article_draft_id LIKE 'creating:%' AND x_article_draft_id < ?))")
+    .bind(token, id, stale)
+    .run();
+  return (res.meta?.changes ?? 0) > 0 ? token : null;
+}
+export async function settleGrowthArticleXDraftClaim(db: D1Database, id: string, token: string, xArticleDraftId: string | null): Promise<void> {
+  await db
+    .prepare('UPDATE growth_articles SET x_article_draft_id = ?, updated_at = ? WHERE id = ? AND x_article_draft_id = ?')
+    .bind(xArticleDraftId, jstNow(), id, token)
     .run();
 }

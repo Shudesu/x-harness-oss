@@ -57,6 +57,9 @@ const createScheduledPostMock = vi.fn(async (...args: any[]) => ({
   updated_at: '2026-07-11 00:00:00',
 }));
 
+const archiveExpiredMock = vi.fn(async (..._a: any[]) => ({ count: 412, archivedAt: '2026-11-11T06:30:00.000Z', before: '2026-11-11T00:00:00+09:00' }));
+const unarchiveMock = vi.fn(async (..._a: any[]) => 412);
+
 vi.mock('@x-harness/db', async (importOriginal) => ({
   ...(await importOriginal<any>()),
   createGrowthDraft: (...a: Parameters<typeof createGrowthDraftMock>) => createGrowthDraftMock(...a),
@@ -69,9 +72,12 @@ vi.mock('@x-harness/db', async (importOriginal) => ({
   getGrowthDigestByDate: (...a: Parameters<typeof getGrowthDigestByDateMock>) => getGrowthDigestByDateMock(...a),
   createScheduledPost: (...a: Parameters<typeof createScheduledPostMock>) => createScheduledPostMock(...a),
   resolveFreeSlot: (...a: Parameters<typeof resolveFreeSlotMock>) => resolveFreeSlotMock(...a),
+  archiveExpiredGrowthDrafts: (...a: any[]) => archiveExpiredMock(...a),
+  unarchiveGrowthDrafts: (...a: any[]) => unarchiveMock(...a),
 }));
 
 import { growth } from '../growth.js';
+import { jstDayStart } from '@x-harness/db';
 
 const env = { DB: {} } as any;
 
@@ -341,5 +347,67 @@ describe('/api/growth routes', () => {
     const body = await res.json() as any;
     expect(body.data.date).toBe('2026-07-11');
     expect(body.data.payload.foo).toBe('bar');
+  });
+
+  // ── archive / unarchive (v1.1.1) ──
+  const post = (path: string, body: unknown) =>
+    growth.request(new Request(`http://local${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), undefined, env);
+
+  it('archive-expired defaults to the start of today and returns the undo key', async () => {
+    const res = await post('/api/growth/drafts/archive-expired', {});
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.data).toMatchObject({ count: 412, archivedAt: '2026-11-11T06:30:00.000Z', dryRun: false });
+    expect(archiveExpiredMock).toHaveBeenCalledWith({}, { before: undefined, xAccountId: undefined, dryRun: false });
+  });
+
+  it('archive-expired supports dryRun and xAccountId', async () => {
+    await post('/api/growth/drafts/archive-expired', { dryRun: true, xAccountId: 'acc1', before: '2026-11-01T00:00:00+09:00' });
+    expect(archiveExpiredMock).toHaveBeenCalledWith({}, { before: '2026-11-01T00:00:00+09:00', xAccountId: 'acc1', dryRun: true });
+  });
+
+  it('archive-expired rejects an invalid or future cutoff', async () => {
+    expect((await post('/api/growth/drafts/archive-expired', { before: 'yesterday' })).status).toBe(400);
+    expect((await post('/api/growth/drafts/archive-expired', { before: '2099-01-01T00:00:00+09:00' })).status).toBe(400);
+    // Earlier today (JST) is still "today" — must not archive the live queue.
+    const todayNoonJst = new Date(Date.parse(jstDayStart()) + 60_000).toISOString();
+    expect((await post('/api/growth/drafts/archive-expired', { before: todayNoonJst })).status).toBe(400);
+    expect(archiveExpiredMock).not.toHaveBeenCalled();
+  });
+
+  it('archive / unarchive reject malformed JSON instead of archiving everything', async () => {
+    const raw = (path: string, body: string) => growth.request(new Request(`http://local${path}`, { method: 'POST', body }), undefined, env);
+    expect((await raw('/api/growth/drafts/archive-expired', '{"dryRun":true,')).status).toBe(400);
+    expect((await raw('/api/growth/drafts/archive-expired', '[1]')).status).toBe(400);
+    expect((await raw('/api/growth/drafts/unarchive', '{"all":true')).status).toBe(400);
+    expect(archiveExpiredMock).not.toHaveBeenCalled();
+    expect(unarchiveMock).not.toHaveBeenCalled();
+    // An empty body is fine (defaults).
+    expect((await raw('/api/growth/drafts/archive-expired', '')).status).toBe(200);
+  });
+
+  it('unarchive requires a target and passes it through', async () => {
+    expect((await post('/api/growth/drafts/unarchive', {})).status).toBe(400);
+    expect((await post('/api/growth/drafts/unarchive', { ids: [] })).status).toBe(400);
+    const res = await post('/api/growth/drafts/unarchive', { archivedAt: '2026-11-11T06:30:00.000Z' });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).data.count).toBe(412);
+    expect(unarchiveMock).toHaveBeenCalledWith({}, { ids: undefined, archivedAt: '2026-11-11T06:30:00.000Z', all: false });
+    await post('/api/growth/drafts/unarchive', { ids: ['a', 3, 'b'] });
+    expect(unarchiveMock).toHaveBeenLastCalledWith({}, { ids: ['a', 'b'], archivedAt: undefined, all: false });
+  });
+
+  it('approve / reject / edit refuse an archived draft (restore first)', async () => {
+    const archived = { id: 'draft1', x_account_id: 'acc1', type: 'quote_rt', text: 'x', quote_tweet_id: null, scheduled_at: FUTURE_SLOT, status: 'pending', scheduled_post_id: null, created_at: 'c', updated_at: 'u', archived_at: '2026-11-11T06:30:00.000Z' };
+    getGrowthDraftMock.mockResolvedValueOnce(archived).mockResolvedValueOnce(archived).mockResolvedValueOnce(archived);
+    {
+      expect((await post('/api/growth/drafts/draft1/approve', {})).status).toBe(409);
+      expect((await post('/api/growth/drafts/draft1/reject', {})).status).toBe(409);
+      const patch = await growth.request(new Request('http://local/api/growth/drafts/draft1', { method: 'PATCH', body: JSON.stringify({ text: 'y' }) }), undefined, env);
+      expect(patch.status).toBe(409);
+      expect(createScheduledPostMock).not.toHaveBeenCalled();
+      expect(setGrowthDraftStatusMock).not.toHaveBeenCalled();
+      expect(updateGrowthDraftMock).not.toHaveBeenCalled();
+    }
   });
 });
