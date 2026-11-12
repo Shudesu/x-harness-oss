@@ -1,7 +1,16 @@
 import { buildXClient } from '../services/x-client.js';
 import { Hono } from 'hono';
 import { XClient, XApiRateLimitError } from '@x-harness/x-sdk';
-import type { ArticleContentState, ArticleContentBlock, ArticleEntity } from '@x-harness/x-sdk';
+import type { ArticleContentState } from '@x-harness/x-sdk';
+import {
+  collectInlineImageUrls,
+  convertMarkdownToArticle,
+  validateArticle,
+  INLINE_GIF_CATEGORY,
+  INLINE_IMAGE_CATEGORY,
+  INLINE_VIDEO_CATEGORY,
+  type InlineMedia,
+} from '../services/article-markdown.js';
 import { getXAccountById, incrementApiUsage } from '@x-harness/db';
 import type { Env } from '../index.js';
 
@@ -18,212 +27,22 @@ export function errorMessage(err: unknown, fallback: string): string {
 }
 
 
-// Convert markdown-lite body text into DraftJS-style content blocks.
-// Supported per line-group: "# " → header-one, "## " → header-two,
-// "> " → blockquote, "- "/"* " → unordered-list-item (one block per line),
-// "1. " → ordered-list-item, ``` fences → plain paragraph (the article
-// editor has no code-block type), "![alt](url)" on its own paragraph →
-// atomic block + media entity (url must resolve via mediaMap; images and
-// videos both use entity type "image" — videos differ only in
-// media_category amplify_video, mirroring the read-side AmplifyVideo),
-// a bare X status URL on its own paragraph → embedded-post entity,
-// everything else → unstyled paragraph.
-// Inline: **bold** → inline_style_ranges style "bold" (write-side enum is
-// lowercase [bold, italic, strikethrough] — the editor's read side shows
-// "Bold" but the API rejects it; verified live 2026-07-18), `code` →
-// backticks stripped (no code style exists).
-// The Articles API validates content_state strictly and wants snake_case
-// range fields: entity_ranges is accepted (verified live 2026-07-17);
-// camelCase DraftJS names are rejected as additionalProperties. The same
-// applies inside entity data: media_items/media_id/media_category — the
-// read-side camelCase (mediaItems/mediaId) is rejected on write.
-
-// Strip inline markdown markers and emit Bold ranges. Offsets/lengths are
-// UTF-16 code units (JS string indexing), which is how the editor counts.
-export function parseInlineStyles(raw: string): {
-  text: string;
-  ranges: { offset: number; length: number; style: string }[];
-} {
-  const ranges: { offset: number; length: number; style: string }[] = [];
-  let text = '';
-  let i = 0;
-  while (i < raw.length) {
-    if (raw.startsWith('**', i)) {
-      const end = raw.indexOf('**', i + 2);
-      if (end > i + 2) {
-        const inner = raw.slice(i + 2, end).replace(/`/g, '');
-        ranges.push({ offset: text.length, length: inner.length, style: 'bold' });
-        text += inner;
-        i = end + 2;
-        continue;
-      }
-    }
-    if (raw[i] === '`') {
-      const end = raw.indexOf('`', i + 1);
-      if (end !== -1) {
-        text += raw.slice(i + 1, end);
-        i = end + 1;
-        continue;
-      }
-    }
-    text += raw[i];
-    i++;
-  }
-  return { text, ranges };
-}
-
-function block(raw: string, type: string): ArticleContentBlock {
-  const { text, ranges } = parseInlineStyles(raw);
-  return { text, type, ...(ranges.length ? { inline_style_ranges: ranges } : {}) };
-}
-
-// Standalone-image paragraph: ![alt](url) alone in its own paragraph.
-// The URL is captured greedily to the final ')' so URLs containing parens
-// (e.g. .../img_(1).png) still match; \S+ keeps it a single token.
-export const IMAGE_PARAGRAPH_RE = /^!\[([^\]]*)\]\((\S+)\)$/;
-
-// Inline media is uploaded and referenced with the same category — the
-// draft validator rejects mismatches, so both sides share these constants.
-// Categories per MIME type (read-side shows TweetImage / AmplifyVideo in
-// published articles; write-side takes the snake_case form):
-const INLINE_IMAGE_CATEGORY = 'tweet_image';
-const INLINE_GIF_CATEGORY = 'tweet_gif';
-const INLINE_VIDEO_CATEGORY = 'amplify_video';
-
-export interface InlineMedia {
-  media_id: string;
-  media_category: string;
-}
-
-// A standalone paragraph that is exactly one X status URL becomes an
-// embedded-post entity. Deliberately strict (whole paragraph, nothing else)
-// so prose containing links keeps rendering as text.
-export const POST_PARAGRAPH_RE = /^https:\/\/(?:x|twitter)\.com\/[A-Za-z0-9_]+\/status\/(\d+)(?:\?\S*)?$/;
+// Markdown → content_state conversion lives in services/article-markdown.ts
+// (re-exported here for existing importers).
+export {
+  parseInlineStyles,
+  parseInline,
+  IMAGE_PARAGRAPH_RE,
+  POST_PARAGRAPH_RE,
+  collectInlineImageUrls,
+  markdownToContentState,
+  convertMarkdownToArticle,
+  validateArticle,
+} from '../services/article-markdown.js';
+export type { InlineMedia } from '../services/article-markdown.js';
 
 // A caller-input problem with an inline image (unfetchable URL, bad scheme).
-// The route maps this to 400 — it is not a server fault.
 export class InlineImageError extends Error {}
-
-// Shared tokenization for the converter and the image collector: ``` fences
-// are pulled out first (their content must not be paragraph-split, inline-
-// parsed, or image-scanned), then the rest splits on blank lines. Both
-// consumers seeing the same paragraphs guarantees the uploaded image set
-// and the converted image set always agree.
-function segmentBody(body: string): { fences: string[]; paragraphs: string[] } {
-  const fences: string[] = [];
-  const normalized = body.replace(/\r\n/g, '\n').replace(
-    /```[^\n]*\n?([\s\S]*?)```/g,
-    (_m, code: string) => `\n\n\u0000FENCE${fences.push(code.replace(/\n+$/, '')) - 1}\u0000\n\n`,
-  );
-  const paragraphs = normalized
-    .split(/\n{2,}/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-  return { fences, paragraphs };
-}
-
-// Every image URL the converter will turn into an entity — same segmentation.
-export function collectInlineImageUrls(body: string): string[] {
-  const urls = new Set<string>();
-  for (const para of segmentBody(body).paragraphs) {
-    const m = para.match(IMAGE_PARAGRAPH_RE);
-    if (m) urls.add(m[2]);
-  }
-  return [...urls];
-}
-
-// mediaMap: media URL (as written in the markdown) → uploaded X media. A
-// bare string value is shorthand for an image media_id (tweet_image).
-// title: when given, a leading "# <title>" heading is dropped — the Articles
-// API renders the draft title separately, so keeping it duplicates the H1.
-export function markdownToContentState(
-  body: string,
-  mediaMap: Record<string, string | InlineMedia> = {},
-  title?: string,
-): ArticleContentState {
-  const blocks: ArticleContentBlock[] = [];
-  const entities: ArticleEntity[] = [];
-  const { fences, paragraphs } = segmentBody(body);
-
-  for (const [index, trimmed] of paragraphs.entries()) {
-    const fenceMatch = trimmed.match(/^\u0000FENCE(\d+)\u0000$/);
-    if (fenceMatch) {
-      const code = fences[Number(fenceMatch[1])];
-      if (code.trim()) blocks.push({ text: code, type: 'unstyled' });
-      continue;
-    }
-
-    const imageMatch = trimmed.match(IMAGE_PARAGRAPH_RE);
-    if (imageMatch) {
-      const [, alt, url] = imageMatch;
-      const entry = mediaMap[url];
-      if (!entry) {
-        throw new InlineImageError(`No uploaded media for inline image: ${url}`);
-      }
-      const media: InlineMedia =
-        typeof entry === 'string' ? { media_id: entry, media_category: INLINE_IMAGE_CATEGORY } : entry;
-      const key = entities.length;
-      entities.push({
-        key: String(key),
-        value: {
-          type: 'image',
-          mutability: 'immutable',
-          data: {
-            ...(alt ? { caption: alt } : {}),
-            media_items: [{ ...media }],
-          },
-        },
-      });
-      blocks.push({ text: ' ', type: 'atomic', entity_ranges: [{ offset: 0, length: 1, key }] });
-      continue;
-    }
-
-    const postMatch = trimmed.match(POST_PARAGRAPH_RE);
-    if (postMatch) {
-      const key = entities.length;
-      entities.push({
-        key: String(key),
-        value: {
-          type: 'post',
-          mutability: 'immutable',
-          data: { post_id: postMatch[1], url: trimmed },
-        },
-      });
-      blocks.push({ text: ' ', type: 'atomic', entity_ranges: [{ offset: 0, length: 1, key }] });
-      continue;
-    }
-
-    // Only the very first paragraph of the source can be the duplicated
-    // title (index-based — an image/fence opening the body must not hide a
-    // later duplicate H1 from this check by bumping blocks.length).
-    if (title && index === 0 && trimmed.startsWith('# ') && trimmed.slice(2).trim() === title.trim()) {
-      continue;
-    }
-
-    const lines = trimmed.split('\n');
-    const isList = lines.every((l) => /^(-|\*|\d+\.)\s+/.test(l.trim()));
-    if (isList && lines.length > 0) {
-      for (const line of lines) {
-        const t = line.trim();
-        const ordered = /^\d+\.\s+/.test(t);
-        blocks.push(block(t.replace(/^(-|\*|\d+\.)\s+/, ''), ordered ? 'ordered-list-item' : 'unordered-list-item'));
-      }
-      continue;
-    }
-
-    if (trimmed.startsWith('## ')) {
-      blocks.push(block(trimmed.slice(3).trim(), 'header-two'));
-    } else if (trimmed.startsWith('# ')) {
-      blocks.push(block(trimmed.slice(2).trim(), 'header-one'));
-    } else if (trimmed.startsWith('> ')) {
-      blocks.push(block(lines.map((l) => l.replace(/^>\s?/, '')).join('\n'), 'blockquote'));
-    } else {
-      blocks.push(block(lines.join('\n'), 'unstyled'));
-    }
-  }
-
-  return { blocks, entities };
-}
 
 // Where uploadInlineImages reads image bytes from besides plain HTTP:
 // growth images served by THIS worker must come from the R2 binding, because
@@ -288,32 +107,76 @@ export async function uploadArticleCover(
 }
 
 // Fetch every inline media URL referenced in the markdown body (same
-// paragraph segmentation as markdownToContentState, via
-// collectInlineImageUrls) and upload it to X media, returning
-// url → {media_id, media_category}. The category is picked from the actual
-// content type: video/* → amplify_video (chunked upload + processing wait),
-// image/gif → tweet_gif, anything else → tweet_image. Uploads run
-// concurrently (media upload allows 500/15min). Throws InlineImageError on
-// any failed fetch/upload so a broken reference is caught BEFORE the draft
-// call spends 24h-window quota (draft creation is capped at 10/24h and even
-// 400s consume it).
+// tokenizer as the converter, via collectInlineImageUrls) and upload it to
+// X media, returning url → {media_id, media_category}. The category is
+// picked from the actual content type: video/* → amplify_video (chunked
+// upload + processing wait), image/gif → tweet_gif, anything else →
+// tweet_image. Uploads run concurrently (media upload allows 500/15min).
+// A failed image does NOT fail the article: it is left out of mediaMap (the
+// converter then skips that block) and reported in warnings.
 export async function uploadInlineImages(
   body: string,
   xClient: XClient,
   source: InlineImageSource = {},
-): Promise<Record<string, InlineMedia>> {
-  const entries = await Promise.all(
-    collectInlineImageUrls(body).map(async (url): Promise<[string, InlineMedia]> => {
+): Promise<{ mediaMap: Record<string, InlineMedia>; warnings: string[]; failedUrls: string[] }> {
+  const urls = collectInlineImageUrls(body);
+  const settled = await Promise.allSettled(
+    urls.map(async (url): Promise<InlineMedia> => {
       const { data, contentType } = await loadArticleMedia(url, source);
       if (contentType.startsWith('video/')) {
         const mediaId = await xClient.uploadVideo(data, contentType, INLINE_VIDEO_CATEGORY);
-        return [url, { media_id: mediaId, media_category: INLINE_VIDEO_CATEGORY }];
+        return { media_id: mediaId, media_category: INLINE_VIDEO_CATEGORY };
       }
       const category = contentType === 'image/gif' ? INLINE_GIF_CATEGORY : INLINE_IMAGE_CATEGORY;
-      return [url, { media_id: await xClient.uploadMedia(data, contentType, category), media_category: category }];
+      return { media_id: await xClient.uploadMedia(data, contentType, category), media_category: category };
     }),
   );
-  return Object.fromEntries(entries);
+  const mediaMap: Record<string, InlineMedia> = {};
+  const warnings: string[] = [];
+  const failedUrls: string[] = [];
+  settled.forEach((r, i) => {
+    if (r.status === 'fulfilled') {
+      mediaMap[urls[i]] = r.value;
+    } else {
+      failedUrls.push(urls[i]);
+      const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+      warnings.push(`画像のアップロードに失敗したためスキップしました: ${urls[i]}（${reason}）`);
+    }
+  });
+  return { mediaMap, warnings, failedUrls };
+}
+
+// Markdown body → content_state with inline media uploaded, plus title /
+// length validation. Images that fail are skipped with a warning (or, with
+// strictImages, turned into errors); hard
+// validation errors are returned so the caller can 400 BEFORE spending the
+// 10/24h draft window (even 400s from X consume it).
+export async function buildArticleContent(
+  title: string,
+  body: string,
+  xClient: XClient,
+  source: InlineImageSource = {},
+  opts: { strictImages?: boolean } = {},
+): Promise<{ contentState: ArticleContentState; warnings: string[]; errors: string[] }> {
+  const upload = await uploadInlineImages(body, xClient, source);
+  const converted = convertMarkdownToArticle(body, { mediaMap: upload.mediaMap, title });
+  const validation = validateArticle(title, converted.contentState);
+  // upload warnings already explain the skipped blocks — don't double-report
+  const skipped = converted.warnings.filter((w) => !upload.failedUrls.some((u) => w.endsWith(`: ${u}`)));
+  if (opts.strictImages && upload.warnings.length) {
+    // one-shot draft+publish flows cannot show warnings before the article
+    // goes live, so a missing image must stop them instead
+    return {
+      contentState: converted.contentState,
+      warnings: validation.warnings,
+      errors: [...upload.warnings, ...validation.errors],
+    };
+  }
+  return {
+    contentState: converted.contentState,
+    warnings: [...upload.warnings, ...skipped, ...validation.warnings],
+    errors: validation.errors,
+  };
 }
 
 // POST /api/articles/draft — create a long-form Article draft
@@ -339,15 +202,26 @@ articles.post('/api/articles/draft', async (c) => {
 
   try {
     // Inline images are uploaded first — explicitly, not inline in the call —
-    // so any failure aborts before the draft call and the 10/24h draft
-    // window is never spent on a doomed request.
+    // and validation runs before the draft call, so a doomed request never
+    // spends the 10/24h draft window. A failed image is skipped + warned.
     let content_state = contentState;
+    let warnings: string[] = [];
     if (!content_state) {
-      const mediaMap = await uploadInlineImages(body!, xClient, {
+      const built = await buildArticleContent(title, body!, xClient, {
         workerUrl: c.env.WORKER_URL,
         growthImages: c.env.GROWTH_IMAGES,
       });
-      content_state = markdownToContentState(body!, mediaMap, title);
+      if (built.errors.length) {
+        return c.json({ success: false, error: built.errors.join(' / '), warnings: built.warnings }, 400);
+      }
+      content_state = built.contentState;
+      warnings = built.warnings;
+    } else {
+      const validation = validateArticle(title, content_state);
+      if (validation.errors.length) {
+        return c.json({ success: false, error: validation.errors.join(' / '), warnings: validation.warnings }, 400);
+      }
+      warnings = validation.warnings;
     }
     const draft = await xClient.createArticleDraft({
       title,
@@ -357,7 +231,7 @@ articles.post('/api/articles/draft', async (c) => {
       ...(coverMediaId ? { cover_media: { media_id: coverMediaId, media_category: 'tweet_image' } } : {}),
     });
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'article_draft'));
-    return c.json({ success: true, data: draft }, 201);
+    return c.json({ success: true, data: { ...draft, ...(warnings.length ? { warnings } : {}) } }, 201);
   } catch (err: any) {
     // A bad inline image is caller input, not a server fault.
     if (err instanceof InlineImageError) {

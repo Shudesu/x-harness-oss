@@ -20,8 +20,28 @@ create_article:
   coverMediaId: <upload_image で取得したメディアID>   # カバー画像(任意)
 ```
 
-- 段落として単独で書いた `![キャプション](https://...)` は、Worker が**実際に画像を fetch → X にアップロード → インライン画像 entity に変換**します(URL は https 必須)
-- 到達不能な画像 URL が 1 つでもあると、**draft 作成前に 400 で fail-fast** します(後述のレート制限を守るための設計)
+- 単独行で書いた `![キャプション](https://...)` は、Worker が**実際に画像を fetch → X にアップロード → インライン画像 entity に変換**します(URL は https 必須)。`![キャプション](media:<mediaId>)` なら `upload_image` 済みの ID をそのまま使います(GIF は `media:<id>#tweet_gif`)
+- 取得・アップロードに失敗した画像は**その画像だけスキップ**し、レスポンスの `warnings` に理由を返します(記事全体は失敗させない)
+- 送信前にバリデーションします: 表・コード(markdown entity)の加重文字数合計が 10,000 を超えると **draft 作成前に 400**(後述のレート制限を守るため)。タイトル 60 字超は `warnings` で警告
+
+### Markdown → content_state 対応表
+
+docs.x.com の `POST /2/articles/draft` スキーマ(2026-11-12 時点)に準拠しています。
+
+| Markdown | content_state |
+|---|---|
+| `# 見出し` | `header-one` |
+| `## 見出し` / `###` 以下 | `header-two`(Articles の見出しは 2 階層のみ。`header-three` は 5xx) |
+| `- 項目` / `* ` / `+ ` | `unordered-list-item`(1 項目 1 block。入れ子はフラット化) |
+| `1. 項目` / `1) ` | `ordered-list-item` |
+| `> 引用` | `blockquote` |
+| `**太字**` `__太字__` / `*斜体*` `_斜体_` / `~~取消~~` | `inline_style_ranges` の `bold` / `italic` / `strikethrough` |
+| `[テキスト](https://...)` / `<https://...>` / 裸の URL | `link` entity(`mutable`, `{url}`)。文字列は分断しない |
+| GFM 表 / ` ``` ` コードフェンス | `atomic` block + `markdown` entity(`mutable`, `{markdown}`) |
+| `---` / `***` / `___` | `atomic` block + `divider` entity(`{}`) |
+| 単独行の `![alt](https://…)` / `![alt](media:<id>)` | `atomic` block + `image` entity(`{caption?, media_items}`) |
+| 単独行の `https://x.com/<user>/status/<id>` | `atomic` block + `post` entity(`{post_id}`) |
+| `` `code` `` | バッククォートを外した素の文字(インラインコードのスタイルは無い) |
 - 冒頭の `# タイトル` が記事タイトルと同一なら自動で除去されます(Articles はタイトルを別枠表示するため二重になる)
 - 公開は `publish_article`(**X Premium が必要** — 2024年の登場時は Premium+ 限定だったが、2026-01-07 に全 Premium プランへ開放された。実測: Premium(月額プラン)アカウントで publish 成功)
 
@@ -72,12 +92,12 @@ create_article:
 | type | data スキーマ | 備考 |
 |---|---|---|
 | `image` | `{caption?, url?, media_items: [{media_id, media_category}]}` | 公開までレンダリング検証済み |
-| `post` | `{post_id?, url?, entity_key?}` | ツイート埋め込み。キー名は確定、レンダリング未検証 |
+| `post` | `{post_id?, url?, entity_key?}` | ツイート埋め込み。公式ドキュメントは `post_id` を案内 |
 | `link` | `{url}` | |
 | `markdown` | `{markdown}` | |
-| `emoji` | `{url}` | 読み側は twemoji SVG の URL |
+| `emoji` | `{entity_key}`(公式) | 実測時は `{url}` も通った。読み側は twemoji SVG の URL |
 | `divider` | `{}` | |
-| `latex` | 不明 | latex / formula / text いずれも拒否 |
+| `latex` | `{}` | 公式: TeX ソースは block の text に入れる(X Harness の変換は未対応) |
 
 動画は専用の entity type が無く、`media_items` の `media_category` を `tweet_video` にする想定(未検証)。
 

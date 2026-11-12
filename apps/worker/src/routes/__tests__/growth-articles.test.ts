@@ -210,6 +210,69 @@ describe('/api/growth/articles routes', () => {
     });
   });
 
+  it('aborts with 400 before creating a draft when an inline image fails (one-shot publish)', async () => {
+    getGrowthArticleMock.mockResolvedValueOnce({
+      ...mockArticle,
+      body_md: '本文\n\n![ok](https://w.test/api/growth/img/ok.png)\n\n![ng](https://w.test/api/growth/img/missing.png)\n\n[リンク](https://example.com)',
+    });
+    const r2 = {
+      get: vi.fn(async (key: string) =>
+        key === 'growth/ok.png'
+          ? { arrayBuffer: async () => new ArrayBuffer(4), httpMetadata: { contentType: 'image/png' } }
+          : null,
+      ),
+    };
+    const req = new Request('http://local/api/growth/articles/art1/publish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    const res = await growthArticles.request(req, undefined, { DB: {}, WORKER_URL: 'https://w.test', GROWTH_IMAGES: r2 } as any);
+
+    expect(res.status).toBe(400);
+    expect(createArticleDraftMock).not.toHaveBeenCalled();
+    expect(publishArticleMock).not.toHaveBeenCalled();
+    const json = (await res.json()) as any;
+    expect(json.error).toMatch(/missing\.png/);
+  });
+
+  it('converts links and images into entities on the publish path', async () => {
+    getGrowthArticleMock.mockResolvedValueOnce({
+      ...mockArticle,
+      body_md: '本文\n\n![ok](https://w.test/api/growth/img/ok.png)\n\n[リンク](https://example.com)',
+    });
+    const r2 = {
+      get: vi.fn(async () => ({ arrayBuffer: async () => new ArrayBuffer(4), httpMetadata: { contentType: 'image/png' } })),
+    };
+    const req = new Request('http://local/api/growth/articles/art1/publish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    const res = await growthArticles.request(req, undefined, { DB: {}, WORKER_URL: 'https://w.test', GROWTH_IMAGES: r2 } as any);
+
+    expect(res.status).toBe(200);
+    const cs = (createArticleDraftMock.mock.calls[0] as any[])[0].content_state;
+    expect(cs.entities.map((e: any) => e.value.type)).toEqual(['image', 'link']);
+    expect(cs.entities[0].value.data.media_items).toEqual([{ media_id: 'media-123', media_category: 'tweet_image' }]);
+  });
+
+  it('rejects with 400 before spending the draft window when markdown blocks exceed the weighted cap', async () => {
+    getGrowthArticleMock.mockResolvedValueOnce({
+      ...mockArticle,
+      body_md: '```\n' + 'あ'.repeat(5001) + '\n```',
+    });
+    const req = new Request('http://local/api/growth/articles/art1/publish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    const res = await growthArticles.request(req, undefined, env);
+    expect(res.status).toBe(400);
+    expect(createArticleDraftMock).not.toHaveBeenCalled();
+    expect(publishArticleMock).not.toHaveBeenCalled();
+  });
+
   it('retries publishing the saved X draft without creating a duplicate', async () => {
     getGrowthArticleMock.mockResolvedValueOnce({ ...mockArticle, x_article_draft_id: 'x-draft-existing' });
     const req = new Request('http://local/api/growth/articles/art1/publish', {

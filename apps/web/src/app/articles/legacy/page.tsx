@@ -61,13 +61,17 @@ export default function ArticlesPage() {
     setMessage('')
     try {
       const res = await api.articles.createDraft({ xAccountId: selectedAccountId, title: title.trim(), body })
-      const record: DraftRecord = { ...res.data, createdAt: new Date().toISOString(), xAccountId: selectedAccountId }
+      const { warnings = [], ...draft } = res.data
+      const record: DraftRecord = { ...draft, createdAt: new Date().toISOString(), xAccountId: selectedAccountId }
       setDrafts((prev) => {
         const next = [record, ...prev]
         saveDrafts(next)
         return next
       })
-      setMessage(`下書きを作成しました（ID: ${res.data.id}）。Xの記事エディタからも確認できます。`)
+      setMessage(
+        `下書きを作成しました（ID: ${res.data.id}）。Xの記事エディタからも確認できます。` +
+          (warnings.length ? ` 注意: ${warnings.join(' / ')}` : ''),
+      )
       setTitle('')
       setBody('')
     } catch (err) {

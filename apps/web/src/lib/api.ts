@@ -209,6 +209,8 @@ export interface NewsStory {
 export interface ArticleDraft {
   id: string;
   title: string;
+  // e.g. skipped inline images, over-long title
+  warnings?: string[];
 }
 
 export const api = {
