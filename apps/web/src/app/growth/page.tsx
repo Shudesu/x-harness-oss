@@ -1182,12 +1182,17 @@ export default function GrowthPage() {
   }
 
   const handleArticlePublish = async (id: string) => {
-    const res = await fetchApi<ApiResponse<{ article_id: string; post_id: string }>>(`/api/growth/articles/${id}/publish`, {
+    const res = await fetchApi<ApiResponse<{ article_id: string; post_id: string; warnings?: string[] }>>(`/api/growth/articles/${id}/publish`, {
       method: 'POST',
       body: '{}',
     })
     await loadArticles()
-    showToast(`Xで公開しました（ポストID: ${res.data.post_id}）`)
+    const warnings = res.data.warnings ?? []
+    showToast(
+      warnings.length
+        ? `Xで公開しました（ポストID: ${res.data.post_id}）。注意: ${warnings.join(' / ')}`
+        : `Xで公開しました（ポストID: ${res.data.post_id}）`,
+    )
   }
 
   // Health line

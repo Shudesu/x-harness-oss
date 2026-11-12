@@ -12,10 +12,9 @@ import {
 } from '@x-harness/db';
 import {
   InlineImageError,
+  buildArticleContent,
   errorMessage,
-  markdownToContentState,
   uploadArticleCover,
-  uploadInlineImages,
 } from './articles.js';
 import type { Env } from '../index.js';
 
@@ -138,17 +137,25 @@ growthArticles.post('/api/growth/articles/:id/publish', async (c) => {
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
   const xClient = await buildXClient(c.env, account, 'growth-articles');
 
+  let warnings: string[] = [];
   try {
     let xArticleDraftId = article.x_article_draft_id;
     if (!xArticleDraftId) {
       const source = { workerUrl: c.env.WORKER_URL, growthImages: c.env.GROWTH_IMAGES };
-      const [mediaMap, coverMediaId] = await Promise.all([
-        uploadInlineImages(article.body_md, xClient, source),
+      const [built, coverMediaId] = await Promise.all([
+        // draft + publish happen in one call here, so a failed image must
+        // abort (strict) — otherwise the article goes live without it and the
+        // saved draft would hide that on retries
+        buildArticleContent(article.title, article.body_md, xClient, source, { strictImages: true }),
         article.image_url ? uploadArticleCover(article.image_url, xClient, source) : Promise.resolve(undefined),
       ]);
+      if (built.errors.length) {
+        return c.json({ success: false, error: built.errors.join(' / '), warnings: built.warnings }, 400);
+      }
+      warnings = built.warnings;
       const draft = await xClient.createArticleDraft({
         title: article.title,
-        content_state: markdownToContentState(article.body_md, mediaMap, article.title),
+        content_state: built.contentState,
         ...(coverMediaId
           ? { cover_media: { media_id: coverMediaId, media_category: 'tweet_image' } }
           : {}),
@@ -165,12 +172,14 @@ growthArticles.post('/api/growth/articles/:id/publish', async (c) => {
     await incrementApiUsage(c.env.DB, account.id, 'article_publish').catch(() => {});
     return c.json({
       success: true,
-      data: { article_id: xArticleDraftId, post_id: result.post_id },
+      data: { article_id: xArticleDraftId, post_id: result.post_id, ...(warnings.length ? { warnings } : {}) },
     });
   } catch (err) {
     const message = errorMessage(err, 'Failed to publish article');
+    // a draft may already have been created with skipped images — surface
+    // that so the caller knows before retrying the saved draft
     return c.json(
-      { success: false, error: message },
+      { success: false, error: message, ...(warnings.length ? { warnings } : {}) },
       err instanceof InlineImageError ? 400 : 500,
     );
   }

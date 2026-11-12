@@ -99,12 +99,19 @@ describe('parseInlineStyles', () => {
 });
 
 describe('markdownToContentState inline/fence handling', () => {
-  it('code fences become plain paragraphs, markers removed', async () => {
+  it('code fences become an atomic markdown entity (fence kept verbatim)', async () => {
     const { markdownToContentState } = await import('../articles.js');
     const cs = markdownToContentState('前段\n\n```bash\nnpx create-line-harness\n```\n\n後段');
-    const texts = cs.blocks.map((b) => b.text);
-    expect(texts).toEqual(['前段', 'npx create-line-harness', '後段']);
-    expect(JSON.stringify(cs)).not.toContain('```');
+    expect(cs.blocks.map((b) => [b.type, b.text])).toEqual([
+      ['unstyled', '前段'],
+      ['atomic', ' '],
+      ['unstyled', '後段'],
+    ]);
+    expect(cs.entities[0].value).toEqual({
+      type: 'markdown',
+      mutability: 'mutable',
+      data: { markdown: '```bash\nnpx create-line-harness\n```' },
+    });
   });
 
   it('bold in headers and lists carries inline_style_ranges', async () => {
@@ -125,7 +132,7 @@ describe('markdownToContentState inline/fence handling', () => {
     const prose = cs.blocks.slice(0, 2).map((b) => b.text).join('');
     expect(prose).not.toContain('**');
     expect(prose).not.toContain('`');
-    expect(cs.blocks[2].text).toBe('raw fence ** kept');  // fence内はそのまま
+    expect(cs.entities[0].value.data.markdown).toBe('```\nraw fence ** kept\n```');  // fence内はそのまま
   });
 });
 
@@ -160,8 +167,10 @@ describe('markdownToContentState inline images', () => {
     });
   });
 
-  it('throws when an inline image has no uploaded media_id', () => {
-    expect(() => markdownToContentState(`![](${URL})`)).toThrow(/No uploaded media/);
+  it('skips (does not throw on) an inline image with no uploaded media_id', () => {
+    const cs = markdownToContentState(`前\n\n![](${URL})\n\n後`);
+    expect(cs.blocks.map((b) => b.type)).toEqual(['unstyled', 'unstyled']);
+    expect(cs.entities).toEqual([]);
   });
 
   it('matches URLs containing parentheses', () => {
@@ -203,20 +212,19 @@ describe('collectInlineImageUrls', () => {
     expect(() => markdownToContentState(body)).not.toThrow();
   });
 
-  it('ignores an image line glued to other text by a single newline (not a standalone paragraph)', () => {
-    const body = `テキスト\n![](${URL})`;
-    expect(collectInlineImageUrls(body)).toEqual([]);
-    // converter keeps it as literal text in the same paragraph — consistent
-    const cs = markdownToContentState(body);
-    expect(cs.blocks[0].type).toBe('unstyled');
+  it('treats an image on its own line as standalone even without blank lines around it', () => {
+    const body = `テキスト\n![](${URL})\n続き`;
+    expect(collectInlineImageUrls(body)).toEqual([URL]);
+    const cs = markdownToContentState(body, { [URL]: '5' });
+    expect(cs.blocks.map((b) => b.type)).toEqual(['unstyled', 'atomic', 'unstyled']);
   });
 
-  it('agrees with the converter on multi-line alt text', () => {
-    const body = `![一行目\n二行目](${URL})`;
-    const urls = collectInlineImageUrls(body);
-    expect(urls).toEqual([URL]);
-    const cs = markdownToContentState(body, { [URL]: '5' });
-    expect(cs.blocks[0].type).toBe('atomic');
+  it('agrees with the converter when image syntax is inside prose (not collected, rendered as link)', () => {
+    const body = `説明 ![図](${URL}) の通り`;
+    expect(collectInlineImageUrls(body)).toEqual([]);
+    const cs = markdownToContentState(body);
+    expect(cs.blocks[0].type).toBe('unstyled');
+    expect(cs.entities[0].value).toEqual({ type: 'link', mutability: 'mutable', data: { url: URL } });
   });
 
   it('dedupes repeated URLs', () => {
@@ -246,7 +254,7 @@ describe('inline video and post embeds', () => {
     expect(cs.entities[0].value).toEqual({
       type: 'post',
       mutability: 'immutable',
-      data: { post_id: '2078366204960596165', url },
+      data: { post_id: '2078366204960596165' },
     });
   });
 
@@ -254,7 +262,7 @@ describe('inline video and post embeds', () => {
     const cs = markdownToContentState('https://twitter.com/a_b/status/123?s=20');
     expect(cs.entities[0].value.data.post_id).toBe('123');
     const prose = markdownToContentState('参考: https://x.com/a/status/123 を見て');
-    expect(prose.entities).toEqual([]);
+    expect(prose.entities.map((e) => e.value.type)).toEqual(['link']);
     expect(prose.blocks[0].type).toBe('unstyled');
   });
 });
@@ -314,5 +322,40 @@ describe('uploadArticleCover', () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe('buildArticleContent (create_article path)', () => {
+  const ok = 'https://w.test/api/growth/img/ok.png';
+  const ng = 'https://w.test/api/growth/img/missing.png';
+  const r2 = {
+    get: vi.fn(async (key: string) =>
+      key === 'growth/ok.png' ? { arrayBuffer: async () => new ArrayBuffer(4), httpMetadata: { contentType: 'image/png' } } : null,
+    ),
+  };
+  const source = { workerUrl: 'https://w.test', growthImages: r2 as any };
+
+  it('skips a failed image with one warning and keeps the rest of the article', async () => {
+    const { buildArticleContent } = await import('../articles.js');
+    const xClient = { uploadMedia: vi.fn(async () => 'm1') } as any;
+    const out = await buildArticleContent('題', `前\n\n![](${ok})\n\n![](${ng})\n\n後`, xClient, source);
+    expect(out.errors).toEqual([]);
+    expect(out.contentState.blocks.map((b) => b.type)).toEqual(['unstyled', 'atomic', 'unstyled']);
+    expect(out.warnings).toHaveLength(1);
+    expect(out.warnings[0]).toContain(ng);
+  });
+
+  it('strictImages turns a failed image into an error', async () => {
+    const { buildArticleContent } = await import('../articles.js');
+    const xClient = { uploadMedia: vi.fn(async () => 'm1') } as any;
+    const out = await buildArticleContent('題', `![](${ng})\n\n本文`, xClient, source, { strictImages: true });
+    expect(out.errors[0]).toContain(ng);
+  });
+
+  it('warns on a title over 60 characters but still builds', async () => {
+    const { buildArticleContent } = await import('../articles.js');
+    const out = await buildArticleContent('長'.repeat(61), '本文', {} as any);
+    expect(out.errors).toEqual([]);
+    expect(out.warnings.join()).toMatch(/61文字/);
   });
 });

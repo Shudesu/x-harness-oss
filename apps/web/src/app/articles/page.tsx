@@ -108,9 +108,12 @@ function Studio({ accountId }: { accountId: string }) {
   const publish = (article: Article) => {
     if (!window.confirm(`「${article.title}」をXに公開しますか？保存済みの本文を公開します。`)) return
     void run(async () => {
-      const res = await fetchApi<ApiResponse<{ post_id: string }>>(`/api/growth/articles/${article.id}/publish`, { method: 'POST', body: '{}' })
+      const res = await fetchApi<ApiResponse<{ post_id: string; warnings?: string[] }>>(`/api/growth/articles/${article.id}/publish`, { method: 'POST', body: '{}' })
       if (editing?.id === article.id) setEditing({ ...article, status: 'published', published_article_id: res.data.post_id })
-      setMessage('Xに公開しました。公開済みの記事から確認できます。')
+      const warnings = res.data.warnings ?? []
+      setMessage(warnings.length
+        ? `Xに公開しました（注意: ${warnings.join(' / ')}）`
+        : 'Xに公開しました。公開済みの記事から確認できます。')
       await load()
     })
   }

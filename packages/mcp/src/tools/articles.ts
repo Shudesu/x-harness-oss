@@ -2,13 +2,13 @@ export const articleToolDefs = [
   {
     name: 'create_article',
     description:
-      'X Article（長文記事）の下書きを作成する。bodyはMarkdown風テキスト（# 見出し / ## 小見出し / - リスト / > 引用 / **太字** / 空行で段落分け）。本文中に段落として単独で書いた ![キャプション](https://...) は実際にメディアをfetch→Xへアップロードしてインライン埋め込みになる（画像のほか動画URLならamplify_videoとしてチャンクアップロード+処理待ちまで自動。URLはhttps必須・到達不能なら下書き作成ごと400で失敗する。装飾でないMarkdown画像記法を不用意に含めないこと）。段落として単独で書いた https://x.com/…/status/… はポスト埋め込みentityになる。下書き作成は10件/24hの上限があり、バリデーションエラーでも1消費する。タイトルには文字数上限があり、超過するとdraft作成は201で通るのに公開APIが「article not found」を返す罠がある（44字は実測OK・60字超は不可、UIの下書き画面にだけ本当のエラーが出る）。公開にはアカウントのX Premium(いずれかのプラン)が必要 — 2026年1月に全Premiumへ開放済み',
+      'X Article（長文記事）の下書きを作成する。bodyはMarkdownで書けばX Articles公式のcontent_state(DraftJS)に変換される: # 見出し→大見出し / ## と ### →小見出し（Articlesは2階層のみ） / - ・1. リスト / > 引用 / **太字** *斜体* ~~取消線~~ / [テキスト](https://...) と裸URL→リンク / GFM表と```コード```→markdownブロック / --- →区切り線 / 単独行の https://x.com/…/status/… →ポスト埋め込み。単独行の ![キャプション](https://...) は画像をfetch→Xへアップロードしてインライン埋め込み（動画URLならamplify_video）。![キャプション](media:<mediaId>) と書けば upload_image 済みのメディアIDを直接使う（GIFは media:<id>#tweet_gif）。取得・アップロードに失敗した画像は記事全体を失敗させずスキップし、レスポンスの warnings に理由を返す。下書き作成は10件/24hの上限があり、バリデーションエラーでも1消費する（表・コードの加重文字数合計が1万超なら送信前に400で止める）。タイトルが60字を超えると warnings で警告する — draft作成は201で通るのに公開APIが「article not found」を返す罠がある（44字は実測OK）。公開にはアカウントのX Premium(いずれかのプラン)が必要 — 2026年1月に全Premiumへ開放済み',
     inputSchema: {
       type: 'object' as const,
       properties: {
         xAccountId: { type: 'string' },
         title: { type: 'string', description: '記事タイトル' },
-        body: { type: 'string', description: '記事本文（Markdown風。空行区切りで段落）' },
+        body: { type: 'string', description: '記事本文（Markdown。空行区切りで段落）' },
         coverMediaId: { type: 'string', description: 'カバー画像のメディアID（upload_image ツールで取得。省略するとカバー無しで作成される — 記事のサムネイルが必要なら必ず指定すること。推奨サイズ 1500×600 の 5:2）' },
       },
       required: ['xAccountId', 'title', 'body'],
