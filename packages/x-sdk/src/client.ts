@@ -9,6 +9,12 @@ export interface XClientHooks {
   onUsage?(usage: UsageEvent): Promise<void>;
   refreshToken?(): Promise<string>;
 }
+/** Long posts: X returns a shortened `text` and the full body in note_tweet.text. */
+export function withFullText<T extends { text: string; note_tweet?: { text?: string } }>(tweet: T): T {
+  const full = tweet.note_tweet?.text;
+  return typeof full === 'string' && full.length > 0 ? { ...tweet, text: full } : tweet;
+}
+
 export class XClient {
   private config: XClientConfig;
   private readonly baseUrl = 'https://api.x.com/2';
@@ -86,13 +92,16 @@ export class XClient {
   }
 
   async getUserTweets(userId: string, maxResults = 100, paginationToken?: string): Promise<XApiResponse<XTweetWithMetrics[]>> {
+    // note_tweet: long posts (>280) come back with `text` cut short and the
+    // full body in note_tweet.text — swap it in so callers see the whole post.
     const params = new URLSearchParams({
-      'tweet.fields': 'author_id,created_at,public_metrics,referenced_tweets',
+      'tweet.fields': 'author_id,created_at,public_metrics,referenced_tweets,note_tweet',
       expansions: 'referenced_tweets.id',
       max_results: String(maxResults),
     });
     if (paginationToken) params.set('pagination_token', paginationToken);
-    return this.get<XApiResponse<XTweetWithMetrics[]>>(`/users/${userId}/tweets?${params}`);
+    const res = await this.get<XApiResponse<XTweetWithMetrics[]>>(`/users/${userId}/tweets?${params}`);
+    return Array.isArray(res.data) ? { ...res, data: res.data.map(withFullText) } : res;
   }
 
   async getUserMentions(userId: string, paginationToken?: string): Promise<XApiResponse<XTweetWithMetrics[]>> {

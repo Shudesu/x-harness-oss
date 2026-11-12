@@ -47,4 +47,36 @@ describe('processScheduledPosts', () => {
       quote_tweet_id: undefined,
     });
   });
+
+  it('fails an over-limit post for a non-Premium account without calling X', async () => {
+    const db = mockDb([{
+      id: 'sp3', x_account_id: 'acc1', text: 'あ'.repeat(141),
+      media_ids: null, quote_tweet_id: null,
+      scheduled_at: '2026-07-11 08:00:00', status: 'scheduled',
+      posted_tweet_id: null, created_at: '', updated_at: '',
+    }]);
+    const xClient = {
+      createTweet: vi.fn(),
+      getMeWithSubscription: vi.fn(async () => ({ subscription_type: 'None' })),
+    } as any;
+    await processScheduledPosts(db, xClient);
+    expect(xClient.createTweet).not.toHaveBeenCalled();
+    expect(db.prepare.mock.calls.some(([sql]: [string]) => sql.includes('UPDATE scheduled_posts'))).toBe(true);
+  });
+
+  it('sends a long post in full for a Premium account', async () => {
+    const text = 'あ'.repeat(1000);
+    const db = mockDb([{
+      id: 'sp4', x_account_id: 'acc1', text,
+      media_ids: null, quote_tweet_id: null,
+      scheduled_at: '2026-07-11 08:00:00', status: 'scheduled',
+      posted_tweet_id: null, created_at: '', updated_at: '',
+    }]);
+    const xClient = {
+      createTweet: vi.fn(async () => ({ id: 'tw4', text })),
+      getMeWithSubscription: vi.fn(async () => ({ subscription_type: 'Premium' })),
+    } as any;
+    await processScheduledPosts(db, xClient);
+    expect(xClient.createTweet).toHaveBeenCalledWith(expect.objectContaining({ text }));
+  });
 });
