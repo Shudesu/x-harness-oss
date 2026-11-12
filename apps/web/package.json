@@ -15,6 +15,7 @@
     "next": "^15.5.28",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "twitter-text": "3.1.0",
     "zod": "^4.6.7",
     "@x-harness/shared": "workspace:*"
   },

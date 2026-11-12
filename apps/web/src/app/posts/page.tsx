@@ -33,7 +33,9 @@ interface MediaFile {
   type: 'image' | 'video'
 }
 
-function CharCounter({ text, limit }: { text: string; limit: number }) {
+// X's weighted count (日本語・絵文字=2, URL=23). Never cut the text in the
+// textarea: a hard maxLength silently dropped the end of long posts.
+function CharCounter({ text, limit, planKnown }: { text: string; limit: number; planKnown: boolean }) {
   const length = weightedLength(text)
   const pct = limit > 0 ? length / limit : 0
   const color =
@@ -44,6 +46,11 @@ function CharCounter({ text, limit }: { text: string; limit: number }) {
     <div className="mt-0.5 text-right">
       <p className={`text-xs ${color}`} title="日本語・全角・絵文字=2、URL=23 で数えています">
         {length}/{limit}
+        {length > limit && (!planKnown
+          ? '（280字超。X Premium のアカウントなら送信できます）'
+          : limit <= 280
+            ? '（280字を超えています。X Premium ではないため送信できません）'
+            : '（上限を超えています）')}
       </p>
       {endsWithStatusUrl(text) && (
         <p className="text-xs text-kumo-warning">最後の行のポストURLは、Xでは引用カードになり本文から消えて見えます</p>
@@ -66,6 +73,9 @@ export default function PostsPage() {
   // Subscription / char limit
   const [charLimit, setCharLimit] = useState(280)
   const [subscriptionType, setSubscriptionType] = useState('')
+  // Account the loaded plan belongs to. Until the selected account's plan is
+  // known, over-280 text is not blocked here — the worker checks the real plan.
+  const [planAccountId, setPlanAccountId] = useState('')
 
   // Immediate post form
   const [immTexts, setImmTexts] = useState([''])
@@ -116,11 +126,13 @@ export default function PostsPage() {
       if (res.success) {
         setCharLimit(res.data.charLimit)
         setSubscriptionType(res.data.subscriptionType)
+        setPlanAccountId(accountId)
       }
     } catch {
-      // fall back to 280
+      // fall back to 280 (display only; plan unknown)
       setCharLimit(280)
       setSubscriptionType('')
+      setPlanAccountId('')
     }
   }, [])
 
@@ -264,14 +276,16 @@ export default function PostsPage() {
     }
   }
 
+  const planKnown = !!subscriptionType && subscriptionType !== 'Unknown' && planAccountId === selectedAccountId
+  const displayLimit = planKnown ? charLimit : 280
+
   const handleImmediatePost = async (e: React.FormEvent) => {
     e.preventDefault()
     const texts = immTexts.filter((t) => t.trim())
     if (!selectedAccountId || texts.length === 0) return
-    // X counts weighted characters (CJK/emoji = 2, URL = 23); check every post first.
-    const tooLong = texts.findIndex((t) => weightedLength(t) > charLimit)
+    const tooLong = planKnown ? texts.findIndex((t) => weightedLength(t) > charLimit) : -1
     if (tooLong >= 0) {
-      setImmError(`${texts.length > 1 ? `${tooLong + 1}件目: ` : ''}文字数が上限（${charLimit}）を超えています。Xで送信できません`)
+      setImmError(`${texts.length > 1 ? `${tooLong + 1}件目: ` : ''}本文が${weightedLength(texts[tooLong])}字（日本語=2・URL=23で換算）で上限${charLimit}字を超えています`)
       return
     }
     setImmPosting(true)
@@ -297,7 +311,7 @@ export default function PostsPage() {
           setImmSuccess(['投稿しました', ...(res.warnings ?? [])].join(' ／ '))
           loadHistory()
         } else {
-          setImmError('投稿に失敗しました')
+          setImmError(res.error ?? '投稿に失敗しました')
         }
       } else {
         const res = await api.posts.thread({
@@ -311,11 +325,12 @@ export default function PostsPage() {
           setImmSuccess(`${texts.length}件のスレッドを投稿しました`)
           loadHistory()
         } else {
-          setImmError('スレッド投稿に失敗しました')
+          setImmError(res.error ?? 'スレッド投稿に失敗しました')
         }
       }
     } catch (err) {
-      setImmError(err instanceof Error ? `投稿に失敗しました: ${err.message}` : '投稿に失敗しました')
+      // The worker's TEXT_TOO_LONG message says why — show it.
+      setImmError(err instanceof Error && err.message ? err.message : '投稿に失敗しました')
     } finally {
       setImmPosting(false)
     }
@@ -324,8 +339,8 @@ export default function PostsPage() {
   const handleSchedule = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedAccountId || !schText.trim() || !schAt) return
-    if (weightedLength(schText) > charLimit) {
-      setSchError(`文字数が上限（${charLimit}）を超えています。このままでは予約時刻に送信が失敗します`)
+    if (planKnown && weightedLength(schText.trim()) > charLimit) {
+      setSchError(`本文が${weightedLength(schText.trim())}字（日本語=2・URL=23で換算）で上限${charLimit}字を超えています`)
       return
     }
     setSchCreating(true)
@@ -346,7 +361,7 @@ export default function PostsPage() {
         setSchError(res.error ?? 'エラーが発生しました')
       }
     } catch (err) {
-      setSchError(err instanceof Error ? `予約に失敗しました: ${err.message}` : '予約に失敗しました')
+      setSchError(err instanceof Error && err.message ? err.message : '予約に失敗しました')
     } finally {
       setSchCreating(false)
     }
@@ -432,7 +447,7 @@ export default function PostsPage() {
                     rows={3}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                   />
-                  <CharCounter text={text} limit={charLimit} />
+                  <CharCounter text={text} limit={displayLimit} planKnown={planKnown} />
                 </div>
               ))}
 
@@ -591,7 +606,7 @@ export default function PostsPage() {
                     rows={4}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                   />
-                  <CharCounter text={schText} limit={charLimit} />
+                  <CharCounter text={schText} limit={displayLimit} planKnown={planKnown} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">

@@ -4,6 +4,7 @@ import { XClient } from '@x-harness/x-sdk';
 import { createScheduledPost, getScheduledPosts, getScheduledPostById, requeueFailedScheduledPost, parseScheduledAtMs, toJstString, SCHEDULED_POST_STATUSES, deleteScheduledPost, getXAccountById, getXAccounts, incrementApiUsage, normalizeScheduledAt, resolveFreeSlot, saveQuoteTweets, getQuoteTweetsByAccount, getQuoteTweetsBySource, getLatestDiscoveredAt, recordAction, getActions } from '@x-harness/db';
 import type { DbScheduledPost, SaveQuoteTweetInput } from '@x-harness/db';
 import type { Env } from '../index.js';
+import { charLimitForPlan, checkTextLength, rememberPlan, tooLongResponseBody } from '../services/post-length.js';
 
 const posts = new Hono<Env>();
 
@@ -18,6 +19,8 @@ posts.post('/api/posts', async (c) => {
   const account = await getXAccountById(c.env.DB, xAccountId);
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
   const xClient = await buildXClient(c.env, account, 'posts');
+  const length = await checkTextLength(c.env.DB, xClient, account.id, text);
+  if (!length.ok) return c.json(tooLongResponseBody(length), 400);
   try {
     const tweet = await xClient.createTweet({
       text,
@@ -27,7 +30,7 @@ posts.post('/api/posts', async (c) => {
       ...(paidPartnership ? { paid_partnership: true } : {}),
     });
     c.executionCtx.waitUntil(incrementApiUsage(c.env.DB, account.id, 'create_tweet'));
-    return c.json({ success: true, data: tweet }, 201);
+    return c.json({ success: true, data: tweet, ...(length.warning ? { warnings: [length.warning] } : {}) }, 201);
   } catch (err: any) {
     return c.json({ success: false, error: err.message ?? 'Failed to create tweet' }, 500);
   }
@@ -42,6 +45,9 @@ posts.post('/api/posts/schedule', async (c) => {
   }
   const account = await getXAccountById(c.env.DB, xAccountId);
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
+  // Reject over-limit text now instead of letting the cron fail it later.
+  const length = await checkTextLength(c.env.DB, () => buildXClient(c.env, account, 'posts'), account.id, text);
+  if (!length.ok) return c.json(tooLongResponseBody(length), 400);
   // Avoid double-booking a slot already held by another scheduled post — two
   // posts due on the same cron tick fire simultaneously and read as a burst.
   // Past times are kept as-is (schedule-in-the-past means "post ASAP").
@@ -61,6 +67,7 @@ posts.post('/api/posts/schedule', async (c) => {
       postedTweetId: post.posted_tweet_id,
       createdAt: post.created_at,
     },
+    ...(length.warning ? { warnings: [length.warning] } : {}),
   }, 201);
 });
 
@@ -229,6 +236,11 @@ posts.post('/api/posts/thread', async (c) => {
   const account = await getXAccountById(c.env.DB, xAccountId);
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
   const xClient = await buildXClient(c.env, account, 'posts');
+  // Check every part before sending any: a half-posted thread can't be undone.
+  for (const [i, text] of texts.entries()) {
+    const length = await checkTextLength(c.env.DB, xClient, account.id, text);
+    if (!length.ok) return c.json({ ...tooLongResponseBody(length, { index: i }), error: `${i + 1}件目: ${length.error}` }, 400);
+  }
   try {
     const results: { id: string; text: string }[] = [];
     let previousId: string | undefined;
@@ -475,6 +487,8 @@ posts.post('/api/posts/:id/reply', async (c) => {
   const account = await getXAccountById(c.env.DB, xAccountId);
   if (!account) return c.json({ success: false, error: 'X account not found' }, 404);
   const xClient = await buildXClient(c.env, account, 'posts');
+  const length = await checkTextLength(c.env.DB, xClient, account.id, text);
+  if (!length.ok) return c.json(tooLongResponseBody(length), 400);
   try {
     const tweet = await xClient.createTweet({ text, reply: { in_reply_to_tweet_id: tweetId } });
     c.executionCtx.waitUntil(recordAction(c.env.DB, { xAccountId, tweetId, actionType: 'reply' }));
@@ -492,16 +506,15 @@ posts.get('/api/x-accounts/:id/subscription', async (c) => {
   const xClient = await buildXClient(c.env, account, 'posts');
   try {
     const user = await xClient.getMeWithSubscription();
-    const subscriptionType = user.subscription_type ?? 'None';
+    // 'Unknown' when X leaves the field out — the dashboard then defers the
+    // length decision to the send-time check instead of assuming 280.
+    const subscriptionType = user.subscription_type || 'Unknown';
     const verifiedType = user.verified_type ?? 'none';
-    // Character limits per subscription tier
-    const charLimitMap: Record<string, number> = {
-      None: 280,
-      Basic: 10000,
-      Premium: 10000,
-      PremiumPlus: 25000,
-    };
-    const charLimit = charLimitMap[subscriptionType] ?? 280;
+    // Character limit per subscription tier (every paid tier: 25,000).
+    const charLimit = charLimitForPlan(subscriptionType);
+    // Refresh the plan cache the send-time length check reads (only when X
+    // actually told us the plan).
+    if (user.subscription_type) c.executionCtx.waitUntil(rememberPlan(c.env.DB, account.id, user.subscription_type));
     return c.json({ success: true, data: { subscriptionType, verifiedType, charLimit } });
   } catch (err: any) {
     return c.json({ success: false, error: err.message ?? 'Failed to fetch subscription info' }, 500);
