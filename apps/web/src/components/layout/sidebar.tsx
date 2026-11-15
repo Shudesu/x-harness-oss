@@ -9,7 +9,7 @@ import {
   type IconProps,
 } from '@phosphor-icons/react'
 import { useSelectedAccount } from '@/hooks/use-selected-account'
-import { APP_VERSION, BUILD_DATE, versionLabel } from '@/lib/build-info'
+import { APP_VERSION, BUILD_DATE, BUILD_SHA } from '@/lib/build-info'
 
 // One navigation for the whole console. Sub-sections of a page (e.g. 承認待ち /
 // 処理済み, 新規投稿 / 予約・失敗) live as tabs inside that page — never as a
@@ -154,7 +154,8 @@ function SidebarBody({ pathname }: { pathname: string }) {
           rel="noopener noreferrer"
           title={BUILD_DATE ? `ビルド ${BUILD_DATE}` : undefined}
         >
-          {versionLabel()}
+          {/* "X Harness v" must stay one literal: check-built-version greps the bundle. */}
+          X Harness v{APP_VERSION} · {BUILD_SHA}
         </a>
       </div>
     </>

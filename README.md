@@ -1,20 +1,13 @@
-## v0.7.0 — LINE先行キャンペーン
+## アップデート情報
 
-LINEで本人を確認して個人用の合言葉を発行し、Xの投稿者から照合する参加フローを追加しています。参加者のX ID入力は不要です。対応するLINE側の更新、DB migration、連携キーとDO設定が必要です。設定・既存企画への影響・検証範囲は[移行ガイド](docs/operations/line-first-gates.md)と[リリースノート](docs/releases/v0.7.0.md)を参照してください。
+- **v0.10.0（2026-10-28）** — 返信キャンペーン向けの外部X観測（External observations）。オーナー接続のXリーダーが収集した原文・投稿者情報を、明示的に有効化したキャンペーンへ渡せる。migration 023（2テーブル追加）。[セットアップとプロトコル](docs/operations/external-observations.md)
+- **v0.10.0 同梱の更新** — 記事の本文をX公式記事の content_state に変換して下書き化、Premium各階層で25,000文字の長文ポストに対応、ダッシュボードUI（承認キュー・投稿キュー・ナビゲーション・記事）を生産版と同期
+- **v0.9.0 / v0.7.x** — X-to-LINEキャンペーンの改善・サマリーとコスト管理、LINE先行キャンペーン（合言葉ゲート: LINEで本人確認して個人用合言葉を発行し、Xの投稿者から照合。X ID入力は不要）。[移行ガイド](docs/operations/line-first-gates.md)
+- 更新は必ず[リリースノート](docs/releases/)と移行ガイドを先に読み、DB migration・GATE_CLAIMS（Durable Object）バインディングなどの要件を確認してから行ってください。既存データベースへの再適用や fresh baseline の上書きはしないでください。
 
-Release notes: [v0.7.0](docs/releases/v0.7.0.md). Maintainers: [release procedure](docs/RELEASING.md).
+Release notes: [v0.10.0](docs/releases/v0.10.0.md). Maintainers: [release procedure](docs/RELEASING.md).
 
-This is a GitHub source release. npm publishing is separate; `npx create-x-harness@latest` may still use the preceding npm release. For v0.7.0, build the CLI from the tagged checkout:
-
-```sh
-git clone --branch v0.7.0 https://github.com/Shudesu/x-harness-oss.git
-cd x-harness-oss
-pnpm install --frozen-lockfile
-pnpm --filter create-x-harness build
-node packages/create-x-harness/dist/index.js --repo-dir .
-```
-
-The source installer builds and configures the MCP server from this same checkout. Run setup only for a new environment; existing installations must follow the migration guide first.
+This is a GitHub source release. npm publishing is separate; `npx create-x-harness@latest` may still use the preceding npm release.
 
 
 Read [the upgrade and validation guide](docs/operations/audit-20261026.md) before deploying over an existing database. Fresh installations use `packages/db/bootstrap`; historical installations must audit their actual schema before applying migration 019. Do not reapply historical ALTER migrations or run the fresh baseline on a populated database.
