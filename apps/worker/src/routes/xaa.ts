@@ -1,6 +1,7 @@
 import { decryptSecret, recordSpend } from '@x-harness/db';
 import { buildXClient } from '../services/x-client.js';
 import { Hono } from 'hono';
+import { publicRateLimit } from '../services/rate-limit.js';
 import { getXAccounts, getXAccountById, insertXaaEvent, getXaaEvents } from '@x-harness/db';
 import type { Env } from '../index.js';
 
@@ -23,10 +24,43 @@ async function hmacSha256(key: string, data: string): Promise<string> {
 // GET /webhook/xaa — CRC challenge response (called by X to verify the webhook URL)
 // X sends ?crc_token=xxx. Respond with HMAC-SHA256 of the token using consumer_secret.
 // This endpoint must NOT require auth — X calls it without any API key.
+// X sends an opaque base64-style challenge. Only that character set is
+// accepted, so the endpoint can never be used to sign an arbitrary string
+// (e.g. a JSON body, which would forge the POST webhook signature: both use
+// "sha256=" + base64(HMAC(consumer_secret, data))). JSON needs `{`, `"` and
+// `:`, none of which are allowed here.
+export const CRC_TOKEN_MAX_LENGTH = 256;
+const CRC_TOKEN_PATTERN = /^[A-Za-z0-9+/=_\-.~]+$/;
+export function isValidCrcToken(token: string | undefined): token is string {
+  return typeof token === 'string'
+    && token.length > 0
+    && token.length <= CRC_TOKEN_MAX_LENGTH
+    && CRC_TOKEN_PATTERN.test(token);
+}
+
+// X runs CRC on registration, roughly hourly, and on manual re-validation, so
+// these per-IP limits leave ample headroom for legitimate traffic.
+const CRC_LIMIT_PER_MINUTE = 20;
+const CRC_LIMIT_PER_DAY = 500;
+
 xaa.get('/webhook/xaa', async (c) => {
   const crcToken = c.req.query('crc_token');
   if (!crcToken) {
     return c.json({ success: false, error: 'Missing crc_token' }, 400);
+  }
+  if (!isValidCrcToken(crcToken)) {
+    return c.json({ success: false, error: 'Invalid crc_token' }, 400);
+  }
+  let allowed = true;
+  try {
+    allowed = await publicRateLimit(c, 'xaa-crc', CRC_LIMIT_PER_MINUTE, CRC_LIMIT_PER_DAY);
+  } catch {
+    // Fail open: the token allowlist above is the security boundary; a
+    // counter outage must not make X mark the webhook invalid.
+    console.error('[XAA] CRC rate limit unavailable');
+  }
+  if (!allowed) {
+    return c.json({ success: false, error: 'Too many requests' }, 429);
   }
 
   // Use the first active account's consumer_secret
@@ -63,6 +97,11 @@ xaa.post('/webhook/xaa', async (c) => {
   try {
     body = JSON.parse(rawBody) as Record<string, unknown>;
   } catch {
+    return c.json({ success: false, error: 'Invalid JSON body' }, 400);
+  }
+  // Events are always JSON objects. Rejecting primitives keeps a signed
+  // non-object (e.g. a digits-only string) from being processed as an event.
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return c.json({ success: false, error: 'Invalid JSON body' }, 400);
   }
 
