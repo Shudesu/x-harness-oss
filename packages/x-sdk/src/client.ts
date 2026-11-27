@@ -183,7 +183,12 @@ export class XClient {
     if (target.origin !== 'https://api.x.com' || !target.pathname.startsWith('/2/')) throw new Error('Untrusted X API URL');
     const meta = {endpoint:target.pathname.slice(2),method:init.method ?? 'GET'};
     await this.hooks.beforeRequest?.(meta);
-    const response = await fetch(url,{...init,headers,redirect:'error',signal:AbortSignal.timeout(30000)});
+    // Workers の fetch は redirect:'error' を受け付けない（例外になる）。'manual' で受け、
+    // 3xx は追わずに拒否する（認証ヘッダを別ホストへ送らないため）。
+    const response = await fetch(url,{...init,headers,redirect:'manual',signal:AbortSignal.timeout(30000)});
+    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+      throw new Error(`Unexpected redirect from X API (${response.status})`);
+    }
     if (response.ok) await this.hooks.onUsage?.({...meta,data:{}});
     return response;
   }
